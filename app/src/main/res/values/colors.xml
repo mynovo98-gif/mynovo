@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base Colors required by styles.xml -->
+    <color name="colorPrimary">#0288D1</color>
+    <color name="colorPrimaryDark">#005B9F</color>
+    <color name="colorAccent">#5EB8FF</color>
+
+    <!-- Additional Custom Colors -->
+    <color name="primaryColor">#0288D1</color>
+    <color name="primaryLightColor">#5EB8FF</color>
+    <color name="secondaryColor">#263238</color>
+    <color name="primaryTextColor">#FFFFFF</color>
+    <color name="secondaryTextColor">#B0BEC5</color>
+    <color name="backgroundColor">#121212</color>
+    <color name="cardBackgroundColor">#1E1E1E</color>
+</resources>

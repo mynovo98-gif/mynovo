@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#0F111A"
+    android:padding="20dp">
+
+    <!-- ส่วนหัวข้อด้านบน -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="⚡ Wireless Debugging Pair &amp; Activate"
+        android:textColor="#FFB86C"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:paddingBottom="16dp" />
+
+    <!-- คำแนะนำการใช้งาน -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Pair first and then activate.\nA notification will help you complete the pairing without split-screen."
+        android:textColor="#B2CBCB"
+        android:textSize="13sp"
+        android:gravity="center"
+        android:paddingBottom="24dp" />
+
+    <!-- ขั้นตอนการทำ -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="#1E2230"
+        android:padding="16dp"
+        android:layout_marginBottom="24dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="1. ไปที่ ตั้งค่า (Settings) > สำหรับนักพัฒนา (Developer Options) > การแก้จุดบกพร่องไร้สาย (Wireless debugging)"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:paddingBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="2. เลือก 'จับคู่ด้วยรหัสจับคู่' (Pair device with pairing code)"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:paddingBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="3. นำรหัส Port และ Pairing Code ที่ได้มากรอกในแอปนี้เพื่อให้ระบบ Notification จัดการให้ทันที"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp" />
+    </LinearLayout>
+
+    <!-- ปุ่มกดเปิดตั้งค่าระบบ -->
+    <Button
+        android:id="@+id/btnOpenDevSettings"
+        android:layout_width="match_parent"
+        android:layout_height="50dp"
+        android:text="เปิดหน้าตั้งค่าไร้สาย"
+        android:textColor="#0F111A"
+        android:backgroundTint="#8BE9FD"
+        android:textStyle="bold"
+        android:layout_marginBottom="12dp" />
+
+    <!-- ปุ่มกรอกโค้ดคู่กับ Notification Service -->
+    <Button
+        android:id="@+id/btnStartPairingDialog"
+        android:layout_width="match_parent"
+        android:layout_height="50dp"
+        android:text="กรอก Port &amp; Pairing Code (เริ่มบริการแจ้งเตือน)"
+        android:textColor="#FFFFFF"
+        android:backgroundTint="#50FA7B"
+        android:textStyle="bold" />
+
+</LinearLayout>

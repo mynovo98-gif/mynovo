@@ -1,0 +1,6 @@
+{
+  "ndkVersionFromDsl": "27.1.12297066",
+  "ndkDirProperty": "/opt/ndk/android-ndk-r27d",
+  "sdkFolder": "/opt/android_sdk",
+  "sideBySideNdkFolderNames": []
+}

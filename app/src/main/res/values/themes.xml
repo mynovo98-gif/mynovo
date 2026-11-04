@@ -1,0 +1,3 @@
+<resources>
+    <style name="Theme.Mynovo1" parent="Theme.AppCompat.DayNight.NoActionBar" />
+</resources>
