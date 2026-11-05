@@ -51,3 +51,17 @@
 
 # ปิดใช้งานตอนปล่อยจริงแล้วอยากซ่อนชื่อไฟล์ต้นฉบับ (ตอนนี้ปิดไว้เพื่อให้ debug ง่ายก่อน)
 #-renamesourcefileattribute SourceFile
+
+# ==== Wireless activation (libadb-android / BouncyCastle / Conscrypt) ====
+# libadb ใช้ reflection และ crypto provider ภายใน ถ้าถูกสับชื่อ/ลบ pair จะล้มใน release
+-keep class io.github.muntashirakon.adb.** { *; }
+-dontwarn io.github.muntashirakon.adb.**
+
+-keep class org.bouncycastle.** { *; }
+-dontwarn org.bouncycastle.**
+
+-keep class org.conscrypt.** { *; }
+-dontwarn org.conscrypt.**
+
+# คลาสของเราที่เกี่ยวกับ ADB
+-keep class com.mynovo.mynovo1.AdbManager { *; }
