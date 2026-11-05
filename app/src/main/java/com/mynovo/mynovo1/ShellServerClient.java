@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.util.ArrayDeque;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -39,8 +40,8 @@ public final class ShellServerClient {
         return t;
     });
 
-    private static Socket socket;
-    private static DataOutputStream out;
+    private static volatile Socket socket;
+    private static volatile DataOutputStream out;
     private static volatile Context appContext;
     private static volatile long lastTryUptime = 0;
 
@@ -50,10 +51,10 @@ public final class ShellServerClient {
         if (c != null) appContext = c.getApplicationContext();
     }
 
+    // ไม่ใช้ lock เพื่อไม่ให้ main thread ถูกบล็อกตอน send() กำลังเขียน socket
     public static boolean isConnected() {
-        synchronized (lock) {
-            return socket != null && socket.isConnected() && !socket.isClosed();
-        }
+        Socket s = socket;
+        return s != null && s.isConnected() && !s.isClosed();
     }
 
     // เรียกได้ถี่ๆ (มี throttle 2 วินาที) ใช้ตอน inject แล้วยังไม่เชื่อม
@@ -109,9 +110,15 @@ public final class ShellServerClient {
         synchronized (connectLock) {
             if (isConnected()) return true;
             Context c = appContext;
-            if (c == null) return false;
+            if (c == null) {
+                Log.w(TAG, "connect: no context (call ShellServerClient.setContext first)");
+                return false;
+            }
             String token = ShellServerSetup.readToken(c);
-            if (token == null) return false;
+            if (token == null) {
+                Log.w(TAG, "connect: no token file (call ShellServerSetup.prepare first)");
+                return false;
+            }
 
             Socket s = new Socket();
             try {
@@ -123,6 +130,7 @@ public final class ShellServerClient {
                 o.flush();
                 int r = s.getInputStream().read();
                 if (r != 1) {
+                    Log.w(TAG, "connect: server rejected token (reply=" + r + ")");
                     s.close();
                     return false;
                 }
@@ -135,8 +143,61 @@ public final class ShellServerClient {
                 Log.i(TAG, "connected to shell server");
                 return true;
             } catch (IOException e) {
+                Log.w(TAG, "connect failed: " + e);
                 try { s.close(); } catch (IOException ignored) {}
                 return false;
+            }
+        }
+    }
+
+    // ---------- ส่งแบบ async: เรียกจาก main thread ได้ ไม่บล็อก ----------
+    private static final int MAX_QUEUE = 256;
+    private static final ArrayDeque<MotionEvent> queue = new ArrayDeque<>();
+    private static final Object qLock = new Object();
+    private static Thread senderThread;
+
+    /**
+     * คัดลอก event เข้าคิวแล้วคืนทันที เธรดส่งแยกจะเขียนลง socket เอง
+     * MOVE ที่ติดกันจะถูกรวมเหลือตัวล่าสุด และ MOVE จะถูกทิ้งถ้าคิวเต็ม
+     * (DOWN/UP/CANCEL ไม่ถูกทิ้ง เพื่อไม่ให้นิ้วค้าง)
+     */
+    public static void sendAsync(MotionEvent ev) {
+        final MotionEvent c = MotionEvent.obtain(ev);
+        synchronized (qLock) {
+            if (c.getActionMasked() == MotionEvent.ACTION_MOVE) {
+                MotionEvent tail = queue.peekLast();
+                if (tail != null && tail.getActionMasked() == MotionEvent.ACTION_MOVE
+                        && tail.getPointerCount() == c.getPointerCount()) {
+                    queue.pollLast().recycle();
+                } else if (queue.size() >= MAX_QUEUE) {
+                    c.recycle();
+                    return;
+                }
+            }
+            queue.addLast(c);
+            if (senderThread == null) {
+                senderThread = new Thread(ShellServerClient::senderLoop, "ShellServerSender");
+                senderThread.setDaemon(true);
+                senderThread.start();
+            }
+            qLock.notify();
+        }
+    }
+
+    private static void senderLoop() {
+        while (true) {
+            MotionEvent e;
+            synchronized (qLock) {
+                while (queue.isEmpty()) {
+                    try { qLock.wait(); } catch (InterruptedException ie) { return; }
+                }
+                e = queue.pollFirst();
+            }
+            try {
+                if (isConnected()) send(e);
+                else ensureConnectedAsync();
+            } finally {
+                e.recycle();
             }
         }
     }

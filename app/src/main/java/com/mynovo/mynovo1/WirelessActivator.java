@@ -28,12 +28,20 @@ public class WirelessActivator {
 
     private static final String TAG = "WirelessActivator";
 
-    private static final String SCRIPT =
-            "/sdcard/Android/data/com.mynovo.mynovo1/files/activate.sh";
+    // จำนวนครั้งและระยะห่างในการลองต่อ shell server หลังสั่งรัน activate.sh
+    private static final int MAX_CONNECT_ATTEMPTS = 15;
+    private static final long CONNECT_RETRY_MS = 1000L;
 
-    public static final String ACTIVATE_CMD =
-            "if [ -f " + SCRIPT + " ]; then sh " + SCRIPT
-                    + "; else echo NO_FILE:" + SCRIPT + "; fi";
+    /**
+     * สร้างคำสั่งที่จะรันผ่าน adb shell โดยใช้ path จริงจาก ShellServerSetup
+     * (สร้าง activate.sh + token ให้ด้วย) ต้องเรียกนอก main thread
+     */
+    public static String buildActivateCmd(Context c) throws java.io.IOException {
+        String run = ShellServerSetup.prepare(c);       // "sh /sdcard/.../files/exe/activate.sh"
+        String script = run.substring(3);               // ตัด "sh " ออก
+        return "if [ -f " + script + " ]; then " + run
+                + "; else echo NO_FILE:" + script + "; fi";
+    }
 
     private static final String HOST = "127.0.0.1";
     private static final String CHANNEL_ID = "adb_pairing";
@@ -60,6 +68,8 @@ public class WirelessActivator {
 
     public WirelessActivator(Context ctx) {
         this.app = ctx.getApplicationContext();
+        // ShellServerClient ต้องมี context ไม่งั้น connectBlocking() คืน false เงียบ ๆ
+        ShellServerClient.setContext(this.app);
     }
 
     public static boolean devOptionsOn(Context c) {
@@ -233,8 +243,10 @@ public class WirelessActivator {
         lastOutput = "";
         io.execute(() -> {
             try {
-                Log.d(TAG, "activate: opening stream with cmd=" + ACTIVATE_CMD);
-                final AdbStream s = AdbManager.get(app).openStream("shell:" + ACTIVATE_CMD);
+                // สร้าง activate.sh + token ใหม่ทุกครั้ง แล้วใช้ path จริง (files/exe/)
+                final String cmd = buildActivateCmd(app);
+                Log.d(TAG, "activate: opening stream with cmd=" + cmd);
+                final AdbStream s = AdbManager.get(app).openStream("shell:" + cmd);
                 new Thread(() -> {
                     try (InputStream in = s.openInputStream()) {
                         byte[] buf = new byte[1024];
@@ -270,8 +282,8 @@ public class WirelessActivator {
             if (ok) {
                 activated = true;
                 message = "";
-            } else if (attempt < 10) {
-                main.postDelayed(() -> connectShellServer(attempt + 1), 700);
+            } else if (attempt < MAX_CONNECT_ATTEMPTS) {
+                main.postDelayed(() -> connectShellServer(attempt + 1), CONNECT_RETRY_MS);
             } else {
                 message = "Server did not start. Output: "
                         + (lastOutput.isEmpty() ? "(none)" : lastOutput);

@@ -627,6 +627,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent == null || ACTION_STOP.equals(intent.getAction())) {
+            Log.w("FLOAT", "STOP via " + (intent == null ? "null intent" : "ACTION_STOP"));
             killOnDestroy = true;
             stopSelf();
             return START_NOT_STICKY;
@@ -653,6 +654,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
 
     @Override
     public void onTaskRemoved(Intent rootIntent) {
+        Log.w("FLOAT", "onTaskRemoved");
         killOnDestroy = true;
         stopSelf();
         super.onTaskRemoved(rootIntent);
@@ -2694,9 +2696,10 @@ public class FloatingService extends Service implements MouseController.MouseEve
         public void run() {
             if (destroyed) return;
             try {
-                String currentApp = getForegroundAppRobust();
+                final String currentApp = getForegroundAppRobust();
 
-                boolean nowForeground = targetPackage.isEmpty() || targetPackage.equals(currentApp);
+                final boolean nowForeground =
+                        targetPackage.isEmpty() || targetPackage.equals(currentApp);
 
                 if (!targetPackage.isEmpty()) {
                     if (targetPackage.equals(currentApp)) {
@@ -2716,6 +2719,11 @@ public class FloatingService extends Service implements MouseController.MouseEve
                             stopNow = true;
                         }
                         if (stopNow) {
+                            Log.w("FLOAT", "AUTO-STOP cur=" + currentApp
+                                    + " target=" + targetPackage
+                                    + " inOwn=" + inOwnApp
+                                    + " src=" + fgSource
+                                    + " awayMs=" + (nowMs - awaySince));
                             isChecking = false;
                             handler.post(() -> { if (!destroyed) stopSelf(); });
                             return;
@@ -2724,6 +2732,8 @@ public class FloatingService extends Service implements MouseController.MouseEve
                 }
 
                 if (nowForeground != isTargetInForeground) {
+                    Log.w("FLOAT", "fg change -> " + nowForeground
+                            + " cur=" + currentApp + " src=" + fgSource);
                     handler.post(() -> {
                         if (!destroyed) applyForegroundChange(nowForeground);
                     });
@@ -2748,8 +2758,9 @@ public class FloatingService extends Service implements MouseController.MouseEve
         if (nowForeground) {
             if (!isEditModeActive() && floatingView.getVisibility() != View.VISIBLE) {
                 floatingView.setVisibility(View.VISIBLE);
-                for (View btn : mappingButtons) btn.setVisibility(View.VISIBLE);
             }
+            // คืนปุ่มเสมอ ไม่ผูกกับสถานะของ floatingView
+            for (View btn : mappingButtons) btn.setVisibility(View.VISIBLE);
             if (mouseController != null) mouseController.resume();
         } else {
             if (dPadController != null) dPadController.release();
@@ -2771,6 +2782,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
             closeSubWindows();
             updateEditModeUI();
             for (View btn : mappingButtons) btn.setVisibility(View.GONE);
+            floatingView.setVisibility(View.GONE); // ซ่อนไอคอนลอยด้วย ให้สมมาตรกับกิ่ง foreground
         }
     }
 
@@ -2943,3 +2955,5 @@ public class FloatingService extends Service implements MouseController.MouseEve
         super.onDestroy();
     }
 }
+
+  

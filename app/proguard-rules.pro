@@ -65,3 +65,10 @@
 
 # คลาสของเราที่เกี่ยวกับ ADB
 -keep class com.mynovo.mynovo1.AdbManager { *; }
+
+# ==== InputServer (รันผ่าน app_process ด้วยสิทธิ์ shell) ====
+# ไม่ได้ถูกอ้างในโค้ดแอป ถ้าไม่ keep R8 จะลบ/เปลี่ยนชื่อ main() แล้ว server เปิดไม่ขึ้น
+-keep class com.mynovo.mynovo1.InputServer { *; }
+-keepclassmembers class com.mynovo.mynovo1.InputServer {
+    public static void main(java.lang.String[]);
+}

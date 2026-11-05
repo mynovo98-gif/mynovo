@@ -39,8 +39,8 @@ public final class ShellServerSetup {
         File token = new File(dir, "token");
         if (!token.exists() || token.length() == 0) {
             writeText(token, randomToken());
-            token.setReadable(true, false);
         }
+        token.setReadable(true, false);
         return "sh " + script.getAbsolutePath();
     }
 
@@ -82,9 +82,12 @@ public final class ShellServerSetup {
                 + "pkill -f " + cls + " >/dev/null 2>&1\n"
                 + "sleep 0.3\n"
                 + "LOG=/data/local/tmp/mynovo_server.log\n"
-                + "CLASSPATH=\"$APK\" nohup app_process /system/bin " + cls + " \"$DIR/token\" > $LOG 2>&1 &\n"
+                // </dev/null ตัด stdin ไม่ให้ process ผูกกับ adb stream
+                + "CLASSPATH=\"$APK\" setsid nohup app_process /system/bin " + cls
+                + " \"$DIR/token\" > $LOG 2>&1 </dev/null &\n"
                 + "sleep 1\n"
-                + "echo \"started (log: $LOG)\"\n";
+                + "echo \"started (log: $LOG)\"\n"
+                + "head -c 400 $LOG\n";
     }
 
     private static String randomToken() {
