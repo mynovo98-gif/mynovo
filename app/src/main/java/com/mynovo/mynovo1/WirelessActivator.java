@@ -23,18 +23,8 @@ import java.util.concurrent.Executors;
 
 import io.github.muntashirakon.adb.AdbStream;
 
-/**
- * ตรรกะทั้งหมดของ Wireless activation (ไม่มี UI)
- *
- * ลำดับ:
- *  1-3) เช็ก Developer options / USB debugging / Wireless debugging
- *  4)   startPairing()  -> หา pairing port ผ่าน mDNS -> แจ้งเตือนให้พิมพ์โค้ด 6 หลัก -> adb.pair()
- *  5)   หา connect port ผ่าน mDNS อัตโนมัติ -> adb.connect()
- *  6)   activate()      -> รันคำสั่งเปิด InputServer ผ่าน adb shell
- */
 public class WirelessActivator {
 
-    /** คำสั่งที่รันตอนกด Activate — แก้ให้ตรงกับ activate.sh ของคุณ */
     public static final String ACTIVATE_CMD =
             "sh /sdcard/Android/data/com.mynovo.mynovo1/files/activate.sh";
 
@@ -44,7 +34,6 @@ public class WirelessActivator {
     private static final String ACTION_CODE = "com.mynovo.mynovo1.PAIRING_CODE";
     private static final String KEY_CODE = "pairing_code";
 
-    // ---- state ที่ UI อ่านได้ ----
     public volatile boolean paired;
     public volatile boolean connected;
     public volatile boolean activated;
@@ -91,7 +80,6 @@ public class WirelessActivator {
         registerReceiverIfNeeded();
         createChannel();
 
-        // ถ้า pair ไว้แล้ว แค่หาพอร์ต connect ก็เชื่อมต่อได้เลย
         connectDiscovery = new MdnsDiscovery(app, MdnsDiscovery.TYPE_CONNECT,
                 new MdnsDiscovery.Callback() {
                     @Override public void onFound(int port) {
@@ -123,7 +111,6 @@ public class WirelessActivator {
 
     // ---------------- ขั้น 4: Pair ----------------
 
-    /** เรียกตอนกดปุ่ม PAIR (หลังจากนั้น UI พาผู้ใช้ไปหน้า Developer options) */
     public void startPairing() {
         if (Build.VERSION.SDK_INT < 30) return;
         message = "Searching pairing port... open \"Pair with pairing code\" in Wireless debugging";
@@ -154,17 +141,41 @@ public class WirelessActivator {
             return;
         }
         message = "Pairing...";
+        notifyText("Pairing...");
         io.execute(() -> {
             try {
-                AdbManager.get(app).pair(HOST, port, code);
-                paired = true;
-                message = "Paired — connecting...";
-                notifyText("Paired successfully");
-                tryConnect();
+                boolean ok = AdbManager.get(app).pair(HOST, port, code);
+                if (ok) {
+                    paired = true;
+                    message = "Paired — connecting...";
+                    notifyText("Paired successfully");
+                    bringAppToFront();
+                    tryConnect();
+                } else {
+                    message = "Pair failed (wrong code or pairing screen closed)";
+                    showCodeNotification("Pair failed — check code, try again");
+                }
             } catch (Throwable t) {
-                message = "Pair failed: " + t;
-                showCodeNotification("Pair failed, try again");
+                Throwable r = t;
+                while (r.getCause() != null) r = r.getCause();
+                message = "Pair failed: " + t + " | " + r;
+                showCodeNotification("Error: " + r);
             }
+        });
+    }
+
+    /** เด้งกลับหน้าแอปหลัง pair สำเร็จ (ต้องเปิดสิทธิ์ "แสดงทับแอปอื่น" ให้แอป) */
+    private void bringAppToFront() {
+        main.post(() -> {
+            try {
+                Intent i = app.getPackageManager().getLaunchIntentForPackage(app.getPackageName());
+                if (i != null) {
+                    i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                            | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                            | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                    app.startActivity(i);
+                }
+            } catch (Throwable ignored) { }
         });
     }
 
@@ -183,7 +194,6 @@ public class WirelessActivator {
                     cancelNotification();
                 }
             } catch (Throwable t) {
-                // ยังไม่ได้ pair จะ connect ไม่ผ่าน — ปกติ แสดงข้อความเฉพาะตอน pair แล้ว
                 if (paired) message = "Connect failed: " + t;
             } finally {
                 connecting = false;
@@ -199,7 +209,6 @@ public class WirelessActivator {
         io.execute(() -> {
             try {
                 final AdbStream s = AdbManager.get(app).openStream("shell:" + ACTIVATE_CMD);
-                // อ่าน output ทิ้งในเธรดแยก — ถ้าคำสั่งไม่ detach stream จะค้างไว้ ซึ่งช่วยให้ server ไม่ถูกฆ่า
                 new Thread(() -> {
                     try (InputStream in = s.openInputStream()) {
                         byte[] buf = new byte[1024];
@@ -216,7 +225,6 @@ public class WirelessActivator {
         });
     }
 
-    /** รอให้ InputServer ขึ้น แล้วให้ ShellServerClient (ของเดิมในแอป) เชื่อมต่อ ลองซ้ำสูงสุด 10 ครั้ง */
     private void connectShellServer(int attempt) {
         ShellServerClient.connectAsync(ok -> {
             if (ok) {
@@ -230,7 +238,7 @@ public class WirelessActivator {
         });
     }
 
-    // ---------------- notification (พิมพ์โค้ดโดยไม่ต้องออกจากหน้า Settings) ----------------
+    // ---------------- notification ----------------
 
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
@@ -271,6 +279,7 @@ public class WirelessActivator {
                 .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
                 .setContentTitle("Wireless debugging pairing")
                 .setContentText(text)
+                .setStyle(new NotificationCompat.BigTextStyle().bigText(text))
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setOnlyAlertOnce(true)
                 .addAction(action);

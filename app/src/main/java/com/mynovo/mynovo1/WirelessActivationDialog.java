@@ -24,12 +24,12 @@ import androidx.appcompat.app.AlertDialog;
 
 public class WirelessActivationDialog {
 
-    private static final int FRAME = Color.parseColor("#DCDCF8");
-    private static final int BG = Color.parseColor("#5B5FB5");
-    private static final int ROW = Color.parseColor("#6F78E8");
-    private static final int BTN = Color.parseColor("#2E3A8C");
-    private static final int GREEN = Color.parseColor("#3DDC84");
-    private static final int SUB = Color.parseColor("#E3E6FF");
+    private static final int FRAME = Color.parseColor("#1E2230");
+    private static final int BG = Color.parseColor("#1E2230");
+    private static final int ROW = Color.parseColor("#282C3E");
+    private static final int BTN = Color.parseColor("#BD93F9");
+    private static final int GREEN = Color.parseColor("#50FA7B");
+    private static final int SUB = Color.parseColor("#9AA0B5");
 
     // TODO: ใส่ลิงก์วิดีโอสอนของคุณ
     private static final String TUTORIAL_URL = "https://example.com/tutorial";
@@ -61,7 +61,7 @@ public class WirelessActivationDialog {
         this.onChanged = onChanged;
         this.wa = new WirelessActivator(activity);
 
-        // กรอบนอก (สีลาเวนเดอร์)
+        // กรอบนอก
         LinearLayout outer = new LinearLayout(activity);
         outer.setOrientation(LinearLayout.VERTICAL);
         outer.setBackgroundColor(FRAME);
@@ -75,9 +75,9 @@ public class WirelessActivationDialog {
 
         TextView title = new TextView(activity);
         title.setText("Wireless activation");
-        title.setTextColor(Color.parseColor("#1A1A2E"));
+        title.setTextColor(Color.parseColor("#8BE9FD"));
         title.setTextSize(20);
-        title.setTypeface(Typeface.MONOSPACE, Typeface.BOLD_ITALIC);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
         header.addView(title, new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
@@ -88,15 +88,15 @@ public class WirelessActivationDialog {
         close.setTypeface(Typeface.DEFAULT_BOLD);
         close.setGravity(Gravity.CENTER);
         close.setBackground(oval(BTN));
-        close.setOnClickListener(v -> dismissDialog()); // แก้: เรียกผ่านเมธอด
+        close.setOnClickListener(v -> dismissDialog());
         header.addView(close, new LinearLayout.LayoutParams(dp(30), dp(30)));
         outer.addView(header);
 
-        // เนื้อหา (สีม่วง)
+        // เนื้อหา
         LinearLayout body = new LinearLayout(activity);
         body.setOrientation(LinearLayout.VERTICAL);
         body.setBackgroundColor(BG);
-        body.setPadding(dp(12), dp(12), dp(12), dp(12));
+        body.setPadding(dp(4), dp(4), dp(4), dp(4));
         outer.addView(body);
 
         String pairHelp = "กด PAIR แล้วไปที่ Wireless debugging > Pair device with pairing code "
@@ -121,7 +121,7 @@ public class WirelessActivationDialog {
         tut.setPadding(dp(12), dp(10), dp(12), dp(10));
         TextView link = new TextView(activity);
         link.setText("Click me to watch tutorial");
-        link.setTextColor(Color.WHITE);
+        link.setTextColor(Color.parseColor("#8BE9FD"));
         link.setTextSize(13);
         link.setPaintFlags(link.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
         link.setOnClickListener(v -> {
@@ -148,9 +148,16 @@ public class WirelessActivationDialog {
     }
 
     private void start() {
-        if (Build.VERSION.SDK_INT >= 33 && act.checkSelfPermission(
-                Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            act.requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 77);
+        if (Build.VERSION.SDK_INT >= 33) {
+            java.util.ArrayList<String> need = new java.util.ArrayList<>();
+            if (act.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED)
+                need.add(Manifest.permission.POST_NOTIFICATIONS);
+            if (act.checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES)
+                    != PackageManager.PERMISSION_GRANTED)
+                need.add(Manifest.permission.NEARBY_WIFI_DEVICES);
+            if (!need.isEmpty())
+                act.requestPermissions(need.toArray(new String[0]), 77);
         }
         wa.start();
         dialog.show();
@@ -158,7 +165,6 @@ public class WirelessActivationDialog {
         handler.postDelayed(poll, 1000);
     }
 
-    // แก้: เมธอดใหม่ ใช้แทน dialog.dismiss() ตรงๆ ใน lambda ของ constructor
     private void dismissDialog() {
         dialog.dismiss();
     }
@@ -232,6 +238,7 @@ public class WirelessActivationDialog {
         final TextView check;
         final TextView help;
         final Button button;
+        private final boolean helpAvailable;
 
         Row(String text, String sub, String helpText) {
             view = new LinearLayout(act);
@@ -305,8 +312,6 @@ public class WirelessActivationDialog {
 
             helpAvailable = helpText != null;
         }
-
-        private boolean helpAvailable;
 
         void set(boolean done, String label, boolean enabled, View.OnClickListener click) {
             check.setVisibility(done ? View.VISIBLE : View.GONE);
