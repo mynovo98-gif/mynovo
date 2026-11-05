@@ -25,8 +25,13 @@ import io.github.muntashirakon.adb.AdbStream;
 
 public class WirelessActivator {
 
+    private static final String SCRIPT =
+            "/sdcard/Android/data/com.mynovo.mynovo1/files/activate.sh";
+
+    /** ถ้าไม่มีไฟล์ จะพิมพ์ NO_FILE ให้เห็นสาเหตุ */
     public static final String ACTIVATE_CMD =
-            "sh /sdcard/Android/data/com.mynovo.mynovo1/files/activate.sh";
+            "if [ -f " + SCRIPT + " ]; then sh " + SCRIPT
+                    + "; else echo NO_FILE:" + SCRIPT + "; fi";
 
     private static final String HOST = "127.0.0.1";
     private static final String CHANNEL_ID = "adb_pairing";
@@ -49,6 +54,7 @@ public class WirelessActivator {
     private volatile int connectPort = -1;
     private volatile boolean connecting;
     private boolean receiverRegistered;
+    private volatile String lastOutput = "";
 
     public WirelessActivator(Context ctx) {
         this.app = ctx.getApplicationContext();
@@ -164,7 +170,6 @@ public class WirelessActivator {
         });
     }
 
-    /** เด้งกลับหน้าแอปหลัง pair สำเร็จ (ต้องเปิดสิทธิ์ "แสดงทับแอปอื่น" ให้แอป) */
     private void bringAppToFront() {
         main.post(() -> {
             try {
@@ -204,15 +209,27 @@ public class WirelessActivator {
     // ---------------- ขั้น 6: Activate ----------------
 
     public void activate() {
-        if (!connected) return;
-        message = "";
+        if (!connected) {
+            message = "Not connected yet";
+            return;
+        }
+        message = "Activating...";
+        lastOutput = "";
         io.execute(() -> {
             try {
                 final AdbStream s = AdbManager.get(app).openStream("shell:" + ACTIVATE_CMD);
+                // อ่าน output เก็บไว้โชว์ (stream ค้างไว้ได้ ช่วยให้ server ไม่ถูกฆ่า)
                 new Thread(() -> {
                     try (InputStream in = s.openInputStream()) {
                         byte[] buf = new byte[1024];
-                        while (in.read(buf) != -1) { /* drain */ }
+                        int n;
+                        StringBuilder sb = new StringBuilder();
+                        while ((n = in.read(buf)) != -1) {
+                            if (sb.length() < 600) {
+                                sb.append(new String(buf, 0, n));
+                                lastOutput = sb.toString().trim();
+                            }
+                        }
                     } catch (Throwable ignored) {
                     } finally {
                         try { s.close(); } catch (Throwable ignored) { }
@@ -220,7 +237,9 @@ public class WirelessActivator {
                 }).start();
                 main.post(() -> connectShellServer(0));
             } catch (Throwable t) {
-                message = "Activate failed: " + t;
+                Throwable r = t;
+                while (r.getCause() != null) r = r.getCause();
+                message = "Activate failed: " + t + " | " + r;
             }
         });
     }
@@ -233,7 +252,8 @@ public class WirelessActivator {
             } else if (attempt < 10) {
                 main.postDelayed(() -> connectShellServer(attempt + 1), 700);
             } else {
-                message = "Server did not start — check ACTIVATE_CMD";
+                message = "Server did not start. Output: "
+                        + (lastOutput.isEmpty() ? "(none)" : lastOutput);
             }
         });
     }
