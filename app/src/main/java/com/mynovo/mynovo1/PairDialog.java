@@ -62,11 +62,9 @@ public class PairDialog {
             public void run() {
                 try {
                     boolean ok = AdbManager.get(act).pair(h, pt, c);
-                    toast(act, ok ? "จับคู่สำเร็จ" : "จับคู่ไม่สำเร็จ (รหัสผิดหรือพอร์ตหมดอายุ)");
+                    toast(act, ok ? "จับคู่สำเร็จ" : "จับคู่ไม่สำเร็จ");
                 } catch (Throwable e) {
-                    Throwable root = e;
-                    while (root.getCause() != null) root = root.getCause();
-                    toast(act, "ผิดพลาด: " + e + " | สาเหตุ: " + root);
+                    toast(act, "ผิดพลาด: " + e.getMessage());
                 }
             }
         }).start();
