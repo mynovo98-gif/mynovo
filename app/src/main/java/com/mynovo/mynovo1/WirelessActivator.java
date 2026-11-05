@@ -12,6 +12,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
+import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.RemoteInput;
@@ -25,10 +26,11 @@ import io.github.muntashirakon.adb.AdbStream;
 
 public class WirelessActivator {
 
+    private static final String TAG = "WirelessActivator";
+
     private static final String SCRIPT =
             "/sdcard/Android/data/com.mynovo.mynovo1/files/activate.sh";
 
-    /** ถ้าไม่มีไฟล์ จะพิมพ์ NO_FILE ให้เห็นสาเหตุ */
     public static final String ACTIVATE_CMD =
             "if [ -f " + SCRIPT + " ]; then sh " + SCRIPT
                     + "; else echo NO_FILE:" + SCRIPT + "; fi";
@@ -60,8 +62,6 @@ public class WirelessActivator {
         this.app = ctx.getApplicationContext();
     }
 
-    // ---------------- เช็กการตั้งค่าระบบ ----------------
-
     public static boolean devOptionsOn(Context c) {
         return Settings.Global.getInt(c.getContentResolver(),
                 Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0) == 1;
@@ -76,11 +76,11 @@ public class WirelessActivator {
         return Settings.Global.getInt(c.getContentResolver(), "adb_wifi_enabled", 0) == 1;
     }
 
-    // ---------------- lifecycle ----------------
-
     public void start() {
+        Log.d(TAG, "start() called");
         if (Build.VERSION.SDK_INT < 30) {
             message = "Wireless debugging requires Android 11+";
+            Log.w(TAG, "start() aborted: SDK < 30");
             return;
         }
         registerReceiverIfNeeded();
@@ -89,21 +89,26 @@ public class WirelessActivator {
         connectDiscovery = new MdnsDiscovery(app, MdnsDiscovery.TYPE_CONNECT,
                 new MdnsDiscovery.Callback() {
                     @Override public void onFound(int port) {
+                        Log.d(TAG, "connectDiscovery.onFound: port=" + port);
                         connectPort = port;
                         tryConnect();
                     }
                     @Override public void onLost() {
+                        Log.w(TAG, "connectDiscovery.onLost");
                         connectPort = -1;
                         connected = false;
                     }
                     @Override public void onError(String msg) {
+                        Log.e(TAG, "connectDiscovery.onError: " + msg);
                         message = msg;
                     }
                 });
         connectDiscovery.start();
+        Log.d(TAG, "connectDiscovery.start() invoked");
     }
 
     public void stop() {
+        Log.d(TAG, "stop() called");
         if (connectDiscovery != null) connectDiscovery.stop();
         if (pairingDiscovery != null) pairingDiscovery.stop();
         connectDiscovery = null;
@@ -115,24 +120,26 @@ public class WirelessActivator {
         }
     }
 
-    // ---------------- ขั้น 4: Pair ----------------
-
     public void startPairing() {
+        Log.d(TAG, "startPairing() called");
         if (Build.VERSION.SDK_INT < 30) return;
         message = "Searching pairing port... open \"Pair with pairing code\" in Wireless debugging";
         if (pairingDiscovery != null) pairingDiscovery.stop();
         pairingDiscovery = new MdnsDiscovery(app, MdnsDiscovery.TYPE_PAIRING,
                 new MdnsDiscovery.Callback() {
                     @Override public void onFound(int port) {
+                        Log.d(TAG, "pairingDiscovery.onFound: port=" + port);
                         pairPort = port;
                         message = "Pairing port found: " + port + " — enter the code in the notification";
                         showCodeNotification("Enter the 6-digit pairing code");
                     }
                     @Override public void onLost() {
+                        Log.w(TAG, "pairingDiscovery.onLost");
                         pairPort = -1;
                         cancelNotification();
                     }
                     @Override public void onError(String msg) {
+                        Log.e(TAG, "pairingDiscovery.onError: " + msg);
                         message = msg;
                     }
                 });
@@ -140,10 +147,12 @@ public class WirelessActivator {
     }
 
     private void submitCode(String code) {
+        Log.d(TAG, "submitCode() called, pairPort=" + pairPort);
         final int port = pairPort;
         if (port < 0 || code.isEmpty()) {
             message = "Pairing screen closed — open it again";
             showCodeNotification("Pairing screen closed — open it again");
+            Log.w(TAG, "submitCode aborted: port<0 or empty code");
             return;
         }
         message = "Pairing...";
@@ -151,6 +160,7 @@ public class WirelessActivator {
         io.execute(() -> {
             try {
                 boolean ok = AdbManager.get(app).pair(HOST, port, code);
+                Log.d(TAG, "AdbManager.pair() result=" + ok);
                 if (ok) {
                     paired = true;
                     message = "Paired — connecting...";
@@ -164,6 +174,7 @@ public class WirelessActivator {
             } catch (Throwable t) {
                 Throwable r = t;
                 while (r.getCause() != null) r = r.getCause();
+                Log.e(TAG, "submitCode pair failed", t);
                 message = "Pair failed: " + t + " | " + r;
                 showCodeNotification("Error: " + r);
             }
@@ -184,21 +195,26 @@ public class WirelessActivator {
         });
     }
 
-    // ---------------- ขั้น 5: Connect ----------------
-
     private void tryConnect() {
+        Log.d(TAG, "tryConnect: connectPort=" + connectPort + " connected=" + connected + " connecting=" + connecting);
         final int port = connectPort;
-        if (port < 0 || connected || connecting) return;
+        if (port < 0 || connected || connecting) {
+            Log.w(TAG, "tryConnect aborted");
+            return;
+        }
         connecting = true;
         io.execute(() -> {
             try {
-                if (AdbManager.get(app).connect(HOST, port)) {
+                boolean ok = AdbManager.get(app).connect(HOST, port);
+                Log.d(TAG, "AdbManager.connect() result=" + ok);
+                if (ok) {
                     connected = true;
                     paired = true;
                     message = "";
                     cancelNotification();
                 }
             } catch (Throwable t) {
+                Log.e(TAG, "tryConnect failed", t);
                 if (paired) message = "Connect failed: " + t;
             } finally {
                 connecting = false;
@@ -206,19 +222,19 @@ public class WirelessActivator {
         });
     }
 
-    // ---------------- ขั้น 6: Activate ----------------
-
     public void activate() {
+        Log.d(TAG, "activate() called: connected=" + connected + " paired=" + paired);
         if (!connected) {
             message = "Not connected yet";
+            Log.w(TAG, "activate() aborted: not connected");
             return;
         }
         message = "Activating...";
         lastOutput = "";
         io.execute(() -> {
             try {
+                Log.d(TAG, "activate: opening stream with cmd=" + ACTIVATE_CMD);
                 final AdbStream s = AdbManager.get(app).openStream("shell:" + ACTIVATE_CMD);
-                // อ่าน output เก็บไว้โชว์ (stream ค้างไว้ได้ ช่วยให้ server ไม่ถูกฆ่า)
                 new Thread(() -> {
                     try (InputStream in = s.openInputStream()) {
                         byte[] buf = new byte[1024];
@@ -230,7 +246,9 @@ public class WirelessActivator {
                                 lastOutput = sb.toString().trim();
                             }
                         }
-                    } catch (Throwable ignored) {
+                        Log.d(TAG, "activate: shell output=" + lastOutput);
+                    } catch (Throwable t) {
+                        Log.e(TAG, "activate: read output failed", t);
                     } finally {
                         try { s.close(); } catch (Throwable ignored) { }
                     }
@@ -239,13 +257,16 @@ public class WirelessActivator {
             } catch (Throwable t) {
                 Throwable r = t;
                 while (r.getCause() != null) r = r.getCause();
+                Log.e(TAG, "activate() failed", t);
                 message = "Activate failed: " + t + " | " + r;
             }
         });
     }
 
     private void connectShellServer(int attempt) {
+        Log.d(TAG, "connectShellServer attempt=" + attempt);
         ShellServerClient.connectAsync(ok -> {
+            Log.d(TAG, "ShellServerClient.connectAsync result=" + ok);
             if (ok) {
                 activated = true;
                 message = "";
@@ -254,11 +275,10 @@ public class WirelessActivator {
             } else {
                 message = "Server did not start. Output: "
                         + (lastOutput.isEmpty() ? "(none)" : lastOutput);
+                Log.e(TAG, "connectShellServer: gave up, lastOutput=" + lastOutput);
             }
         });
     }
-
-    // ---------------- notification ----------------
 
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
