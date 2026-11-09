@@ -36,6 +36,7 @@
         android:allowBackup="true"
         android:icon="@drawable/app_b"
         android:label="Blue Mouse Pro"
+        android:resizeableActivity="true"
         android:roundIcon="@drawable/app_b"
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.NoActionBar">
@@ -50,12 +51,25 @@
 
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:screenOrientation="sensorLandscape"
+            android:resizeableActivity="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- หน้าจับคู่สำหรับโหมด DeX (เปิดเป็นหน้าต่างแยกข้างหน้าตั้งค่า) -->
+        <activity
+            android:name=".PairingActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:resizeableActivity="true"
+            android:launchMode="singleTop"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboard|keyboardHidden|uiMode"
+            android:theme="@style/Theme.AppCompat.NoActionBar" />
 
         <!-- อัปเดต Service ระบุประเภท specialUse ให้รอดจากระบบจัดการแบตของ Android 16 -->
         <service

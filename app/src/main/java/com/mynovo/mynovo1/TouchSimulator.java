@@ -33,6 +33,9 @@ public class TouchSimulator {
     // เวลาค้างนิ้วของ simulateClick (ms) เกมที่รับปุ่มไม่ติดให้เพิ่ม (เช่น 40-60) ถ้าอยากให้ไวสุดให้ลด (เช่น 10-15)
     private static final long CLICK_HOLD_MS = 12L;
 
+    // accepted=false ติดกันกี่ครั้งถึงจะแจ้งผู้ใช้ว่า ROM อาจบล็อก
+    private static final int REJECT_STREAK_LIMIT = 8;
+
     private static volatile Object iInputManager = null;
     private static volatile Method injectInputEventMethod = null;
 
@@ -61,6 +64,9 @@ public class TouchSimulator {
     private static Context appContext = null;
     private static long lastInitTime = 0;
 
+    // นับ accepted=false ติดกัน (ใช้เฉพาะเธรดส่ง event)
+    private static int failStreak = 0;
+
     // cache ผลเช็คสิทธิ์ Shizuku กันเรียก binder ซ้ำทุกครั้งที่กด
     private static volatile long permOkUntil = 0;
 
@@ -78,6 +84,46 @@ public class TouchSimulator {
     private static final String PREF_NAME = "MynovoPrefs";
     private static final String KEY_SHIZUKU_DISABLED = "shizukuDisabled";
     private static volatile boolean shizukuEnabled = true;
+
+    // จอที่เกมอยู่ (DeX = จอภายนอก) FloatingService เรียก setDisplayId ให้ตอนเริ่มทำงาน
+    // ไม่ตั้ง = จอหลัก (0) ถ้าไม่ใส่ displayId ให้ MotionEvent ระบบจะส่งทัชไปจอมือถือ (ทำให้จอมือถือเลื่อนตามเมาส์)
+    private static volatile int targetDisplayId = 0;
+    private static volatile Method setDisplayIdMethod = null;
+    private static volatile boolean setDisplayIdResolved = false;
+
+    public static void setDisplayId(int id) {
+        if (id == targetDisplayId) return;
+        // เปลี่ยนจอกลางทาง: ปล่อยนิ้วค้างเดิมกันค้างบนจอเก่า
+        try { releaseTouch(); } catch (Throwable ignored) {}
+        targetDisplayId = id;
+        Log.i(TAG, "target displayId=" + id);
+    }
+
+    public static int getDisplayId() {
+        return targetDisplayId;
+    }
+
+    // ใส่ displayId ให้ MotionEvent (InputEvent.setDisplayId เป็น hidden API เลยใช้ reflection)
+    private static void applyDisplayId(MotionEvent ev) {
+        final int id = targetDisplayId;
+        if (id == 0) return;
+        try {
+            if (!setDisplayIdResolved) {
+                try {
+                    Method m = InputEvent.class.getDeclaredMethod("setDisplayId", int.class);
+                    m.setAccessible(true);
+                    setDisplayIdMethod = m;
+                } catch (Throwable t) {
+                    Log.w(TAG, "InputEvent.setDisplayId not available: " + t);
+                }
+                setDisplayIdResolved = true;
+            }
+            Method m = setDisplayIdMethod;
+            if (m != null) m.invoke(ev, id);
+        } catch (Throwable t) {
+            Log.w(TAG, "applyDisplayId failed: " + rootCause(t));
+        }
+    }
 
     public static boolean isShizukuEnabled() {
         return shizukuEnabled;
@@ -312,6 +358,7 @@ public class TouchSimulator {
                 boolean accepted = true;
                 boolean threw = false;
                 boolean serverFailed = false;
+                Throwable err = null;
                 try {
                     if (viaServer) {
                         serverFailed = !ShellServerClient.send(ev);
@@ -321,7 +368,8 @@ public class TouchSimulator {
                     }
                 } catch (Throwable t) {
                     threw = true;
-                    Log.e(TAG, "Shizuku multi-touch injection error", rootCause(t));
+                    err = rootCause(t);
+                    Log.e(TAG, "Shizuku multi-touch injection error", err);
                 } finally {
                     ev.recycle();
                 }
@@ -331,15 +379,24 @@ public class TouchSimulator {
                             + " via=" + (viaServer ? "server" : "shizuku") + " accepted=" + accepted);
                 }
 
+                if (accepted && !threw && !serverFailed) failStreak = 0;
+
                 if (serverFailed) {
                     Log.w(TAG, "shell server send failed, resetting state");
                     handleInjectFailure(false);
                     ShellServerClient.ensureConnectedAsync();
                 } else if (threw) {
+                    if (err instanceof SecurityException) {
+                        RomGuide.markNeeded(appContext, "ROM ปฏิเสธสิทธิ์");
+                    }
                     handleInjectFailure(true);
                 } else if (!accepted) {
-                    Log.w(TAG, "injectInputEvent returned false, resetting state");
-                    handleInjectFailure(false);
+                    // ไม่ล้างสถานะนิ้ว (กันกล้องหยุดเวลามีหลายนิ้วชนกัน) แค่นับไว้แจ้งผู้ใช้
+                    Log.w(TAG, "injectInputEvent returned false (ignored, keeping pointer state)");
+                    if (++failStreak >= REJECT_STREAK_LIMIT) {
+                        failStreak = 0;
+                        RomGuide.markNeeded(appContext, "ระบบไม่รับ event");
+                    }
                 }
             }
         }
@@ -440,6 +497,9 @@ public class TouchSimulator {
                     0, 0, 1.0f, 1.0f,
                     touchDeviceId, 0, InputDevice.SOURCE_TOUCHSCREEN, 0
             );
+
+            // ส่งทัชไปจอที่เกมอยู่ (DeX) ไม่ใช่จอมือถือ
+            applyDisplayId(event);
 
             // ส่งเข้าคิว ให้เธรดส่ง event จัดการ (ไม่บล็อกตรงนี้)
             enqueue(event, finalAction == MotionEvent.ACTION_MOVE);

@@ -14,14 +14,27 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
+import android.text.InputFilter;
+import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
+import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
+import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.appcompat.app.AlertDialog;
 
+/**
+ * Wireless activation wizard
+ * - โหมดปกติ: ปุ่ม PAIR ทำแบบเดิม (เปิดหน้าตั้งค่า)
+ * - โหมด DeX: ปุ่ม PAIR "สลับหน้า" ในหน้าต่างเดียวกันเป็นหน้าพิมพ์รหัสจับคู่
+ *   ส่วนแอปตั้งค่าเปิดแยกเป็นอีกหน้าต่างข้างๆ แบบเดิม
+ *   จับคู่สำเร็จ -> สลับกลับมาหน้าขั้นตอนอัตโนมัติ
+ */
 public class WirelessActivationDialog {
 
     private static final int FRAME = Color.parseColor("#1E2230");
@@ -30,6 +43,7 @@ public class WirelessActivationDialog {
     private static final int BTN = Color.parseColor("#BD93F9");
     private static final int GREEN = Color.parseColor("#50FA7B");
     private static final int SUB = Color.parseColor("#9AA0B5");
+    private static final int ORANGE = Color.parseColor("#FFB300");
 
     // TODO: ใส่ลิงก์วิดีโอสอนของคุณ
     private static final String TUTORIAL_URL = "https://example.com/tutorial";
@@ -43,10 +57,34 @@ public class WirelessActivationDialog {
     private final TextView status;
     private boolean notified;
 
+    // หน้าต่างๆ ในหน้าต่างเดียว
+    private final LinearLayout outer;
+    private final LinearLayout header;
+    private final LinearLayout stepsView;
+    private LinearLayout pairView;
+    private EditText codeInput;
+    private TextView pairStatus;
+    private boolean pairing;
+    private int pairStartCount;
+
     private final Runnable poll = new Runnable() {
         @Override public void run() {
             refresh();
             handler.postDelayed(this, 1000);
+        }
+    };
+
+    // ตรวจผลจับคู่เร็วๆ ตอนอยู่หน้าพิมพ์รหัส
+    private final Runnable pairPoll = new Runnable() {
+        @Override public void run() {
+            if (!pairing) return;
+            if (wa.pairSuccessCount > pairStartCount) {
+                onPaired();
+                return;
+            }
+            String m = wa.message;
+            if (m != null && !m.isEmpty()) pairStatus.setText(m);
+            handler.postDelayed(this, 300);
         }
     };
 
@@ -62,13 +100,13 @@ public class WirelessActivationDialog {
         this.wa = new WirelessActivator(activity);
 
         // กรอบนอก
-        LinearLayout outer = new LinearLayout(activity);
+        outer = new LinearLayout(activity);
         outer.setOrientation(LinearLayout.VERTICAL);
         outer.setBackgroundColor(FRAME);
         outer.setPadding(dp(14), dp(10), dp(14), dp(14));
 
         // หัวข้อ + ปุ่มปิด
-        LinearLayout header = new LinearLayout(activity);
+        header = new LinearLayout(activity);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
         header.setPadding(dp(2), 0, 0, dp(10));
@@ -92,12 +130,12 @@ public class WirelessActivationDialog {
         header.addView(close, new LinearLayout.LayoutParams(dp(30), dp(30)));
         outer.addView(header);
 
-        // เนื้อหา
-        LinearLayout body = new LinearLayout(activity);
-        body.setOrientation(LinearLayout.VERTICAL);
-        body.setBackgroundColor(BG);
-        body.setPadding(dp(4), dp(4), dp(4), dp(4));
-        outer.addView(body);
+        // หน้าขั้นตอน 1-6
+        stepsView = new LinearLayout(activity);
+        stepsView.setOrientation(LinearLayout.VERTICAL);
+        stepsView.setBackgroundColor(BG);
+        stepsView.setPadding(dp(4), dp(4), dp(4), dp(4));
+        outer.addView(stepsView);
 
         String pairHelp = "กด PAIR แล้วไปที่ Wireless debugging > Pair device with pairing code "
                 + "จากนั้นกรอกรหัสในการแจ้งเตือนของแอป";
@@ -112,7 +150,7 @@ public class WirelessActivationDialog {
         rows[3] = new Row("4. Navigate to Settings to Pair/Connect", null, pairHelp);
         rows[4] = new Row("5. Wait For the Port Being Opened Automatically", null, waitHelp);
         rows[5] = new Row("6. Tap to Activate", null, null);
-        for (Row r : rows) body.addView(r.view);
+        for (Row r : rows) stepsView.addView(r.view);
 
         // แถวลิงก์สอนใช้งาน
         LinearLayout tut = new LinearLayout(activity);
@@ -129,13 +167,13 @@ public class WirelessActivationDialog {
             catch (Exception ignored) { }
         });
         tut.addView(link);
-        body.addView(tut, rowParams());
+        stepsView.addView(tut, rowParams());
 
         status = new TextView(activity);
         status.setTextColor(Color.parseColor("#FFD54F"));
         status.setTextSize(12);
         status.setPadding(dp(4), dp(8), dp(4), 0);
-        body.addView(status);
+        stepsView.addView(status);
 
         dialog = new AlertDialog.Builder(activity).setView(outer).create();
         if (dialog.getWindow() != null) {
@@ -143,6 +181,9 @@ public class WirelessActivationDialog {
         }
         dialog.setOnDismissListener(d -> {
             handler.removeCallbacks(poll);
+            handler.removeCallbacks(pairPoll);
+            pairing = false;
+            wa.overlayEnabled = true;
             wa.stop();
         });
     }
@@ -180,17 +221,14 @@ public class WirelessActivationDialog {
         rows[1].set(WirelessActivator.usbDebuggingOn(act), "OPEN", true, v -> openDevSettings());
         rows[2].set(wirelessOn, "OPEN", true, v -> openDevSettings());
 
-        rows[3].set(wa.paired || wa.connected, "PAIR", wirelessOn, v -> {
-            wa.startPairing();
-            openDevSettings();
-        });
+        rows[3].set(wa.paired || wa.connected, "PAIR", wirelessOn, v -> onPairClicked());
 
         rows[4].set(wa.connected, "WAITING", false, null);
 
         rows[5].set(wa.activated || ShellServerClient.isConnected(), "ACTIVATE",
                 wa.connected, v -> wa.activate());
 
-        status.setText(wa.message);
+        if (!pairing) status.setText(wa.message);
 
         if (wa.activated && !notified) {
             notified = true;
@@ -200,6 +238,158 @@ public class WirelessActivationDialog {
             }, 900);
         }
     }
+
+    // ---------- ปุ่ม PAIR ----------
+
+    // ตรวจ DeX แบบกว้างขึ้น: reflection ของ Samsung มักโดนบล็อก เลยเช็กหน้าต่างลอย/แยกจอด้วย
+    private boolean isDex() {
+        try {
+            if (PairingActivity.isDexMode(act)) return true;
+            if (Build.VERSION.SDK_INT >= 24 && act.isInMultiWindowMode()) return true;
+            String cfg = act.getResources().getConfiguration().toString().toLowerCase();
+            if (cfg.contains("freeform") || cfg.contains("desktopmodeenabled/1")) return true;
+        } catch (Throwable ignored) { }
+        return false;
+    }
+
+    private void onPairClicked() {
+        if (isDex()) {
+            showPairingPage();
+        } else {
+            wa.startPairing();
+            openDevSettings();
+        }
+    }
+
+    // สลับเป็นหน้าพิมพ์รหัส (หน้าต่างเดียวกัน) + เปิดตั้งค่าแยกข้างๆ
+    private void showPairingPage() {
+        if (pairView == null) pairView = buildPairView();
+
+        pairing = true;
+        wa.overlayEnabled = false; // หน้านี้มีช่องพิมพ์ของตัวเองแล้ว
+        pairStartCount = wa.pairSuccessCount;
+        wa.startPairing();
+
+        header.setVisibility(View.GONE);
+        stepsView.setVisibility(View.GONE);
+        outer.setPadding(0, 0, 0, 0);
+        if (pairView.getParent() == null) outer.addView(pairView);
+        pairView.setVisibility(View.VISIBLE);
+
+        pairStatus.setText("");
+        codeInput.setText("");
+        codeInput.requestFocus();
+
+        // เปิดตั้งค่าแยกหน้าต่างข้างๆ แบบเดิม (หน่วงนิดให้หน้านี้วางเสร็จก่อน)
+        handler.postDelayed(() -> SettingsLauncher.openWirelessDebuggingBeside(act), 400);
+
+        handler.removeCallbacks(pairPoll);
+        handler.post(pairPoll);
+    }
+
+    // สลับกลับหน้าขั้นตอน
+    private void showStepsPage() {
+        pairing = false;
+        handler.removeCallbacks(pairPoll);
+        wa.overlayEnabled = true;
+        if (pairView != null) pairView.setVisibility(View.GONE);
+        header.setVisibility(View.VISIBLE);
+        stepsView.setVisibility(View.VISIBLE);
+        outer.setPadding(dp(14), dp(10), dp(14), dp(14));
+        refresh();
+    }
+
+    private void onPaired() {
+        Toast.makeText(act, "Paired successfully", Toast.LENGTH_SHORT).show();
+        showStepsPage();
+    }
+
+    private void submitCode() {
+        String code = codeInput.getText().toString().trim();
+        if (code.length() != 6) {
+            codeInput.setError("6 digits");
+            return;
+        }
+        pairStatus.setText("Pairing...");
+        wa.submitPairingCode(code);
+    }
+
+    private LinearLayout buildPairView() {
+        LinearLayout root = new LinearLayout(act);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(BG);
+        root.setPadding(dp(14), dp(10), dp(14), dp(14));
+
+        // หัวข้อ + ปุ่มย้อนกลับ (สไตล์เดียวกับหน้าขั้นตอน)
+        LinearLayout hd = new LinearLayout(act);
+        hd.setOrientation(LinearLayout.HORIZONTAL);
+        hd.setGravity(Gravity.CENTER_VERTICAL);
+        hd.setPadding(dp(2), 0, 0, dp(10));
+
+        TextView back = new TextView(act);
+        back.setText("\u2039");
+        back.setTextColor(Color.WHITE);
+        back.setTextSize(20);
+        back.setTypeface(Typeface.DEFAULT_BOLD);
+        back.setGravity(Gravity.CENTER);
+        back.setBackground(oval(BTN));
+        back.setOnClickListener(v -> showStepsPage());
+        hd.addView(back, new LinearLayout.LayoutParams(dp(30), dp(30)));
+
+        TextView title = new TextView(act);
+        title.setText("Pair device");
+        title.setTextColor(Color.parseColor("#8BE9FD"));
+        title.setTextSize(20);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        tp.leftMargin = dp(12);
+        hd.addView(title, tp);
+        root.addView(hd);
+
+        // แถวช่องรหัส + ปุ่ม ⚡
+        LinearLayout row = new LinearLayout(act);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setBackgroundColor(ROW);
+        row.setPadding(dp(12), dp(6), dp(10), dp(6));
+
+        codeInput = new EditText(act);
+        codeInput.setHint("Pairing code");
+        codeInput.setTextColor(Color.WHITE);
+        codeInput.setHintTextColor(SUB);
+        codeInput.setBackground(null);
+        codeInput.setInputType(InputType.TYPE_CLASS_NUMBER);
+        codeInput.setFilters(new InputFilter[]{new InputFilter.LengthFilter(6)});
+        codeInput.setSingleLine(true);
+        codeInput.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        codeInput.setTextSize(18f);
+        codeInput.setOnEditorActionListener((v, actionId, e) -> { submitCode(); return true; });
+        row.addView(codeInput, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView go = new TextView(act);
+        go.setText("\u26A1");
+        go.setTextColor(Color.WHITE);
+        go.setTextSize(18f);
+        go.setGravity(Gravity.CENTER);
+        go.setBackground(pill(BTN));
+        go.setOnClickListener(v -> submitCode());
+        LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(dp(56), dp(34));
+        gp.leftMargin = dp(8);
+        row.addView(go, gp);
+        root.addView(row, rowParams());
+
+        pairStatus = new TextView(act);
+        pairStatus.setTextColor(Color.parseColor("#FFD54F"));
+        pairStatus.setTextSize(12);
+        pairStatus.setPadding(dp(4), dp(8), dp(4), 0);
+        root.addView(pairStatus);
+
+        return root;
+    }
+
+    // ---------- ตัวช่วยเดิม ----------
 
     private void openDeviceInfo() {
         try { act.startActivity(new Intent(Settings.ACTION_DEVICE_INFO_SETTINGS)); }

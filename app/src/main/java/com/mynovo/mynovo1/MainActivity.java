@@ -1,15 +1,19 @@
 package com.mynovo.mynovo1;
 
+import android.app.ActivityOptions;
 import android.app.AppOpsManager;
 import android.app.Dialog; // [แก้] เพิ่ม import
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
+import android.hardware.display.DisplayManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -18,6 +22,8 @@ import android.os.Looper;
 import android.provider.Settings;
 import android.text.Editable;
 import android.text.TextWatcher;
+import android.util.Log;
+import android.view.Display;
 import android.view.Gravity;
 import android.view.InputDevice;
 import android.view.View;
@@ -44,6 +50,8 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import rikka.shizuku.Shizuku;
 
@@ -134,6 +142,9 @@ public class MainActivity extends AppCompatActivity {
         navAccount.setOnClickListener(v -> loadAccountView());
         navActivation.setOnClickListener(v -> handleActivationClick());
         navSettings.setOnClickListener(v -> loadSettingsView());
+
+        // [ใหม่] ปุ่มปากกากลางแถบเมนูล่าง
+        addCenterPenButton();
     }
 
     @Override
@@ -172,6 +183,9 @@ public class MainActivity extends AppCompatActivity {
             checkRealActivationStatus();
             if (ok) refreshCurrentDialog();
         });
+
+        // [ใหม่] ถ้าเพิ่งส่งทัชไม่ผ่าน (ROM บล็อก) แสดงวิธีเปิดสวิตช์ของยี่ห้อนั้น
+        RomGuide.showIfNeeded(this);
     }
 
     private void refreshCurrentDialog() {
@@ -357,6 +371,45 @@ public class MainActivity extends AppCompatActivity {
         layout.addView(tv);
         fragmentContainer.removeAllViews();
         fragmentContainer.addView(layout);
+    }
+
+    // ===== [ใหม่] ปุ่มปากกากลางแถบเมนูล่าง (แทรกระหว่าง Account กับ Activation) =====
+    // แทรกจากโค้ด ไม่ต้องแก้ activity_main.xml ต้องมี res/drawable/btn_pen.png
+    private void addCenterPenButton() {
+        try {
+            ViewGroup parent = (ViewGroup) navAccount.getParent();
+            if (!(parent instanceof LinearLayout)) {
+                Log.w("NAV", "nav parent is not LinearLayout -> skip pen button");
+                return;
+            }
+            if (parent.findViewWithTag("NAV_PEN") != null) return;
+
+            float d = getResources().getDisplayMetrics().density;
+            int size = Math.round(44 * d);
+
+            FrameLayout slot = new FrameLayout(this);
+            slot.setTag("NAV_PEN");
+            slot.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+
+            ImageView pen = new ImageView(this);
+            pen.setImageResource(R.drawable.btn_pen);
+            pen.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            pen.setContentDescription("Pen");
+            pen.setClickable(true);
+            pen.setFocusable(true);
+            pen.setLayoutParams(new FrameLayout.LayoutParams(size, size, Gravity.CENTER));
+            pen.setOnClickListener(v -> onPenButtonClick());
+            slot.addView(pen);
+
+            parent.addView(slot, parent.indexOfChild(navAccount) + 1);
+        } catch (Exception e) {
+            Log.w("NAV", "addCenterPenButton failed: " + e);
+        }
+    }
+
+    // TODO: ใส่หน้าที่ของปุ่มปากกาตรงนี้
+    private void onPenButtonClick() {
+        Toast.makeText(this, "✏️ Pen: coming soon", Toast.LENGTH_SHORT).show();
     }
 
     private void handleActivationClick() {
@@ -1019,6 +1072,125 @@ public class MainActivity extends AppCompatActivity {
         return mode == AppOpsManager.MODE_ALLOWED;
     }
 
+    // ===================== [เพิ่ม] ระบบเปิดเกมบนจอ DeX =====================
+
+    // [เพิ่ม] จอที่ MainActivity อยู่ตอนนี้ (0 = มือถือ)
+    @SuppressWarnings("deprecation")
+    private int myDisplayId() {
+        try {
+            return getWindowManager().getDefaultDisplay().getDisplayId();
+        } catch (Exception e) {
+            return Display.DEFAULT_DISPLAY;
+        }
+    }
+
+    // [เพิ่ม] Samsung DeX เปิดอยู่หรือไม่ (อ่าน Configuration.semDesktopModeEnabled ผ่าน reflection)
+    private boolean isDexModeActive() {
+        try {
+            Configuration c = getResources().getConfiguration();
+            java.lang.reflect.Field f = Configuration.class.getField("semDesktopModeEnabled");
+            if (f.getInt(c) == 1) return true;
+        } catch (Throwable ignored) {}
+        try {
+            // อาจไม่ใช่ DeX แต่ไม่ใช่ Samsung: นับว่าเปิดเมื่อมี MainActivity อยู่บนจอนอก
+            if (myDisplayId() != Display.DEFAULT_DISPLAY) return true;
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
+    // [เพิ่ม] รันคำสั่ง shell ผ่าน Shizuku (เรียกจากเธรดพื้นหลังเท่านั้น) คืน null ถ้าใช้ไม่ได้
+    private String runShizukuShell(String cmd) {
+        try {
+            if (!Shizuku.pingBinder()
+                    || Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) return null;
+            java.lang.reflect.Method m = Shizuku.class.getDeclaredMethod(
+                    "newProcess", String[].class, String[].class, String.class);
+            m.setAccessible(true);
+            Process p = (Process) m.invoke(null, new Object[]{
+                    new String[]{"sh", "-c", cmd + " 2>&1"}, null, null});
+            java.io.BufferedReader r = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(p.getInputStream()));
+            StringBuilder sb = new StringBuilder();
+            String l;
+            while ((l = r.readLine()) != null) sb.append(l).append('\n');
+            try { r.close(); } catch (Exception ignored) {}
+            try { p.waitFor(); } catch (Exception ignored) {}
+            return sb.toString();
+        } catch (Throwable t) {
+            Log.w("DEX", "runShizukuShell failed: " + t);
+            return null;
+        }
+    }
+
+    // [เพิ่ม] หา displayId ของจอ DeX/จอนอก คืน -1 ถ้าไม่เจอ (เรียกจากเธรดพื้นหลัง)
+    private int detectExternalDisplayId() {
+        // 1) MainActivity เปิดอยู่บนจอนอกอยู่แล้ว ใช้จอนั้นเลย
+        int mine = myDisplayId();
+        if (mine != Display.DEFAULT_DISPLAY) return mine;
+
+        // 2) จอนอกที่แอปมองเห็น (ไม่นับจอ private)
+        try {
+            DisplayManager dm = (DisplayManager) getSystemService(DISPLAY_SERVICE);
+            if (dm != null) {
+                for (Display d : dm.getDisplays()) {
+                    if (d.getDisplayId() == Display.DEFAULT_DISPLAY) continue;
+                    if ((d.getFlags() & Display.FLAG_PRIVATE) != 0) continue;
+                    if (d.getState() == Display.STATE_OFF) continue;
+                    return d.getDisplayId();
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        // 3) จอ DeX แบบ private แอปมองไม่เห็น ถาม Shizuku จาก dumpsys
+        String out = runShizukuShell("dumpsys activity activities | grep 'Display #'");
+        if (out != null) {
+            Matcher m = Pattern.compile("Display #(\\d+)").matcher(out);
+            while (m.find()) {
+                int id = Integer.parseInt(m.group(1));
+                if (id > 0) return id;
+            }
+        }
+        return -1;
+    }
+
+    // [เพิ่ม] เกมนี้มี ActivityRecord อยู่บนจออื่นที่ไม่ใช่จอเป้าหมายหรือไม่
+    private boolean hasTaskOnOtherDisplay(String dump, String pkg, int targetDisplay) {
+        Pattern dispPat = Pattern.compile("Display #(\\d+)");
+        int cur = -1;
+        for (String line : dump.split("\n")) {
+            Matcher dm = dispPat.matcher(line);
+            if (dm.find()) { cur = Integer.parseInt(dm.group(1)); continue; }
+            if (cur >= 0 && cur != targetDisplay && line.contains(" " + pkg + "/")) return true;
+        }
+        return false;
+    }
+
+    // [เพิ่ม] สั่งเปิดเกมบนจอ displayId ที่กำหนด คืน true ถ้าสำเร็จ (เรียกจากเธรดพื้นหลัง)
+    private boolean startGameOnDisplayViaShell(Intent intent, String pkg, int displayId) {
+        // [เพิ่ม] ถ้าเกมมี task ค้างอยู่คนละจอ (เช่นบนมือถือ) ต้องปิดก่อน ไม่งั้น am start จะแค่ดึง task เดิม
+        String dump = runShizukuShell("dumpsys activity activities | grep -E 'Display #|ActivityRecord'");
+        if (dump != null && hasTaskOnOtherDisplay(dump, pkg, displayId)) {
+            Log.w("DEX", "game has old task on another display -> force-stop before launch");
+            runShizukuShell("am force-stop " + pkg);
+            try { Thread.sleep(500); } catch (InterruptedException ignored) {}
+        }
+        String cmd;
+        ComponentName cn = intent.getComponent();
+        if (cn != null) {
+            cmd = "am start --display " + displayId + " --activity-no-animation -n "
+                    + cn.getPackageName() + "/" + cn.getClassName();
+        } else {
+            cmd = "am start --display " + displayId
+                    + " --activity-no-animation -a android.intent.action.MAIN"
+                    + " -c android.intent.category.LAUNCHER -p " + pkg;
+        }
+        String out = runShizukuShell(cmd);
+        Log.w("DEX", "launch game display=" + displayId + " -> " + out);
+        if (out == null) return false;
+        return !out.contains("Error") && !out.contains("Exception");
+    }
+
+    // [แก้ไข] ถ้า DeX เปิดอยู่ จะสั่งเปิดเกมบนจอ DeX ตรงๆ ไม่เปิดบนมือถือ
     private void launchGame(String packageName) {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
@@ -1036,20 +1208,76 @@ public class MainActivity extends AppCompatActivity {
             }
 
             PackageManager pm = getPackageManager();
-            Intent intent = pm.getLaunchIntentForPackage(packageName);
-            if (intent != null) {
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                startActivity(intent);
-                Toast.makeText(this, "🚀 กำลังเข้าเกมพร้อมระบบเซนเซอร์อัตโนมัติ...", Toast.LENGTH_SHORT).show();
-
-                new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                    Intent serviceIntent = new Intent(MainActivity.this, FloatingService.class);
-                    serviceIntent.putExtra("GAME_PACKAGE", packageName);
-                    startService(serviceIntent);
-                }, 1200);
-            } else {
+            final Intent intent = pm.getLaunchIntentForPackage(packageName);
+            if (intent == null) {
                 Toast.makeText(this, "Cannot launch this app", Toast.LENGTH_SHORT).show();
+                return;
             }
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            Toast.makeText(this, "🚀 กำลังเข้าเกมพร้อมระบบเซนเซอร์อัตโนมัติ...", Toast.LENGTH_SHORT).show();
+
+            final boolean dex = isDexModeActive();
+            final int minePre = myDisplayId();
+
+            new Thread(() -> {
+                int displayId = -1;
+                if (dex) displayId = detectExternalDisplayId();
+
+                boolean launched = false;
+                if (displayId > 0) {
+                    // วิธีที่ 1: สั่งผ่าน Shizuku ได้ทุกจอ รวมจอ DeX แบบ private
+                    launched = startGameOnDisplayViaShell(intent, packageName, displayId);
+
+                    // วิธีที่ 2: ถ้า Shizuku ใช้ไม่ได้ และเรามองเห็นจอนั้นอยู่ ให้ใช้ ActivityOptions
+                    if (!launched && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        try {
+                            DisplayManager dm = (DisplayManager) getSystemService(DISPLAY_SERVICE);
+                            if (dm != null && dm.getDisplay(displayId) != null) {
+                                final ActivityOptions opts = ActivityOptions.makeBasic();
+                                opts.setLaunchDisplayId(displayId);
+                                final Bundle b = opts.toBundle();
+                                runOnUiThread(() -> {
+                                    try { startActivity(intent, b); } catch (Exception e) {
+                                        Log.w("DEX", "startActivity with display failed: " + e);
+                                    }
+                                });
+                                launched = true;
+                            }
+                        } catch (Throwable t) {
+                            Log.w("DEX", "ActivityOptions launch failed: " + t);
+                        }
+                    }
+                }
+
+                final boolean done = launched;
+                final int did = displayId;
+                final boolean shOk = runShizukuShell("echo ok") != null;
+                runOnUiThread(() -> {
+                    // [เพิ่ม] แสดงผลวินิจฉัยบนจอ เพื่อดูว่าติดที่ขั้นไหน
+                    Toast.makeText(MainActivity.this,
+                            "DeX=" + dex + " จอแอป=" + minePre + " จอเป้าหมาย=" + did
+                                    + " Shizuku shell=" + shOk + " สั่งเปิดสำเร็จ=" + done,
+                            Toast.LENGTH_LONG).show();
+                    if (!done) {
+                        // DeX ไม่เปิด หรือเปิดบนจอ DeX ไม่ได้ ใช้วิธีเดิม (จอที่ MainActivity อยู่)
+                        if (dex && did <= 0 && minePre == Display.DEFAULT_DISPLAY) {
+                            Log.w("DEX", "DeX active but no external display found -> launch on phone");
+                        }
+                        try { startActivity(intent); } catch (Exception e) {
+                            Toast.makeText(MainActivity.this, "Error launching app", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                    }
+
+                    new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                        Intent serviceIntent = new Intent(MainActivity.this, FloatingService.class);
+                        serviceIntent.putExtra("GAME_PACKAGE", packageName);
+                        // [เพิ่ม] บอก service ว่าเกมถูกสั่งเปิดบนจอไหน ไม่ต้องเดาจาก dumpsys
+                        if (done && did > 0) serviceIntent.putExtra("GAME_DISPLAY", did);
+                        startService(serviceIntent);
+                    }, 1200);
+                });
+            }).start();
         } catch (Exception e) {
             Toast.makeText(this, "Error launching app", Toast.LENGTH_SHORT).show();
         }

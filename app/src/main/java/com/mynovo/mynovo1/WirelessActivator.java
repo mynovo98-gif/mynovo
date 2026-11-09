@@ -49,6 +49,13 @@ public class WirelessActivator {
     private static final String ACTION_CODE = "com.mynovo.mynovo1.PAIRING_CODE";
     private static final String KEY_CODE = "pairing_code";
 
+    // อินสแตนซ์ล่าสุด ให้หน้าจับคู่ (PairingActivity) ใช้ตัวเดียวกับหน้า Activate
+    public static volatile WirelessActivator current;
+    // เพิ่มทุกครั้งที่จับคู่สำเร็จ ใช้ให้หน้าอื่นรู้ว่าเพิ่งจับคู่เสร็จ
+    public volatile int pairSuccessCount;
+    // false = ไม่เด้งช่องพิมพ์รหัสแบบลอย (ใช้ตอนมีหน้าจับคู่ของแอปเองแล้ว)
+    public volatile boolean overlayEnabled = true;
+
     public volatile boolean paired;
     public volatile boolean connected;
     public volatile boolean activated;
@@ -68,6 +75,7 @@ public class WirelessActivator {
 
     public WirelessActivator(Context ctx) {
         this.app = ctx.getApplicationContext();
+        current = this;
         // ShellServerClient ต้องมี context ไม่งั้น connectBlocking() คืน false เงียบ ๆ
         ShellServerClient.setContext(this.app);
     }
@@ -124,6 +132,7 @@ public class WirelessActivator {
         connectDiscovery = null;
         pairingDiscovery = null;
         cancelNotification();
+        dismissCodeOverlay();
         if (receiverRegistered) {
             try { app.unregisterReceiver(receiver); } catch (Exception ignored) { }
             receiverRegistered = false;
@@ -140,13 +149,15 @@ public class WirelessActivator {
                     @Override public void onFound(int port) {
                         Log.d(TAG, "pairingDiscovery.onFound: port=" + port);
                         pairPort = port;
-                        message = "Pairing port found: " + port + " — enter the code in the notification";
+                        message = "Pairing port found: " + port + " — enter the code in the box or notification";
                         showCodeNotification("Enter the 6-digit pairing code");
+                        showCodeOverlay(); // ช่องพิมพ์แบบหน้าต่างลอย ใช้ได้ใน DeX
                     }
                     @Override public void onLost() {
                         Log.w(TAG, "pairingDiscovery.onLost");
                         pairPort = -1;
                         cancelNotification();
+                        dismissCodeOverlay();
                     }
                     @Override public void onError(String msg) {
                         Log.e(TAG, "pairingDiscovery.onError: " + msg);
@@ -154,6 +165,33 @@ public class WirelessActivator {
                     }
                 });
         pairingDiscovery.start();
+    }
+
+    // ---- ช่องพิมพ์รหัสแบบ overlay (แทน/เสริมช่องตอบกลับในแจ้งเตือน) ----
+
+    private void showCodeOverlay() {
+        main.post(() -> {
+            try {
+                if (!overlayEnabled) return;
+                if (PairingCodeOverlay.isShowing()) return;
+                if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(app)) {
+                    Log.w(TAG, "showCodeOverlay: no overlay permission");
+                    return;
+                }
+                PairingCodeOverlay.show(app, code -> submitCode(code));
+            } catch (Throwable t) {
+                Log.e(TAG, "showCodeOverlay failed", t);
+            }
+        });
+    }
+
+    private void dismissCodeOverlay() {
+        main.post(PairingCodeOverlay::dismiss);
+    }
+
+    // ให้หน้าอื่นส่งรหัสจับคู่เข้ามา
+    public void submitPairingCode(String code) {
+        submitCode(code == null ? "" : code.trim());
     }
 
     private void submitCode(String code) {
@@ -173,13 +211,16 @@ public class WirelessActivator {
                 Log.d(TAG, "AdbManager.pair() result=" + ok);
                 if (ok) {
                     paired = true;
+                    pairSuccessCount++;
                     message = "Paired — connecting...";
                     notifyText("Paired successfully");
+                    dismissCodeOverlay();
                     bringAppToFront();
                     tryConnect();
                 } else {
                     message = "Pair failed (wrong code or pairing screen closed)";
                     showCodeNotification("Pair failed — check code, try again");
+                    showCodeOverlay(); // ให้พิมพ์ใหม่ได้ทันที
                 }
             } catch (Throwable t) {
                 Throwable r = t;
@@ -187,6 +228,7 @@ public class WirelessActivator {
                 Log.e(TAG, "submitCode pair failed", t);
                 message = "Pair failed: " + t + " | " + r;
                 showCodeNotification("Error: " + r);
+                showCodeOverlay();
             }
         });
     }
