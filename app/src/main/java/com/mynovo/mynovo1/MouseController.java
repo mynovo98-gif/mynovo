@@ -554,6 +554,9 @@ public class MouseController {
                 PixelFormat.TRANSLUCENT
         );
         mouseLockParams.gravity = Gravity.TOP | Gravity.START;
+        mouseLockParams.x = 0;
+        mouseLockParams.y = 0;
+        applyNoInsets(mouseLockParams);
         // Android 12+ (API 31) บล็อกทัชที่ทะลุ overlay เมื่อ "ความทึบรวมกัน" เกิน 0.8
         // หน้าต่างนี้เต็มจอและซ้อนกับปุ่มทุกตัว จึงตั้งให้ใสมาก
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -566,8 +569,10 @@ public class MouseController {
         windowManager.addView(mouseLockView, mouseLockParams);
 
         cursorLayer = new FrameLayout(context);
+        // [แก้ไข] ขนาดหน้าต่างเคอร์เซอร์ = ขนาดจอจริงเป๊ะๆ (ไม่ใช้ MATCH_PARENT)
+        // เดิมบางเครื่องหน้าต่างถูกตัดไม่ให้คลุมแถบปุ่มโฮม/ย้อนกลับ เคอร์เซอร์ที่ไปอยู่ตรงนั้นเลยโดนตัดหายไป
         cursorLayerParams = new WindowManager.LayoutParams(
-                WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+                Math.round(maxScreenWidth), Math.round(maxScreenHeight),
                 getOverlayType(),
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE |
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
@@ -576,6 +581,9 @@ public class MouseController {
                 PixelFormat.TRANSLUCENT
         );
         cursorLayerParams.gravity = Gravity.TOP | Gravity.START;
+        cursorLayerParams.x = 0;
+        cursorLayerParams.y = 0;
+        applyNoInsets(cursorLayerParams);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             cursorLayerParams.alpha = CURSOR_LAYER_ALPHA;
         }
@@ -594,6 +602,30 @@ public class MouseController {
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY : WindowManager.LayoutParams.TYPE_PHONE;
     }
 
+    // [เพิ่ม] ไม่ให้ระบบหักพื้นที่แถบสถานะ/แถบปุ่มโฮม-ย้อนกลับออกจากหน้าต่าง (Android 11+)
+    // ค่าเริ่มต้นของระบบคือเว้นพื้นที่ systemBars ไว้ ทำให้หน้าต่างเคอร์เซอร์ไม่คลุมแถบปุ่มนำทาง
+    // เคอร์เซอร์ที่เลื่อนไปอยู่บนปุ่มโฮม/ย้อนกลับจึงถูกตัดหาย
+    private void applyNoInsets(WindowManager.LayoutParams p) {
+        if (Build.VERSION.SDK_INT >= 30) {
+            try {
+                p.setFitInsetsTypes(0);
+                p.setFitInsetsSides(0);
+            } catch (Throwable ignored) {}
+        }
+    }
+
+    // [เพิ่ม] ปรับขนาดหน้าต่างเคอร์เซอร์ให้ตรงกับจอจริงทุกครั้งที่ขนาดจอเปลี่ยน (หมุนจอ/ย้ายจอ DeX)
+    private void updateOverlaySizes() {
+        try {
+            if (windowManager == null) return;
+            if (cursorLayer != null && cursorLayerParams != null && cursorLayer.getParent() != null) {
+                cursorLayerParams.width = Math.round(maxScreenWidth);
+                cursorLayerParams.height = Math.round(maxScreenHeight);
+                windowManager.updateViewLayout(cursorLayer, cursorLayerParams);
+            }
+        } catch (Exception ignored) {}
+    }
+
     // ขนาดจอจริงเปลี่ยนได้ (หมุนจอ / เกมเป็นแนวนอนแต่ service ถูกสร้างตอนแอปอยู่แนวตั้ง)
     @SuppressWarnings("deprecation")
     public void refreshScreenSize() {
@@ -610,6 +642,7 @@ public class MouseController {
             float sy = (maxScreenHeight > 0) ? h / maxScreenHeight : 1f;
             maxScreenWidth = w;
             maxScreenHeight = h;
+            updateOverlaySizes();
 
             targetBtnX *= sx; targetBtnY *= sy;
             cursorX = Math.max(0f, Math.min(w - 1, cursorX * sx));

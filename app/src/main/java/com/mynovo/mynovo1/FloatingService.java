@@ -2145,27 +2145,24 @@ public class FloatingService extends Service implements MouseController.MouseEve
         modeRow.addView(btnBit);
         layout.addView(modeRow);
 
-        final LinearLayout constGroup = new LinearLayout(this);
-        constGroup.setOrientation(LinearLayout.VERTICAL);
+        // [แก้ไข] เอาแถบ/ช่องกรอก "เพดานความเร็ว (px/ms)" ของโหมดคงที่ออกแล้ว
+        // (ระบบคงที่ไม่มีเพดานล็อคแล้ว ค่านี้ไม่มีผลกับการทำงาน)
+        // โหมดคงที่จึงไม่มีตัวเลือกเพิ่ม เหลือเฉพาะโหมดบิตที่มีตัวปรับ
         final LinearLayout bitGroup = new LinearLayout(this);
         bitGroup.setOrientation(LinearLayout.VERTICAL);
 
-        addNumberRow(constGroup, "เพดานความเร็ว (px/ms) ยิ่งต่ำยิ่งนิ่ง", 0.05f, 20f, cfg[1],
-                v -> { cfg[1] = v; applyViewSettingsFromButton(); });
         addNumberRow(bitGroup, "เริ่มเร่งเมื่อเร็วเกิน (px/ms)", 0.05f, 20f, cfg[2],
                 v -> { cfg[2] = v; applyViewSettingsFromButton(); });
         addNumberRow(bitGroup, "แรงเร่ง (0 = ไม่เร่งเพิ่ม)", 0f, 20f, cfg[3],
                 v -> { cfg[3] = v; applyViewSettingsFromButton(); });
         addNumberRow(bitGroup, "เร่งสูงสุด (เท่า)", 1f, 50f, cfg[4],
                 v -> { cfg[4] = v; applyViewSettingsFromButton(); });
-        layout.addView(constGroup);
         layout.addView(bitGroup);
 
         final Runnable refresh = () -> {
             boolean bit = cfg[0] > 0.5f;
             styleModeButton(btnConst, !bit);
             styleModeButton(btnBit, bit);
-            constGroup.setVisibility(bit ? View.GONE : View.VISIBLE);
             bitGroup.setVisibility(bit ? View.VISIBLE : View.GONE);
         };
         btnConst.setOnClickListener(v -> { cfg[0] = 0f; refresh.run(); applyViewSettingsFromButton(); savePresetToCloud(); });
@@ -3778,7 +3775,4 @@ public class FloatingService extends Service implements MouseController.MouseEve
     }
 }
 
-
-          
-
-          
+ 
