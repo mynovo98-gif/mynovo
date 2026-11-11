@@ -76,6 +76,23 @@ public class TouchSimulator {
     private static long gestureDownTime = 0;
     private static long downSeq = 0;
 
+    // [เพิ่ม] buffer ใช้ซ้ำสำหรับสร้าง MotionEvent (MotionEvent.obtain คัดลอกค่าไปเก็บเองอยู่แล้ว จึงใช้ซ้ำได้ปลอดภัย)
+    // เดิมทุก MOVE สร้าง ArrayList + sort + PointerProperties/PointerCoords ใหม่หมด ที่เมาส์ถี่ๆ ทำให้เกิด GC แล้วกระตุก
+    private static final int MAX_P = 10;
+    private static final MotionEvent.PointerProperties[] PROPS = new MotionEvent.PointerProperties[MAX_P];
+    private static final MotionEvent.PointerCoords[] COORDS = new MotionEvent.PointerCoords[MAX_P];
+    // [เพิ่ม] cache ลำดับนิ้ว (เรียงตาม seq) สร้างใหม่เฉพาะตอนจำนวนนิ้วเปลี่ยน (DOWN/UP/CANCEL)
+    private static final int[] cacheIds = new int[MAX_P];
+    private static final PointerState[] cacheStates = new PointerState[MAX_P];
+    private static int cacheSize = 0;
+    private static boolean cacheValid = false;
+    static {
+        for (int i = 0; i < MAX_P; i++) {
+            PROPS[i] = new MotionEvent.PointerProperties();
+            COORDS[i] = new MotionEvent.PointerCoords();
+        }
+    }
+
     // deviceId ของ touchscreen จริง (บางเกมกรอง deviceId 0 / virtual ทิ้ง)
     private static int touchDeviceId = 0;
     private static volatile boolean touchDeviceResolved = false;
@@ -292,6 +309,19 @@ public class TouchSimulator {
         }
     }
 
+    // [เพิ่ม] สร้าง cache ลำดับนิ้วใหม่ (เรียกเฉพาะตอนจำนวนนิ้วเปลี่ยน) ต้องเรียกใน synchronized(TouchSimulator.class)
+    private static void rebuildCache() {
+        List<Map.Entry<Integer, PointerState>> list = new ArrayList<>(activePointers.entrySet());
+        Collections.sort(list, (a, b) -> Long.compare(a.getValue().seq, b.getValue().seq));
+        int n = Math.min(list.size(), MAX_P);
+        for (int i = 0; i < n; i++) {
+            cacheIds[i] = list.get(i).getKey();
+            cacheStates[i] = list.get(i).getValue();
+        }
+        cacheSize = n;
+        cacheValid = true;
+    }
+
     // ===== คิวส่ง event =====
 
     private static void enqueue(MotionEvent ev, boolean isMove) {
@@ -326,6 +356,7 @@ public class TouchSimulator {
                 injectInputEventMethod = null;
             }
             activePointers.clear();
+            cacheValid = false;
             gestureDownTime = 0;
         }
         clearPending();
@@ -434,6 +465,7 @@ public class TouchSimulator {
                 if (activePointers.isEmpty()) gestureDownTime = now;
                 activePointers.put(targetPointerId,
                         new PointerState(x, y, now, ++downSeq, lowestFreeEventId()));
+                cacheValid = false;
             } else if (action == MotionEvent.ACTION_MOVE) {
                 PointerState state = activePointers.get(targetPointerId);
                 if (state == null) return;
@@ -450,30 +482,26 @@ public class TouchSimulator {
                 return;
             }
 
-            List<Map.Entry<Integer, PointerState>> list = new ArrayList<>(activePointers.entrySet());
-            Collections.sort(list, (a, b) -> Long.compare(a.getValue().seq, b.getValue().seq));
-            int size = list.size();
+            // [แก้ไข] ใช้ cache + buffer ซ้ำ ไม่สร้าง object ใหม่ทุก MOVE
+            if (!cacheValid) rebuildCache();
+            final int size = cacheSize;
             if (size == 0) return;
-
-            MotionEvent.PointerProperties[] properties = new MotionEvent.PointerProperties[size];
-            MotionEvent.PointerCoords[] coords = new MotionEvent.PointerCoords[size];
             int actionPointerIndex = 0;
 
             for (int i = 0; i < size; i++) {
-                int logicalId = list.get(i).getKey();
-                PointerState state = list.get(i).getValue();
+                PointerState state = cacheStates[i];
 
-                properties[i] = new MotionEvent.PointerProperties();
-                properties[i].id = state.eventId;
-                properties[i].toolType = MotionEvent.TOOL_TYPE_FINGER;
+                PROPS[i].clear();
+                PROPS[i].id = state.eventId;
+                PROPS[i].toolType = MotionEvent.TOOL_TYPE_FINGER;
 
-                coords[i] = new MotionEvent.PointerCoords();
-                coords[i].x = state.x;
-                coords[i].y = state.y;
-                coords[i].pressure = 1.0f;
-                coords[i].size = 1.0f;
+                COORDS[i].clear();
+                COORDS[i].x = state.x;
+                COORDS[i].y = state.y;
+                COORDS[i].pressure = 1.0f;
+                COORDS[i].size = 1.0f;
 
-                if (logicalId == targetPointerId) actionPointerIndex = i;
+                if (cacheIds[i] == targetPointerId) actionPointerIndex = i;
             }
 
             int finalAction;
@@ -493,7 +521,7 @@ public class TouchSimulator {
 
             MotionEvent event = MotionEvent.obtain(
                     gestureDownTime, now, finalAction,
-                    size, properties, coords,
+                    size, PROPS, COORDS,
                     0, 0, 1.0f, 1.0f,
                     touchDeviceId, 0, InputDevice.SOURCE_TOUCHSCREEN, 0
             );
@@ -506,8 +534,10 @@ public class TouchSimulator {
 
             if (isUp) {
                 activePointers.remove(targetPointerId);
+                cacheValid = false;
             } else if (isCancel) {
                 activePointers.clear();
+                cacheValid = false;
             }
             if (activePointers.isEmpty()) {
                 gestureDownTime = 0;
@@ -518,6 +548,7 @@ public class TouchSimulator {
             iInputManager = null;
             injectInputEventMethod = null;
             activePointers.clear();
+            cacheValid = false;
             gestureDownTime = 0;
             clearPending();
         }

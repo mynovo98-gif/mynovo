@@ -19,13 +19,18 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.Looper;
+import android.text.Editable;
+import android.text.InputType;
+import android.text.TextWatcher;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -128,6 +133,20 @@ public class FloatingService extends Service implements MouseController.MouseEve
     private Map<View, Float> buttonSensXMap = new HashMap<>();
     private Map<View, Float> buttonSensYMap = new HashMap<>();
     private Map<View, Integer> buttonHzMap = new HashMap<>();
+
+    // [ต่อปุ่มมุมมอง] {โหมด(0=คงที่,1=บิต), เพดานคงที่, บิตเริ่มเร่ง, บิตแรงเร่ง, บิตสูงสุด}
+    private Map<View, float[]> buttonFlickMap = new HashMap<>();
+
+    private float[] flickCfg(View c) {
+        float[] f = buttonFlickMap.get(c);
+        if (f == null) {
+            // ค่าเริ่มต้น = บิต + แรงเร่ง 0 = พฤติกรรมเดิมของคุณเป๊ะ
+            f = new float[]{1f, 0.8f, 0.8f, 0f, 4f};
+            buttonFlickMap.put(c, f);
+        }
+        return f;
+    }
+
     private Map<View, Long> activeTouchPointers = new HashMap<>();
     private Map<View, Runnable> rapidFireRunnables = new HashMap<>();
 
@@ -516,6 +535,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
             buttonSensXMap.clear();
             buttonSensYMap.clear();
             buttonHzMap.clear();
+            buttonFlickMap.clear();
             clearAllRapidData();
 
             if (mouseController != null) {
@@ -1981,6 +2001,10 @@ public class FloatingService extends Service implements MouseController.MouseEve
                 mouseController.setViewSensitivity(sx != null ? sx : 1f, sy != null ? sy : 1f);
                 Integer hz = buttonHzMap.get(b);
                 mouseController.setViewHz(hz != null ? hz : 500);
+                float[] fc = flickCfg(b);
+                mouseController.setViewFlickAccel(fc[0] > 0.5f);
+                mouseController.setLockMaxV(fc[1]);
+                mouseController.setBitParams(fc[2], fc[3], fc[4]);
                 return;
             }
         }
@@ -2091,6 +2115,136 @@ public class FloatingService extends Service implements MouseController.MouseEve
         row.addView(bar);
         row.addView(plus);
         layout.addView(row);
+    }
+
+    // ===== ตั้งค่าโหมดตอนสบัดเมาส์ (คงที่ / บิต) ต่อปุ่มมุมมอง =====
+    private interface FloatCb { void on(float v); }
+
+    private String fmtNum(float v) {
+        return String.format(java.util.Locale.US, "%.2f", v).replaceAll("\\.?0+$", "");
+    }
+
+    private void styleModeButton(Button b, boolean selected) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(Color.parseColor(selected ? "#8BE9FD" : "#2E3447"));
+        g.setCornerRadius(dpToPx(8));
+        b.setBackground(g);
+        b.setTextColor(selected ? Color.parseColor("#1B1E2E") : Color.WHITE);
+    }
+
+    private void addFlickSettings(LinearLayout layout, final View container) {
+        final float[] cfg = flickCfg(container);
+        layout.addView(createSettingsLabel("โหมดตอนสบัดเมาส์"));
+
+        LinearLayout modeRow = new LinearLayout(this);
+        modeRow.setOrientation(LinearLayout.HORIZONTAL);
+        modeRow.setGravity(Gravity.CENTER);
+        final Button btnConst = createSubMenuOption("🔒 คงที่", "#2E3447", null);
+        final Button btnBit = createSubMenuOption("⚡ บิต", "#2E3447", null);
+        modeRow.addView(btnConst);
+        modeRow.addView(btnBit);
+        layout.addView(modeRow);
+
+        final LinearLayout constGroup = new LinearLayout(this);
+        constGroup.setOrientation(LinearLayout.VERTICAL);
+        final LinearLayout bitGroup = new LinearLayout(this);
+        bitGroup.setOrientation(LinearLayout.VERTICAL);
+
+        addNumberRow(constGroup, "เพดานความเร็ว (px/ms) ยิ่งต่ำยิ่งนิ่ง", 0.05f, 20f, cfg[1],
+                v -> { cfg[1] = v; applyViewSettingsFromButton(); });
+        addNumberRow(bitGroup, "เริ่มเร่งเมื่อเร็วเกิน (px/ms)", 0.05f, 20f, cfg[2],
+                v -> { cfg[2] = v; applyViewSettingsFromButton(); });
+        addNumberRow(bitGroup, "แรงเร่ง (0 = ไม่เร่งเพิ่ม)", 0f, 20f, cfg[3],
+                v -> { cfg[3] = v; applyViewSettingsFromButton(); });
+        addNumberRow(bitGroup, "เร่งสูงสุด (เท่า)", 1f, 50f, cfg[4],
+                v -> { cfg[4] = v; applyViewSettingsFromButton(); });
+        layout.addView(constGroup);
+        layout.addView(bitGroup);
+
+        final Runnable refresh = () -> {
+            boolean bit = cfg[0] > 0.5f;
+            styleModeButton(btnConst, !bit);
+            styleModeButton(btnBit, bit);
+            constGroup.setVisibility(bit ? View.GONE : View.VISIBLE);
+            bitGroup.setVisibility(bit ? View.VISIBLE : View.GONE);
+        };
+        btnConst.setOnClickListener(v -> { cfg[0] = 0f; refresh.run(); applyViewSettingsFromButton(); savePresetToCloud(); });
+        btnBit.setOnClickListener(v -> { cfg[0] = 1f; refresh.run(); applyViewSettingsFromButton(); savePresetToCloud(); });
+        refresh.run();
+    }
+
+    private void addNumberRow(LinearLayout parent, String name, final float min, final float max,
+                              float cur, final FloatCb cb) {
+        parent.addView(createSettingsLabel(name + "  [" + fmtNum(min) + " - " + fmtNum(max) + "]"));
+
+        final EditText et = new EditText(this);
+        et.setText(fmtNum(cur));
+        et.setTextColor(Color.WHITE);
+        et.setTextSize(14f);
+        et.setSingleLine(true);
+        et.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        et.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        et.setPadding(dpToPx(12), dpToPx(8), dpToPx(12), dpToPx(8));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(Color.parseColor("#151823"));
+        bg.setCornerRadius(dpToPx(8));
+        bg.setStroke(dpToPx(1), Color.parseColor("#44496B"));
+        et.setBackground(bg);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dpToPx(140),
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.leftMargin = dpToPx(10);
+        et.setLayoutParams(lp);
+
+        final Runnable commit = () -> {
+            try {
+                float v = Float.parseFloat(et.getText().toString().trim());
+                cb.on(Math.max(min, Math.min(max, v)));
+            } catch (NumberFormatException ignored) {}
+        };
+        final Runnable finish = () -> {
+            commit.run();
+            try {
+                float v = Float.parseFloat(et.getText().toString().trim());
+                et.setText(fmtNum(Math.max(min, Math.min(max, v))));
+            } catch (NumberFormatException ignored) {}
+            savePresetToCloud();
+        };
+
+        et.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+            @Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
+            @Override public void afterTextChanged(Editable s) { commit.run(); }
+        });
+        et.setOnEditorActionListener((tv, actionId, ev) -> {
+            finish.run();
+            et.clearFocus();
+            setSettingsFocusable(false);
+            return true;
+        });
+        et.setOnFocusChangeListener((v, has) -> { if (!has) finish.run(); });
+        et.setOnTouchListener((v, ev) -> {
+            if (ev.getAction() == MotionEvent.ACTION_DOWN) {
+                setSettingsFocusable(true);
+                et.post(et::requestFocus);
+            }
+            return false;
+        });
+        parent.addView(et);
+    }
+
+    // หน้าต่างตั้งค่าปุ่มปกติไม่รับโฟกัส ต้องเปิดชั่วคราวตอนพิมพ์เลข
+    private void setSettingsFocusable(boolean on) {
+        try {
+            if (buttonSettingsView == null || buttonSettingsParams == null
+                    || buttonSettingsView.getParent() == null) return;
+            if (on) {
+                buttonSettingsParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+                buttonSettingsParams.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN;
+            } else {
+                buttonSettingsParams.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+            }
+            windowManager.updateViewLayout(buttonSettingsView, buttonSettingsParams);
+        } catch (Exception ignored) {}
     }
 
     private interface IntCb { void on(int v); }
@@ -2567,6 +2721,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
         buttonSensXMap.clear();
         buttonSensYMap.clear();
         buttonHzMap.clear();
+        buttonFlickMap.clear();
         clearAllRapidData();
 
         savePresetToCloud();
@@ -2877,6 +3032,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
                     buttonSensXMap.remove(mapBtnContainer);
                     buttonSensYMap.remove(mapBtnContainer);
                     buttonHzMap.remove(mapBtnContainer);
+                    buttonFlickMap.remove(mapBtnContainer);
                     savePresetToCloud();
                 } catch (Exception ignored) {}
             });
@@ -3099,6 +3255,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
                 addSensRow(layout, container, true);
                 addSensRow(layout, container, false);
                 addHzRow(layout, container);
+                addFlickSettings(layout, container);
             }
 
             if ("RAPID_FIRE".equals(type)) {
@@ -3166,6 +3323,14 @@ public class FloatingService extends Service implements MouseController.MouseEve
                 if (syv != null) obj.put("sy", (double) syv);
                 Integer hzv = buttonHzMap.get(btn);
                 if (hzv != null) obj.put("hz", (int) hzv);
+                float[] fc = buttonFlickMap.get(btn);
+                if (fc != null) {
+                    obj.put("fm", (int) fc[0]);
+                    obj.put("lm", (double) fc[1]);
+                    obj.put("br", (double) fc[2]);
+                    obj.put("bg", (double) fc[3]);
+                    obj.put("bm", (double) fc[4]);
+                }
                 Integer rr = buttonRateMap.get(btn);
                 if (rr != null) obj.put("rate", (int) rr);
                 Integer pp = buttonPressMsMap.get(btn);
@@ -3204,6 +3369,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
                 buttonSensXMap.clear();
                 buttonSensYMap.clear();
                 buttonHzMap.clear();
+                buttonFlickMap.clear();
                 clearAllRapidData();
                 if (dPadController != null) dPadController.release();
                 dPadController = null;
@@ -3229,6 +3395,14 @@ public class FloatingService extends Service implements MouseController.MouseEve
                             if (obj.has("sx")) buttonSensXMap.put(added, (float) obj.getDouble("sx"));
                             if (obj.has("sy")) buttonSensYMap.put(added, (float) obj.getDouble("sy"));
                             if (obj.has("hz")) buttonHzMap.put(added, obj.getInt("hz"));
+                            if (obj.has("fm")) {
+                                buttonFlickMap.put(added, new float[]{
+                                        obj.getInt("fm"),
+                                        (float) obj.optDouble("lm", 0.8),
+                                        (float) obj.optDouble("br", 0.8),
+                                        (float) obj.optDouble("bg", 0.0),
+                                        (float) obj.optDouble("bm", 4.0)});
+                            }
                             if (obj.has("rate")) buttonRateMap.put(added, obj.getInt("rate"));
                             if (obj.has("pms")) buttonPressMsMap.put(added, obj.getInt("pms"));
                         }
@@ -3576,6 +3750,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
         buttonKeyMap.clear();
         buttonTextViewMap.clear();
         buttonHzMap.clear();
+        buttonFlickMap.clear();
         try { clearAllRapidData(); } catch (Exception ignored) {}
         rapidFireRunnables.clear();
         activeTouchPointers.clear();
@@ -3602,3 +3777,8 @@ public class FloatingService extends Service implements MouseController.MouseEve
         super.onDestroy();
     }
 }
+
+
+          
+
+          
