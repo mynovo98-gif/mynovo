@@ -59,20 +59,21 @@ public class FloatingService extends Service implements MouseController.MouseEve
     private android.view.Display targetDisplay;
     private Context displayContext;
 
-    // ===== [แก้ไข] จอที่เกมเปิดอยู่จริง (อ่านจาก Shizuku dumpsys) =====
+    // ===== จอที่เกมเปิดอยู่จริง (อ่านจาก Shizuku dumpsys) =====
     private volatile int gameDisplayId = -1;
 
-    // ===== [เพิ่ม v3] จอที่ MainActivity สั่งเปิดเกมไว้ (ส่งมาทาง Intent extra GAME_DISPLAY) เชื่อค่านี้ก่อน ไม่เดาจาก dumpsys =====
+    // ===== [v3] จอที่ MainActivity สั่งเปิดเกมไว้ (Intent extra GAME_DISPLAY)
+    // [v4] -1 = ไม่ระบุ, 0 = เกมอยู่จอมือถือแน่นอน, >0 = จอนอก (DeX) =====
     private volatile int forcedDisplayId = -1;
 
-    // ===== [เพิ่ม] ตัวนับกันค่ากระตุก: จะย้ายไปจอนอกต้องเจอตรงกัน 2 รอบติด =====
+    // ===== ตัวนับกันค่ากระตุก: จะย้ายไปจอนอกต้องเจอตรงกัน 2 รอบติด =====
     private volatile int pendingExtId = -1;
     private volatile int pendingExtCount = 0;
 
-    // ===== [เพิ่ม] กันสร้าง overlay ซ้ำ: true แปลว่าสร้าง UI ไปแล้วครั้งหนึ่ง =====
+    // ===== กันสร้าง overlay ซ้ำ: true แปลว่าสร้าง UI ไปแล้วครั้งหนึ่ง =====
     private boolean overlayInitialized = false;
 
-    // ===== [เพิ่ม v2] true เมื่อ buildOverlay() สร้างสำเร็จแล้ว (กัน monitorThread.start() ซ้ำตอน retry) =====
+    // ===== [v2] true เมื่อ buildOverlay() สร้างสำเร็จแล้ว (กัน monitorThread.start() ซ้ำตอน retry) =====
     private boolean overlayBuilt = false;
 
     // ===== ระบบตรวจจับการเปลี่ยนแปลงจอภาพ (DeX เชื่อมต่อ/ถอดออก) =====
@@ -157,7 +158,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
     private int rapidPtrCounter = 0;
     private View rapidMouseHeld = null;
 
-    // [เพิ่ม] ตัวนับหมุนเวียนสำหรับ pointerId ของปุ่มแตะทั่วไป
+    // ตัวนับหมุนเวียนสำหรับ pointerId ของปุ่มแตะทั่วไป
     private int tapPtrCounter = 0;
     private static final int TAP_PTR_BASE = 40;
     private static final int TAP_PTR_POOL = 20;
@@ -177,16 +178,13 @@ public class FloatingService extends Service implements MouseController.MouseEve
     private int dpadSizeDp = 160;
     private int globalBtnSizeDp = 32;
 
-    // [แก้ไข] ความโปร่งใสระดับ "หน้าต่าง" ของปุ่ม
-    // Android 12+ จะบล็อกการแตะทะลุหน้าต่าง overlay ที่ alpha > 0.8 (max obscuring opacity)
-    // จึงต้องไม่เกิน 0.8 เด็ดขาด ใช้ 0.79 = เข้มที่สุดที่ยังแตะทะลุได้
-    // (เดิม 0.4 ทำให้จางมาก) ส่วนความชัดที่เหลือไปเพิ่มที่ตัวปุ่มแทน (พื้นเข้ม + ขอบสว่าง)
-    // [แก้ v2] ความทึบของหน้าต่างทุกบานที่ซ้อนทับจุดแตะเดียวกัน (จากแอปเดียวกัน) จะถูกรวมกัน
-    // สูตร 1-(1-a)^k ต้อง <= 0.8 เช่น 2 หน้าต่างซ้อน a ต้อง <= 0.55, 3 หน้าต่างซ้อน a ต้อง <= 0.41
-    // 0.79 เดิมจึงยังโดนบล็อกเมื่อมีปุ่ม/เคอร์เซอร์ซ้อนกัน ใช้ 0.45 (ถ้ายังกดไม่ได้ให้ลดเหลือ 0.4)
+    // ความโปร่งใสระดับ "หน้าต่าง" ของปุ่ม
+    // Android 12+ จะบล็อกการแตะทะลุหน้าต่าง overlay ที่ alpha > 0.8
+    // ความทึบของหน้าต่างที่ซ้อนกันจะถูกรวมกัน สูตร 1-(1-a)^k ต้อง <= 0.8
+    // ใช้ 0.45 (ถ้ายังกดไม่ได้ให้ลดเหลือ 0.4)
     private static final float BTN_WINDOW_ALPHA = 0.45f;
 
-    // [แก้ไข] ค่าต่ำสุดของความโปร่งใสปุ่ม (ตัวปุ่ม) ปรับจาก 10% เป็น 40% กันปรับจนมองไม่เห็น
+    // ค่าต่ำสุดของความโปร่งใสปุ่ม (ตัวปุ่ม)
     private static final float BTN_MIN_ALPHA = 0.4f;
 
     private float globalBtnAlpha = 1.0f;
@@ -222,7 +220,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
         return Math.round((float) dp * density);
     }
 
-    // ===== [แก้ไข v3] เลือกจอเป้าหมาย: ตามจอที่เกมอยู่จริง =====
+    // ===== เลือกจอเป้าหมาย: ตามจอที่เกมอยู่จริง =====
     // ถ้ารู้ว่าเกมอยู่จอนอก (DeX) แต่จอยังมองไม่เห็น (กำลังรอ probe) -> คืน null
     // ห้าม fallback ไปจอมือถือ ไม่งั้น overlay จะหลุดมาขึ้นบนมือถือ
     private android.view.Display findTargetDisplay() {
@@ -240,10 +238,8 @@ public class FloatingService extends Service implements MouseController.MouseEve
             }
             lastDisplayDiag = sb.toString();
             Log.w("DEX", lastDisplayDiag);
-            // [แก้ไข] เลิกปฏิเสธจอเพราะ state: ถ้าเกมอยู่บนจอนี้ ก็ใช้จอนี้
             if (d != null) return d;
-            // [เพิ่ม v2] เกมอยู่จอนอก แต่ยังมองไม่เห็นจอ -> ห้ามตกมามือถือ
-            // [แก้ไข v3] ถ้า MainActivity สั่งเปิดเกมบนจอนี้ไว้ ก็ไม่ตกมามือถือเช่นกัน
+            // เกมอยู่จอนอก แต่ยังมองไม่เห็นจอ -> ห้ามตกมามือถือ
             if (probeActive || forcedDisplayId > 0) return null;
         }
         return dm.getDisplay(android.view.Display.DEFAULT_DISPLAY);
@@ -259,18 +255,18 @@ public class FloatingService extends Service implements MouseController.MouseEve
         return c;
     }
 
-    // ===== [เพิ่ม] ตอนนี้อยู่บนจอภายนอก (DeX) หรือไม่ =====
+    // ===== ตอนนี้อยู่บนจอภายนอก (DeX) หรือไม่ =====
     private boolean onExternalDisplay() {
         return targetDisplay != null
                 && targetDisplay.getDisplayId() != android.view.Display.DEFAULT_DISPLAY;
     }
 
-    // ===== [เพิ่ม] คีย์พรีเซ็ตแยกตามจอ (พิกัดมือถือกับ DeX ไม่เท่ากัน ใช้ร่วมกันไม่ได้) =====
+    // ===== คีย์พรีเซ็ตแยกตามจอ (พิกัดมือถือกับ DeX ไม่เท่ากัน ใช้ร่วมกันไม่ได้) =====
     private String presetKey(boolean external) {
         return targetPackage + (external ? "_preset_dex" : "_preset");
     }
 
-    // [เพิ่ม] แยกไฟล์ตั้งค่าทั่วไป (ความไวเมาส์, ขนาด/ความโปร่งใสปุ่ม, ขนาดจอย ฯลฯ) ตามจอ
+    // แยกไฟล์ตั้งค่าทั่วไป (ความไวเมาส์, ขนาด/ความโปร่งใสปุ่ม, ขนาดจอย ฯลฯ) ตามจอ
     private String settingsPrefsName() {
         return onExternalDisplay() ? "MynovoSettingsDex" : "MynovoSettings";
     }
@@ -310,12 +306,10 @@ public class FloatingService extends Service implements MouseController.MouseEve
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY : WindowManager.LayoutParams.TYPE_PHONE;
     }
 
-    // [เพิ่ม] พื้นหลังปุ่มแบบเข้มชัด: วงกลมสีเข้มเกือบทึบ + ขอบสีฟ้าสว่างหนา 2dp
-    // อ่านง่ายกว่าเดิมมากแม้หน้าต่างถูกจำกัด alpha ไว้ที่ 0.79
+    // พื้นหลังปุ่มแบบเข้มชัด: วงกลมสีไซยานทึบ + ขอบขาวหนา 3dp
     private GradientDrawable makeButtonBg() {
         GradientDrawable g = new GradientDrawable();
         g.setShape(GradientDrawable.OVAL);
-        // [แก้ v2] หน้าต่างโดนจำกัด alpha จึงใช้สีสว่างทึบเต็มที่ (ไซยาน) + ขอบขาวหนา ให้เห็นชัดแม้ alpha ต่ำ
         g.setColor(Color.parseColor("#FF00BCD4"));
         g.setStroke(dpToPx(3), Color.WHITE);
         return g;
@@ -369,12 +363,11 @@ public class FloatingService extends Service implements MouseController.MouseEve
     @Override
     public void onCreate() {
         super.onCreate();
-        // [แก้ไข] ไม่สร้าง overlay ที่นี่แล้ว เพราะยังไม่รู้ targetPackage
-        // (เดิมเลยสร้างบนจอหลักไปก่อนเสมอ แม้เกมจะอยู่ DeX) ย้ายไปสร้างใน buildOverlay()
-        // ซึ่งเรียกจาก onStartCommand หลังตรวจจอที่ถูกต้องแล้ว
+        // ไม่สร้าง overlay ที่นี่ เพราะยังไม่รู้ targetPackage
+        // ย้ายไปสร้างใน buildOverlay() ซึ่งเรียกจาก onStartCommand หลังตรวจจอที่ถูกต้องแล้ว
     }
 
-    // ===== [แก้ไข v2] คืน false ถ้ายังไม่มีจอที่ถูกต้อง (ยังไม่สร้างอะไรเลย ให้ผู้เรียก retry ได้) =====
+    // ===== คืน false ถ้ายังไม่มีจอที่ถูกต้อง (ยังไม่สร้างอะไรเลย ให้ผู้เรียก retry ได้) =====
     private boolean buildOverlay() {
         if (overlayBuilt) return true;
         android.view.Display d = findTargetDisplay();
@@ -423,7 +416,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
         return true;
     }
 
-    // ===== [เพิ่ม v2] ลองสร้าง overlay ซ้ำจนกว่าจอ DeX จะพร้อม (สูงสุด ~6 วิ) แล้วค่อยยอมใช้มือถือ =====
+    // ===== ลองสร้าง overlay ซ้ำจนกว่าจอ DeX จะพร้อม (สูงสุด ~6 วิ) แล้วค่อยยอมใช้มือถือ =====
     private void tryBuild(final int attempt) {
         if (destroyed) return;
         if (buildOverlay()) {
@@ -435,7 +428,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
             // เกินเวลา จอ DeX ไม่โผล่ ยอมใช้มือถือ
             Log.w("DEX", "display " + gameDisplayId + " never became accessible -> fallback to phone");
             gameDisplayId = -1;
-            forcedDisplayId = -1; // [เพิ่ม v3] ยอมแพ้ ให้ fallback มือถือได้จริง
+            forcedDisplayId = -1;
             probeActive = false;
             if (buildOverlay()) {
                 startAppMonitor();
@@ -452,11 +445,11 @@ public class FloatingService extends Service implements MouseController.MouseEve
             if (dm == null) return;
             displayListener = new android.hardware.display.DisplayManager.DisplayListener() {
                 @Override public void onDisplayAdded(int displayId) { scheduleDisplayReevaluation(); }
-                // [แก้ไข v2] ถอด DeX: รีเซ็ตสถานะจอเกม ไม่งั้น probeActive ค้างแล้ว overlay ไม่ยอมกลับมามือถือ
+                // ถอด DeX: รีเซ็ตสถานะจอเกม ไม่งั้น probeActive ค้างแล้ว overlay ไม่ยอมกลับมามือถือ
                 @Override public void onDisplayRemoved(int displayId) {
                     if (displayId == gameDisplayId) {
                         gameDisplayId = -1;
-                        forcedDisplayId = -1; // [เพิ่ม v3] จอที่บังคับไว้หายไปแล้ว
+                        forcedDisplayId = -1;
                         probeActive = false;
                         pendingExtId = -1;
                         pendingExtCount = 0;
@@ -499,7 +492,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
         try {
             // บันทึกตำแหน่ง/ปุ่ม และค่าตั้งค่าทั่วไปของจอเดิมไว้ก่อน (เซฟลงคีย์ของจอเดิม เพราะ targetDisplay ยังไม่เปลี่ยน)
             if (!targetPackage.isEmpty() && !batchLoading) savePresetToCloud();
-            saveSettings(); // [เพิ่ม] เซฟค่าตั้งค่าทั่วไปของจอเดิมไว้ก่อนสลับ
+            saveSettings();
 
             // ปิดสถานะชั่วคราวทั้งหมดก่อนรื้อ UI
             if (dPadController != null) { dPadController.release(); dPadController = null; }
@@ -511,7 +504,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
             closeButtonSettings();
             closeWarningDialog();
 
-            // [เพิ่ม] รีเซ็ตสถานะที่ MouseController ตัวใหม่ไม่รู้จัก ไม่งั้นค้างว่าล็อคเมาส์/โหมดพิมพ์อยู่
+            // รีเซ็ตสถานะที่ MouseController ตัวใหม่ไม่รู้จัก
             isMenuShown = false;
             isTypingMode = false;
             isMouseMode = false;
@@ -551,7 +544,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
             maxScreenWidth = sz[0];
             maxScreenHeight = sz[1];
             pushDisplayIdToSimulator(targetDisplay.getDisplayId());
-            loadSettings(); // [เพิ่ม] โหลดค่าตั้งค่าของจอใหม่ (แยกจากจอเดิมแล้ว) ก่อนสร้าง UI ต่อ
+            loadSettings();
 
             // สร้าง overlay ใหม่ทั้งหมดบนจอใหม่
             createEditModeBackground();
@@ -936,8 +929,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
         }).start();
     }
 
-    // [แก้ไข] แยกไฟล์ตั้งค่าตามจอ (มือถือ/DeX) แยกขาดจากกันจริง ไม่คัดลอกค่าข้ามจอ
-    // ถ้าจอนี้ยังไม่เคยตั้งค่า จะใช้ค่าเริ่มต้นของแอป
+    // แยกไฟล์ตั้งค่าตามจอ (มือถือ/DeX) แยกขาดจากกันจริง ไม่คัดลอกค่าข้ามจอ
     private void loadSettings() {
         SharedPreferences prefs = getSharedPreferences(settingsPrefsName(), MODE_PRIVATE);
 
@@ -947,12 +939,11 @@ public class FloatingService extends Service implements MouseController.MouseEve
         dpadSizeDp = prefs.getInt("dpadSizeDp", 160);
         dpadSize = dpToPx(dpadSizeDp);
         globalBtnSizeDp = Math.max(20, Math.min(96, prefs.getInt("btnSizeDp", 32)));
-        // [แก้ไข] ใช้ค่าต่ำสุด BTN_MIN_ALPHA (ค่าเก่าที่เซฟไว้ต่ำกว่านี้จะถูกยกขึ้นให้อ่านออก)
         globalBtnAlpha = Math.max(BTN_MIN_ALPHA, Math.min(1.0f, prefs.getFloat("btnViewAlpha", 1.0f)));
     }
 
     private void saveSettings() {
-        SharedPreferences prefs = getSharedPreferences(settingsPrefsName(), MODE_PRIVATE); // [แก้ไข] แยกไฟล์ตามจอ
+        SharedPreferences prefs = getSharedPreferences(settingsPrefsName(), MODE_PRIVATE);
         prefs.edit()
              .putFloat("alpha", currentAlpha)
              .putFloat("sensitivity", mouseSensitivity)
@@ -963,7 +954,8 @@ public class FloatingService extends Service implements MouseController.MouseEve
              .apply();
     }
 
-    // [เพิ่ม] ตรวจจับจอที่เกมเป้าหมายน่าจะเปิดอยู่แบบรวดเร็ว (รอสูงสุด 300ms) ก่อนสร้าง overlay
+    // ตรวจจับจอที่เกมเป้าหมายน่าจะเปิดอยู่แบบรวดเร็ว (รอสูงสุด 300ms)
+    // [v4] ถ้าเกมมี record ทั้งจอ 0 และจอนอก ให้ถือว่าอยู่จอ 0
     private int detectInitialDisplaySync(final String pkg) {
         if (pkg == null || pkg.isEmpty()) return android.view.Display.DEFAULT_DISPLAY;
         final int[] result = {android.view.Display.DEFAULT_DISPLAY};
@@ -982,6 +974,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
                 java.util.regex.Pattern dispPat = java.util.regex.Pattern.compile("Display #(\\d+)");
                 int curDisplay = -1;
                 int foundDisplay = -1;
+                boolean onZero = false;
                 java.io.BufferedReader reader = new java.io.BufferedReader(
                         new java.io.InputStreamReader(proc.getInputStream()));
                 String line;
@@ -995,13 +988,14 @@ public class FloatingService extends Service implements MouseController.MouseEve
                     if (!m.find()) continue;
                     boolean isGlobalLine = line.contains("topResumedActivity") || line.contains("mLastResumed");
                     if (!isGlobalLine && curDisplay >= 0 && pkg.equals(m.group(1))) {
-                        foundDisplay = curDisplay;
-                        break;
+                        if (curDisplay == 0) onZero = true;
+                        else if (foundDisplay < 0) foundDisplay = curDisplay;
                     }
                 }
                 try { reader.close(); } catch (Exception ignored) {}
                 try { proc.waitFor(); } catch (Exception ignored) {}
-                if (foundDisplay >= 0) result[0] = foundDisplay;
+                if (onZero) result[0] = android.view.Display.DEFAULT_DISPLAY;
+                else if (foundDisplay >= 0) result[0] = foundDisplay;
             } catch (Throwable ignored) {}
         });
         t.start();
@@ -1009,10 +1003,11 @@ public class FloatingService extends Service implements MouseController.MouseEve
         return result[0];
     }
 
-    // [เพิ่ม] true เมื่อรู้จอของเกมแน่นอนแล้ว (ถ้ายังไม่รู้ ให้เชื่อค่าที่ตรวจเจอครั้งแรกทันที)
+    // true เมื่อรู้จอของเกมแน่นอนแล้ว
     private volatile boolean displayConfirmed = false;
 
-    // [เพิ่ม] ถามว่าเกมเปิดอยู่จอไหน คืน -1 ถ้ายังไม่เจอ (ต้องเรียกจากเธรดพื้นหลัง)
+    // ถามว่าเกมเปิดอยู่จอไหน คืน -1 ถ้ายังไม่เจอ (ต้องเรียกจากเธรดพื้นหลัง)
+    // [v4] ถ้าเกมไม่ได้ resumed ที่ไหนเลย แต่มี record บนจอ 0 -> คืน 0 (ไม่เดาเป็นจอนอก)
     private int queryGameDisplay(String pkg) {
         try {
             if (pkg == null || pkg.isEmpty() || !Shizuku.pingBinder()) return -1;
@@ -1029,6 +1024,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
             int curDisplay = -1;
             int found = -1;
             int anyFound = -1;
+            boolean onZero = false;
             java.io.BufferedReader reader = new java.io.BufferedReader(
                     new java.io.InputStreamReader(proc.getInputStream()));
             String line;
@@ -1043,22 +1039,25 @@ public class FloatingService extends Service implements MouseController.MouseEve
                 boolean isGlobalLine = line.contains("topResumedActivity") || line.contains("mLastResumed");
                 if (!isGlobalLine && curDisplay >= 0 && pkg.equals(m.group(1))) {
                     if (line.contains("esumedActivity")) { found = curDisplay; break; }
-                    if (anyFound < 0) anyFound = curDisplay;
+                    if (curDisplay == 0) onZero = true;
+                    else if (anyFound < 0) anyFound = curDisplay;
                 }
             }
             try { reader.close(); } catch (Exception ignored) {}
             try { proc.waitFor(); } catch (Exception ignored) {}
-            Log.i("DEX", "queryGameDisplay pkg=" + pkg + " resumed=" + found + " any=" + anyFound);
-            return found >= 0 ? found : anyFound;
+            Log.i("DEX", "queryGameDisplay pkg=" + pkg + " resumed=" + found
+                    + " onZero=" + onZero + " any=" + anyFound);
+            if (found >= 0) return found;
+            return onZero ? 0 : anyFound;
         } catch (Throwable t) {
             return -1;
         }
     }
 
-    // [เพิ่ม] true ระหว่างที่มี DisplayProbeActivity ค้างอยู่บนจอ DeX (ใช้กันไม่ให้ระบบนับเป็น "ออกจากเกมไปแอปตัวเอง")
+    // true ระหว่างที่มี DisplayProbeActivity ค้างอยู่บนจอ DeX
     private volatile boolean probeActive = false;
 
-    // [เพิ่ม] รันคำสั่ง shell ผ่าน Shizuku (เรียกจากเธรดพื้นหลังเท่านั้น)
+    // รันคำสั่ง shell ผ่าน Shizuku (เรียกจากเธรดพื้นหลังเท่านั้น)
     private String runShizukuShell(String cmd) {
         try {
             if (!Shizuku.pingBinder()) return null;
@@ -1083,7 +1082,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
         }
     }
 
-    // [เพิ่ม] จอ DeX แบบ private ระบบซ่อนไว้จนกว่าแอปเราจะมี Activity อยู่บนจอนั้น
+    // จอ DeX แบบ private ระบบซ่อนไว้จนกว่าแอปเราจะมี Activity อยู่บนจอนั้น
     // จึงสั่งเปิด DisplayProbeActivity (โปร่งใส ไม่รับโฟกัส) บนจอนั้นผ่าน Shizuku ก่อน
     private void ensureDisplayAccessible(int id) {
         try {
@@ -1112,13 +1111,25 @@ public class FloatingService extends Service implements MouseController.MouseEve
         }
     }
 
-    // [เพิ่ม] รอให้เกมขึ้นหน้าจอก่อน แล้วค่อยสร้าง overlay บนจอที่เกมอยู่จริง
-    // [แก้ไข v3] ถ้า MainActivity บอกจอมาแล้ว (forcedDisplayId) ใช้ค่านั้นเลย ไม่ต้องเดาจาก dumpsys
+    // รอให้เกมขึ้นหน้าจอก่อน แล้วค่อยสร้าง overlay บนจอที่เกมอยู่จริง
+    // [v4] ถ้า MainActivity บอกจอนอกมา จะเช็กกับความจริงก่อน ถ้าเกมอยู่จอ 0 จริง ไม่เชื่อค่าที่ส่งมา
+    //      forcedDisplayId == 0 หมายถึงเกมอยู่จอมือถือแน่นอน (ไม่ต้องเดา)
     private void waitForGameDisplayThenBuild(final String pkg) {
         new Thread(() -> {
-            int id = forcedDisplayId > 0 ? forcedDisplayId : -1;
+            if (forcedDisplayId > 0) {
+                int real = -1;
+                long dl2 = android.os.SystemClock.uptimeMillis() + 1500;
+                while (!destroyed && android.os.SystemClock.uptimeMillis() < dl2) {
+                    real = queryGameDisplay(pkg);
+                    if (real >= 0) break;
+                    try { Thread.sleep(250); } catch (InterruptedException ignored) {}
+                }
+                if (real == 0) forcedDisplayId = 0; // เกมอยู่จอมือถือจริง ไม่เชื่อค่าจอนอกที่ส่งมา
+            }
+
+            int id = forcedDisplayId >= 0 ? forcedDisplayId : -1;
             long deadline = android.os.SystemClock.uptimeMillis() + 6000;
-            while (forcedDisplayId <= 0 && !destroyed
+            while (forcedDisplayId < 0 && !destroyed
                     && android.os.SystemClock.uptimeMillis() < deadline) {
                 id = queryGameDisplay(pkg);
                 if (id >= 0) break;
@@ -1130,7 +1141,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
                 if (destroyed) return;
                 displayConfirmed = result >= 0;
                 gameDisplayId = (result > 0) ? result : -1;
-                // [แก้ไข v2] เดิมเรียก buildOverlay() ตรงๆ ตอนนี้ retry จนกว่าจอ DeX จะพร้อม
+                // retry จนกว่าจอ DeX จะพร้อม
                 tryBuild(0);
             });
         }).start();
@@ -1148,7 +1159,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
         if (intent.hasExtra("GAME_PACKAGE")) {
             targetPackage = intent.getStringExtra("GAME_PACKAGE");
             if (targetPackage == null) targetPackage = "";
-            // [เพิ่ม v3] จอที่ MainActivity สั่งเปิดเกมไว้ (-1 = ไม่ได้ระบุ)
+            // จอที่ MainActivity สั่งเปิดเกมไว้ (-1 = ไม่ได้ระบุ, 0 = มือถือ, >0 = จอนอก)
             forcedDisplayId = intent.getIntExtra("GAME_DISPLAY", -1);
             targetSeen = false;
             ownAppCount = 0;
@@ -1158,7 +1169,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
 
             unblockUntrustedTouches();
 
-            // [แก้ไข] ครั้งแรก: อย่าเพิ่งสร้าง overlay เพราะเกมอาจยังไม่ขึ้นบนจอ (DeX)
+            // ครั้งแรก: อย่าเพิ่งสร้าง overlay เพราะเกมอาจยังไม่ขึ้นบนจอ (DeX)
             // ให้รอจนเจอว่าเกมอยู่จอไหนก่อน (สูงสุด ~6 วิ) แล้วค่อยสร้างบนจอนั้น
             if (!overlayInitialized) {
                 overlayInitialized = true;
@@ -1171,6 +1182,8 @@ public class FloatingService extends Service implements MouseController.MouseEve
             int detected = detectInitialDisplaySync(targetPackage);
             if (forcedDisplayId > 0) {
                 gameDisplayId = forcedDisplayId;
+            } else if (forcedDisplayId == 0) {
+                gameDisplayId = -1; // มือถือ
             } else {
                 gameDisplayId = (detected != android.view.Display.DEFAULT_DISPLAY) ? detected : -1;
             }
@@ -1242,7 +1255,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
                 int eyeRes = getDrawableId("btn_fps_eye", 0);
                 if (mtv != null) {
                     if (editMode) {
-                        // [แก้ไข] ไม่มี ic_circle ให้ใช้พื้นหลังเข้มชัดของเราแทน
                         if (circleRes != 0) mtv.setBackgroundResource(circleRes);
                         else mtv.setBackground(makeButtonBg());
                         if (!(isWaitingForKey && pendingMappingButton == container)) {
@@ -1255,7 +1267,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
                 }
             }
 
-            // [เพิ่ม] ปุ่มมุมมอง (HIDE_MOUSE): โชว์ตัวหนังสือ (คีย์ที่ตั้งไว้) เฉพาะตอนโหมดแก้ไข ซ่อนเวลาใช้งานจริง
+            // ปุ่มมุมมอง (HIDE_MOUSE): โชว์ตัวหนังสือ (คีย์ที่ตั้งไว้) เฉพาะตอนโหมดแก้ไข ซ่อนเวลาใช้งานจริง
             if ("HIDE_MOUSE".equals(String.valueOf(container.getTag()))) {
                 TextView htv = buttonTextViewMap.get(container);
                 if (htv != null) {
@@ -1468,7 +1480,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
                 updateEditModeUI();
             }));
 
-            // [แก้ไข] ปุ่มโหมดพิมพ์: ใช้รูป btn_keyboard (ไม่ตกไปใช้ btn_mouse อีก)
+            // ปุ่มโหมดพิมพ์: ใช้รูป btn_keyboard
             rowLayout.addView(createMenuImageButton(
                     getDrawableId("btn_keyboard", R.drawable.btn_b),
                     v -> setTypingMode(true)));
@@ -2145,9 +2157,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
         modeRow.addView(btnBit);
         layout.addView(modeRow);
 
-        // [แก้ไข] เอาแถบ/ช่องกรอก "เพดานความเร็ว (px/ms)" ของโหมดคงที่ออกแล้ว
-        // (ระบบคงที่ไม่มีเพดานล็อคแล้ว ค่านี้ไม่มีผลกับการทำงาน)
-        // โหมดคงที่จึงไม่มีตัวเลือกเพิ่ม เหลือเฉพาะโหมดบิตที่มีตัวปรับ
+        // โหมดคงที่ไม่มีตัวเลือกเพิ่ม เหลือเฉพาะโหมดบิตที่มีตัวปรับ
         final LinearLayout bitGroup = new LinearLayout(this);
         bitGroup.setOrientation(LinearLayout.VERTICAL);
 
@@ -2349,6 +2359,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
             btnClose.setOnClickListener(v -> {
                 if (isWaitingForKey) cancelKeyWait();
                 addMenuView.setVisibility(View.GONE);
+                menuView.setVisibility(View.GONE);
                 menuView.setVisibility(View.VISIBLE);
                 updateEditModeUI();
             });
@@ -2362,7 +2373,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
             int idSwipe = getDrawableId("btn_swipe", R.drawable.btn_b);
             int idZoom = getDrawableId("btn_zoom", R.drawable.btn_b);
 
-            // [แก้ไข] ชื่อ resource ต้องไม่มีนามสกุลไฟล์ (เดิม "btn_fire_box.png" หาไม่เจอ เลยตกไปใช้ btn_b)
+            // ชื่อ resource ต้องไม่มีนามสกุลไฟล์
             int idFire = getDrawableId("btn_fire_box", R.drawable.btn_b);
 
             int defaultCenterX = (int)(maxScreenWidth / 2f) - dpToPx(80);
@@ -2388,7 +2399,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
                 "แตะซ้ำ", idRapid, v -> addNewMappingButton("RAPID_FIRE", defaultCenterX, defaultCenterY, false, -1, true)
             ));
 
-            // [แก้] เอาเมนู "ล็อกเมาส์" ออก เพราะซ้ำกับ "มุมมอง" (ปุ่มที่เคยสร้างไว้แล้วยังโหลดและใช้งานได้ตามปกติ)
+            // เอาเมนู "ล็อกเมาส์" ออก เพราะซ้ำกับ "มุมมอง" (ปุ่มที่เคยสร้างไว้แล้วยังโหลดและใช้งานได้ตามปกติ)
             rows.addView(createButtonRow(
                 "ปัด", idSwipe, v -> addNewMappingButton("SWIPE", defaultCenterX, defaultCenterY, false, -1, true),
                 "ยิง", idFire, v -> {
@@ -2592,7 +2603,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
             });
             layout.addView(btnSizeBar);
 
-            // [แก้ไข] ช่วงความโปร่งใสปุ่ม: 40% - 100% (เดิม 10% - 100% ปรับต่ำแล้วมองไม่เห็น)
+            // ช่วงความโปร่งใสปุ่ม: 40% - 100%
             final int minPct = Math.round(BTN_MIN_ALPHA * 100f);
             int curBtnPct = Math.max(minPct, Math.min(100, Math.round(globalBtnAlpha * 100f)));
             final TextView tvBtnAlpha = createSettingsLabel("ความโปร่งใสปุ่มทุกปุ่ม (Button Opacity): " + curBtnPct + "%");
@@ -2705,7 +2716,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
 
         for (Runnable r : rapidFireRunnables.values()) handler.removeCallbacks(r);
         rapidFireRunnables.clear();
-        activeTouchPointers.clear(); // [แก้ไข] เดิมขาด ; ทำให้ compile ไม่ผ่าน
+        activeTouchPointers.clear();
 
         for (View btn : new ArrayList<>(mappingButtons)) {
             try { windowManager.removeView(btn); } catch (Exception ignored) {}
@@ -2888,7 +2899,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
                     containerSize, containerSize, overlayType(), flags, PixelFormat.TRANSLUCENT
             );
             btnParams.gravity = Gravity.TOP | Gravity.START;
-            // [แก้ไข] alpha ระดับหน้าต่างต้อง <= 0.8 ไม่งั้น Android บล็อกการแตะทะลุ (ปุ่มเข้มแล้วกดหน้าจอไม่ได้)
+            // alpha ระดับหน้าต่างต้อง <= 0.8 ไม่งั้น Android บล็อกการแตะทะลุ
             btnParams.alpha = BTN_WINDOW_ALPHA;
             mapBtnContainer.setAlpha(globalBtnAlpha);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -2936,7 +2947,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
             mapBtn.setTextColor(Color.WHITE);
             mapBtn.setTypeface(null, android.graphics.Typeface.BOLD);
             mapBtn.setGravity(Gravity.CENTER);
-            // [แก้ไข] ตัวอักษรใหญ่ขึ้นและเงาเข้มขึ้น อ่านง่ายบนฉากหลังทุกสี
             mapBtn.setTextSize(12f);
             mapBtn.setMaxLines(1);
             mapBtn.setPadding(dpToPx(1), 0, dpToPx(1), 0);
@@ -2949,7 +2959,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
                 mapBtn.setText("");
             } else {
                 String label;
-                // [แก้ไข] ทุกชนิดปุ่ม (ยกเว้นปุ่มยิงที่มีรูปของตัวเอง) ใช้พื้นหลังเข้มชัด + ขอบสว่าง
                 if (type.equals("HIDE_MOUSE")) {
                     int fpsEyeRes = getDrawableId("btn_fps_eye", 0);
                     if (fpsEyeRes != 0) {
@@ -2978,7 +2987,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
                         mapBtn.setBackground(makeButtonBg());
                     }
                 }
-                // [เพิ่ม] ปุ่มแตะทั่วไป (NORMAL) ที่วางลงบนจอ: ใช้รูป btn_circle_outline แทนพื้นหลังวงกลมเดิม
+                // ปุ่มแตะทั่วไป (NORMAL): ใช้รูป btn_circle_outline
                 else if (type.equals("NORMAL")) {
                     int tapRes = getDrawableId("btn_circle_outline", 0);
                     if (tapRes != 0) {
@@ -3153,7 +3162,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
     }
 
     private void applyGlobalButtonAlpha(float a) {
-        // [แก้ไข] ใช้ค่าต่ำสุด BTN_MIN_ALPHA แทน 0.1
         globalBtnAlpha = Math.max(BTN_MIN_ALPHA, Math.min(1.0f, a));
         for (View b : new ArrayList<>(mappingButtons)) {
             if (b == null) continue;
@@ -3348,7 +3356,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
     }
 
     // ระบบโหลดพรีเซ็ตจาก SharedPreferences
-    // [แก้ไข] โหลดเฉพาะชุดของจอที่ใช้อยู่ (มือถือ/DeX) แยกขาดจากกัน ไม่ดึง/ย่อขยายจากอีกจอมาใช้
+    // โหลดเฉพาะชุดของจอที่ใช้อยู่ (มือถือ/DeX) แยกขาดจากกัน
     private void loadPresetFromCloud() {
         handler.post(() -> {
             if (destroyed) return;
@@ -3429,7 +3437,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
             if (destroyed) return;
             try {
                 String cur0 = getForegroundAppRobust();
-                // [เพิ่ม] DisplayProbeActivity เป็นของแอปเราเอง ห้ามนับว่าผู้ใช้ออกจากเกม
+                // DisplayProbeActivity เป็นของแอปเราเอง ห้ามนับว่าผู้ใช้ออกจากเกม
                 if (probeActive && !targetPackage.isEmpty() && getPackageName().equals(cur0)) {
                     cur0 = targetPackage;
                 }
@@ -3551,7 +3559,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
     private long lastShizukuCheck = 0;
     private String fgSource = "usage";
 
-    // ===== [แก้ไข] อ่านทั้งแอปหน้าสุด และ "จอ" ที่เกมเป้าหมายเปิดอยู่ =====
+    // ===== อ่านทั้งแอปหน้าสุด และ "จอ" ที่เกมเป้าหมายเปิดอยู่ =====
     private String getTopAppViaShizuku() {
         try {
             if (!Shizuku.pingBinder()) return null;
@@ -3596,8 +3604,11 @@ public class FloatingService extends Service implements MouseController.MouseEve
             try { proc.waitFor(); } catch (Exception ignored) {}
 
             if (targetResumed) {
-                if (forcedDisplayId > 0) {
-                    // [เพิ่ม v3] MainActivity บอกจอเกมมาแล้ว ไม่เขียนทับด้วยค่าที่เดาจาก dumpsys
+                // [v4] เกม resumed บนจอ 0 จริง -> ล้างค่า forced ของจอนอกทิ้ง (กัน overlay ไปขึ้นจอที่ต่ออยู่)
+                if (onDefault && forcedDisplayId > 0) forcedDisplayId = 0;
+
+                if (forcedDisplayId >= 0) {
+                    // MainActivity บอกจอเกมมาแล้ว (0 = มือถือ, >0 = จอนอก) ไม่เขียนทับด้วยค่าที่เดาจาก dumpsys
                 } else if (onDefault) {
                     pendingExtId = -1; pendingExtCount = 0;
                     if (gameDisplayId != android.view.Display.DEFAULT_DISPLAY) {
@@ -3726,7 +3737,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
         try { handler.removeCallbacksAndMessages(null); } catch (Exception ignored) {}
         try {
             if (monitorHandler != null) monitorHandler.removeCallbacksAndMessages(null);
-            // [แก้ไข v2] quit เฉพาะเมื่อ monitorThread เคย start แล้วจริง (overlayBuilt)
+            // quit เฉพาะเมื่อ monitorThread เคย start แล้วจริง (overlayBuilt)
             if (overlayBuilt) monitorThread.quitSafely();
         } catch (Exception ignored) {}
 
@@ -3774,5 +3785,3 @@ public class FloatingService extends Service implements MouseController.MouseEve
         super.onDestroy();
     }
 }
-
- 

@@ -39,7 +39,7 @@ public class MouseController {
     private static final boolean VIEW_CONSTANT_ZONE = false;
     // ขอบเขตโซน (สัดส่วนของจอ) = ระยะที่นิ้วเสมือน "ลาก" ได้ในโหมดคงที่
     // ถ้าฝั่งซ้ายของโซนกล้องหมุนเร็วกว่าฝั่งขวา ให้เพิ่ม ZONE_X_MIN (เช่น 0.5)
-    // [หมายเหตุ] ถ้า VIEW_X_FREE_IN_ZONE = true (และ VIEW_Y_FREE_IN_ZONE = true) ค่า ZONE_X_* ไม่ถูกใช้แล้ว
+    // [หมายเหตุ] ถ้า VIEW_X_FREE_IN_ZONE = true ค่า ZONE_X_* ไม่ถูกใช้แล้ว (ไม่ว่าแกน Y จะตั้งเป็นอะไร)
     private static final float ZONE_X_MIN = 0.35f;
     private static final float ZONE_X_MAX = 0.98f;
     // [หมายเหตุ] ZONE_Y_*, ZONE_RESTART ใช้เฉพาะตอน VIEW_Y_FREE_IN_ZONE = false (พฤติกรรมเดิมของแกน Y)
@@ -48,16 +48,16 @@ public class MouseController {
     // วางนิ้วใหม่ที่ตำแหน่งกี่ % ของโซนจากปลายด้านตรงข้าม (ใช้กับแกน Y เท่านั้น)
     private static final float ZONE_RESTART = 0.04f;
 
-    // [เพิ่ม] สวิตช์แกน Y ของ "ระบบคงที่"
+    // [เพิ่ม] สวิตช์แกน Y ของ "ระบบคงที่" (ไม่ได้แก้)
     // true  = แกน Y ลากทะลุขอบจอได้ (พิกัดติดลบ/เกินจอ) ไม่ยก-วางนิ้วใหม่ ไม่รีเซ็ตตอนเมาส์หยุด
     // false = พฤติกรรมเดิม (Y หลุดโซนแล้วยก-วางใหม่ + รีเซ็ต Y ตอนเมาส์หยุด)
     private static final boolean VIEW_Y_FREE_IN_ZONE = true;
     // [เพิ่ม] ลอยไกลสุดของแกน Y กี่เท่าของความสูงจอ (แค่หยุดที่เพดาน ไม่ยกนิ้ว) กันตัวเลขลอยไกลเกินจริง
     private static final float VIEW_Y_LIMIT_SCREENS = 50f;
 
-    // [เพิ่มใหม่] สวิตช์แกน X ของ "ระบบคงที่"
-    // true  = แกน X ลากทะลุขอบจอได้ (พิกัดติดลบ/เกินจอ) ไม่ชนขอบโซน ไม่ยก-วางนิ้วใหม่ ไม่รีเซ็ตตอนเมาส์หยุด
-    //         (ต้องเปิด VIEW_Y_FREE_IN_ZONE = true ด้วย จึงจะมีผล)
+    // [แก้ไข X] สวิตช์แกน X ของ "ระบบคงที่" (ไม่ต้องพึ่ง VIEW_Y_FREE_IN_ZONE แล้ว)
+    // true  = แกน X ลากทะลุขอบจอได้ (พิกัดติดลบ/เกินจอ) โดยกดค้างนิ้วเดียวที่ปุ่มล็อคเมาส์ตลอด
+    //         ไม่ชนขอบโซน ไม่ยก-วางนิ้วใหม่ ไม่รีเซ็ตตอนเมาส์หยุด (ไม่ขึ้นกับการตั้งค่าแกน Y)
     // false = พฤติกรรมเดิม (X ชนขอบโซนแล้วยก-วางใหม่)
     private static final boolean VIEW_X_FREE_IN_ZONE = true;
     // [เพิ่มใหม่] ลอยไกลสุดของแกน X กี่เท่าของความกว้างจอ (แค่หยุดที่เพดาน ไม่ยกนิ้ว) กันตัวเลขลอยไกลเกินจริง
@@ -82,6 +82,7 @@ public class MouseController {
     //             ทำให้เกมเห็นนิ้วถูกปล่อย/ทัชใหม่ = กล้องกระตุก/รีเซ็ตเอง
     // false = ไม่พา X กลับกลางโซนตอนเมาส์หยุด (X ค้างที่เดิม) <- แนะนำ
     // true  = พาแกน X กลับกลางโซน (แกน Y ไม่ถูกแตะถ้า VIEW_Y_FREE_IN_ZONE = true)
+    //         [หมายเหตุ] ถ้า VIEW_X_FREE_IN_ZONE = true ค่านี้ถูกข้าม (X ไม่รีเซ็ตเด็ดขาด)
     // ระบบบิตไม่ถูกแก้ ทำงานเหมือนเดิมทุกอย่าง
     private static final boolean IDLE_RECENTER_CONSTANT_X = false;
 
@@ -107,9 +108,11 @@ public class MouseController {
     // สาเหตุอาการ "ปรับช้าแล้วกลับเร็ว": ตัวชดเชยนี้ทำให้ความเร็วขึ้นกับตำแหน่งนิ้ว
     //   ความไวสูง -> นิ้วหลุดขอบจอบ่อย -> โดนลดความเร็ว (สูงสุดเหลือ 0.15 เท่า)
     //   ความไวต่ำ -> นิ้วอยู่ในจอตลอด -> ไม่โดนลด จึงเร็วกว่าที่ควร (ปรับลดแล้วแทบไม่ช้าลง)
-    // false = ปิดตัวชดเชย ความเร็ว = ระยะเมาส์ x ความไว เป็นเส้นตรงจริงๆ (แนะนำ)
-    // true  = พฤติกรรมเดิม (ถ้านอกจอแล้วเกมเร็วขึ้นจริงๆ ให้เปิดแล้วปรับ OFFSCREEN_GAIN_X/MIN_X)
-    private static final boolean OFFSCREEN_COMPENSATE = false;
+    // false = ปิดตัวชดเชย ความเร็ว = ระยะเมาส์ x ความไว เป็นเส้นตรงจริงๆ
+    // true  = เปิดตัวชดเชย (ถ้านอกจอแล้วเกมเร็วขึ้นจริงๆ ให้เปิดแล้วปรับ OFFSCREEN_GAIN_X/MIN_X)
+    // [แก้ไขรอบนี้] เปิดเป็น true เพราะอาการ "ยกเมาส์แล้วหันซ้ำ กล้องพุ่งไวขึ้น" เกิดจากนิ้วไหลออกนอกจอ
+    //              (ระบบคงที่ที่ X ลากทะลุจอ ไม่รีเซ็ตตอนเมาส์หยุด) แล้วเกมให้ความเร็วเร็วขึ้นนอกจอ
+    private static final boolean OFFSCREEN_COMPENSATE = true;
 
     // ตอนนิ้วเสมือนลากหลุดขอบจอ เกมให้ความเร็วเร็วขึ้น เลยชดเชยให้เท่าตอนอยู่ในจอ (ใช้ทั้งแกน X และ Y)
     // OFFSCREEN_GAIN: 1.0 = ปิดการชดเชย (ความเร็วคงที่ทั้งแกน X และ Y)
@@ -126,10 +129,18 @@ public class MouseController {
     private static final float OFFSCREEN_BAND_Y = 0.04f;
     private static final boolean OFFSCREEN_STACK_LEFT = false;
 
-    // [ลบแล้ว] ตัวจำกัดเพดานความเร็วของระบบคงที่ (CONST_MAX_COUNTS_PER_MS / งบสะสม)
-    // เหตุผล: เพดานจริงขึ้นกับความถี่ที่เมาส์ส่ง event, ตัดแกน X/Y แยกกัน และทิ้งส่วนเกิน
-    // ทำให้สบัดเร็ว/ช้าได้ระยะไม่ตรงกับที่ขยับจริง ระบบคงที่ตอนนี้เป็นเมาส์เชิงเส้นปกติ
-    // (ระยะเมาส์ x ความไว) และใช้โซนความเร็วคงที่แทนการจำกัด
+    // [เพิ่ม] กันกล้องพุ่งตอน "ยกเมาส์แล้ววางใหม่" (เฉพาะระบบคงที่)
+    // ถ้าห่างจาก MOVE ก่อนหน้านานกว่าค่านี้ ถือว่าเพิ่งพ้นช่วงเงียบ (มือยกเมาส์ขึ้น ไม่ใช่สบัดแรงปกติ)
+    // event แรกหลังช่วงเงียบจะถูกบีบตามเพดานความเร็ว ส่วน event ถัดไปที่ต่อเนื่องจะไม่ถูกแตะเลย
+    // (ไม่ใช่ตัวหน่วงความเร็วต่อเนื่อง จึงไม่ทำให้ระบบคงที่กลายเป็นมีความเร่ง)
+    // ถ้ายังพุ่งตอนยกเมาส์อยู่บ้าง ให้ลดค่านี้ลง (เช่น 40), ถ้าหันกล้องเร็วๆ ปกติแล้วรู้สึกสะดุด/โดนหน่วงผิดจังหวะ ให้เพิ่มขึ้น (เช่น 100)
+    private static final float POST_GAP_MS = 60f;
+    // เพดานความเร็วดิบ (พิกเซลดิบ/ms ก่อนคูณความไว) ที่ยอมรับได้ "ทันที" หลังช่วงเงียบ
+    // ยังพุ่งตอนยกเมาส์อยู่ -> ลดค่านี้ลง (เช่น 1.5) / รู้สึกเหมือนกล้องหน่วงตอนเริ่มหันใหม่หลังหยุดสั้นๆ -> เพิ่มขึ้น (เช่น 4-5)
+    private static final float POST_GAP_MAX_V = 2.5f;
+    // [เพิ่ม] ล็อก dt ที่ใช้คำนวณเพดานหลังช่วงเงียบ (ms) เดิมเพดานโตตามความยาวช่วงเงียบ (ยกเมาส์ 300ms = เพดาน 750px)
+    // ตอนนี้เพดาน = POST_GAP_MAX_V x ค่านี้ ไม่ว่ายกเมาส์นานแค่ไหน
+    private static final float POST_GAP_CAP_DT_MS = 16f;
 
     // ตัวคูณความเร็วตามระยะที่นิ้วเสมือนเลยขอบจอ แกน X (ลดต่อเนื่อง ไม่มีเพดาน)
     // (v = พิกัดบนแกนนั้น, max = ขนาดจอแกนนั้น)
@@ -159,7 +170,7 @@ public class MouseController {
     }
 
     // ตัวคูณแกน X: ใช้เฉพาะตัวชดเชยตอนหลุดขอบจอ (ตัดตัวคูณซีกซ้ายออก ความเร็วในจอคงที่)
-    // [แก้ไข] ถ้า OFFSCREEN_COMPENSATE = false จะคืน 1 เสมอ (ความเร็วเป็นเส้นตรงตามค่าความไว)
+    // ถ้า OFFSCREEN_COMPENSATE = false จะคืน 1 เสมอ (ความเร็วเป็นเส้นตรงตามค่าความไว)
     private float factorX(float x) {
         if (!OFFSCREEN_COMPENSATE) return 1f;
         return offscreenFactor(x, maxScreenWidth, OFFSCREEN_GAIN_X);
@@ -196,14 +207,6 @@ public class MouseController {
     // คลิกขวากำลังถูกกดอยู่ (กัน onRightClick ถูกเรียกซ้ำจาก DOWN + BUTTON_PRESS ของการคลิกครั้งเดียว)
     private boolean rightDown = false;
 
-    // [เพิ่ม] นิ้วหลอกตัวที่ 3 แปะนิ่งตลอดช่วงล็อคเมาส์ (โหมดมุมมอง)
-    // เหตุผล: บางเกมตีความ "2 นิ้วพร้อมกัน (ยิง + ลากมุมมอง) โดยนิ้วหนึ่งนิ่ง อีกนิ้วลาก"
-    // เป็นท่า pinch/rotate แทนที่จะมองกล้องปกติ ปล่อย MOVE ไม่ขึ้น ถ้ามีนิ้วที่ 3 (เช่นเดินด้วย)
-    // เกมจะหลุดเงื่อนไข 2-finger gesture แล้วอ่านนิ้วแยกกันตามปกติ กล้องเลยขึ้น
-    // เราเลยแปะนิ้วหลอกตัวที่ 3 ไว้นิ่งๆ ตลอดเวลาที่ล็อคเมาส์ ให้มีนิ้วครบ 3 เสมอไม่ว่าจะเดินอยู่หรือไม่
-    private static final int ANCHOR_POINTER_ID = 4;
-    private long anchorToken = 0;
-
     // เก็บเป็น double กันค่าสะสมถูกปัดทิ้งเมื่อนิ้วเสมือนลอยไกลมาก (float ละเอียดลดลงตามขนาดตัวเลข)
     private double viewX = 0.0;
     private double viewY = 0.0;
@@ -212,14 +215,14 @@ public class MouseController {
     private boolean injectScheduled = false;
 
     // ความถี่ส่งตำแหน่งนิ้วเสมือนของโหมดมุมมอง (Hz) ตั้งจากหน้าตั้งค่าปุ่มล็อกเมาส์
-    // [แก้ไข] 0 = ซิงค์กับเฟรมจอ (Choreographer ส่ง 1 ครั้งต่อ vsync ตำแหน่งล่าสุดเสมอ ลื่นสุดบนจอ 60/90/120Hz)
-    //         มากกว่า 0 = จำกัดความถี่ตามที่ตั้ง (ช่วง 30 - 1000) คำนวณเป็น nanosecond ไม่ปัดเป็น ms เต็มแล้ว
+    // 0 = ซิงค์กับเฟรมจอ (Choreographer ส่ง 1 ครั้งต่อ vsync ตำแหน่งล่าสุดเสมอ ลื่นสุดบนจอ 60/90/120Hz)
+    //     มากกว่า 0 = จำกัดความถี่ตามที่ตั้ง (ช่วง 30 - 1000) คำนวณเป็น nanosecond ไม่ปัดเป็น ms เต็มแล้ว
     private int viewInjectHz = 0;
     private long lastInjectNs = 0;
     private final android.os.Handler injectHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable injectRunnable = this::doViewInject;
 
-    // [เพิ่ม] ส่งต่อเฟรมจอ (ใช้เมื่อ viewInjectHz = 0)
+    // ส่งต่อเฟรมจอ (ใช้เมื่อ viewInjectHz = 0)
     private boolean frameQueued = false;
     private final Choreographer.FrameCallback frameCb = new Choreographer.FrameCallback() {
         @Override
@@ -229,7 +232,7 @@ public class MouseController {
         }
     };
 
-    // [เพิ่ม] ยกเลิกงานส่งตำแหน่งที่นัดไว้ทั้งหมด (ทั้งแบบ Hz และแบบซิงค์เฟรม)
+    // ยกเลิกงานส่งตำแหน่งที่นัดไว้ทั้งหมด (ทั้งแบบ Hz และแบบซิงค์เฟรม)
     private void cancelViewInject() {
         injectHandler.removeCallbacks(injectRunnable);
         injectScheduled = false;
@@ -242,13 +245,13 @@ public class MouseController {
     }
 
     // ยก-วางนิ้วเสมือนใหม่ที่พิกัด (nx, ny) UP ที่ตำแหน่งเดิม (บีบให้อยู่ในจอ) แล้ว DOWN ที่ตำแหน่งใหม่
-    // [แก้ไข] DOWN ใหม่ต้องไม่อยู่ติดขอบบน/ล่าง ไม่งั้นระบบมองเป็นการปัดจากขอบ (ดึงแถบแจ้งเตือน/ท่าทางโฮม)
+    // DOWN ใหม่ต้องไม่อยู่ติดขอบบน/ล่าง ไม่งั้นระบบมองเป็นการปัดจากขอบ (ดึงแถบแจ้งเตือน/ท่าทางโฮม)
     // ตอนนี้นิ้วเก่ายกขึ้นแล้วและนิ้วใหม่ยังไม่ขยับ กล้องจึงไม่กระตุกจากการบีบ Y
     private void recenterTo(float nx, float ny) {
         recenterTo(nx, ny, false);
     }
 
-    // [เพิ่ม] rawUp = true: UP ที่พิกัดจริงของนิ้ว (ไม่บีบเข้าจอ) ใช้กับระบบคงที่ตอนแกน Y ลอยนอกจอ
+    // rawUp = true: UP ที่พิกัดจริงของนิ้ว (ไม่บีบเข้าจอ) ใช้กับระบบคงที่ตอนแกน Y ลอยนอกจอ
     //         กันกล้องแกน Y กระตุกตอนยกนิ้ว (ถ้าบีบ Y เข้าจอ นิ้วจะกระโดดจากนอกจอมาขอบจอก่อนยก)
     private void recenterTo(float nx, float ny, boolean rawUp) {
         if (mouseMoveToken != 0) {
@@ -270,7 +273,7 @@ public class MouseController {
         mouseMoveToken = TouchSimulator.simulateDown(2, Math.round((float) viewX), Math.round((float) viewY));
     }
 
-    // [เพิ่ม] ส่งตำแหน่งสุดท้ายของนิ้วเสมือน (บีบให้อยู่ในจอ) ก่อนยกนิ้ว กันระยะช่วงท้ายหาย
+    // ส่งตำแหน่งสุดท้ายของนิ้วเสมือน (บีบให้อยู่ในจอ) ก่อนยกนิ้ว กันระยะช่วงท้ายหาย
     private void sendViewMoveClamped() {
         if (mouseMoveToken != 0) {
             TouchSimulator.simulateMoveF(mouseMoveToken, 2,
@@ -279,7 +282,7 @@ public class MouseController {
         }
     }
 
-    // [เพิ่ม] เหมือนข้างบน แต่ไม่บีบแกน Y (ปล่อย Y ตามจริง รวมตอนอยู่นอกจอ) ใช้ในระบบคงที่ที่ Y ลากทะลุจอได้
+    // เหมือนข้างบน แต่ไม่บีบแกน Y (ปล่อย Y ตามจริง รวมตอนอยู่นอกจอ) ใช้ในระบบคงที่ที่ Y ลากทะลุจอได้
     private void sendViewMoveRawY() {
         if (mouseMoveToken != 0) {
             TouchSimulator.simulateMoveF(mouseMoveToken, 2,
@@ -288,7 +291,7 @@ public class MouseController {
         }
     }
 
-    // [เพิ่ม] เวลา MOVE ล่าสุดของโหมดมุมมอง + ธงว่ามี idle timer นัดไว้แล้วหรือยัง
+    // เวลา MOVE ล่าสุดของโหมดมุมมอง + ธงว่ามี idle timer นัดไว้แล้วหรือยัง
     // เดิมทุก MOVE เรียก removeCallbacks + postDelayed (เมาส์ถี่ = ร้อยๆ ครั้ง/วิ กิน main thread)
     // ตอนนี้นัดครั้งเดียว แล้วให้ตัว runnable เช็คเวลาเองว่าหยุดนานพอหรือยัง
     private long lastViewMoveUptime = 0;
@@ -303,7 +306,7 @@ public class MouseController {
     }
 
     // เมาส์หยุดขยับ -> พานิ้วเสมือนกลับจุดเริ่ม
-    // ระบบบิต: เฉพาะแกน X (Y คงเดิม) / ระบบคงที่: ดูสวิตช์ VIEW_Y_FREE_IN_ZONE และ IDLE_RECENTER_CONSTANT_X
+    // ระบบบิต: เฉพาะแกน X (Y คงเดิม) / ระบบคงที่: ดูสวิตช์ VIEW_X_FREE_IN_ZONE, VIEW_Y_FREE_IN_ZONE และ IDLE_RECENTER_CONSTANT_X
     private final Runnable idleRecenterRunnable = new Runnable() {
         @Override
         public void run() {
@@ -321,18 +324,21 @@ public class MouseController {
             if (pressing) return;
             float sx = hasCustomTarget ? targetBtnX : maxScreenWidth * 0.75f;
 
-            // [เพิ่ม] ระบบคงที่
+            // ระบบคงที่
             if (!viewFlickAccel) {
-                // [เพิ่มใหม่] แกน X + Y ลากทะลุจอได้ -> ไม่รีเซ็ตอะไรเลยตอนเมาส์หยุด (นิ้วค้างตำแหน่งเดิม)
+                // แกน X + Y ลากทะลุจอได้ -> ไม่รีเซ็ตอะไรเลยตอนเมาส์หยุด (นิ้วค้างตำแหน่งเดิม)
                 if (VIEW_X_FREE_IN_ZONE && VIEW_Y_FREE_IN_ZONE) return;
+
+                // ถ้า X ลากทะลุได้ จะไม่พา X กลับกลางโซนเด็ดขาด ไม่ว่า IDLE_RECENTER_CONSTANT_X จะเป็นอะไร
+                final boolean idleRecenterX = IDLE_RECENTER_CONSTANT_X && !VIEW_X_FREE_IN_ZONE;
 
                 float zsx = Math.max(maxScreenWidth * ZONE_X_MIN,
                         Math.min(maxScreenWidth * ZONE_X_MAX, sx));
 
                 if (VIEW_Y_FREE_IN_ZONE) {
-                    // [แก้ไข] แกน Y ไม่รีเซ็ตเลย (นิ้วค้างตำแหน่งเดิม ไม่ยก-วางใหม่)
+                    // แกน Y ไม่รีเซ็ตเลย (นิ้วค้างตำแหน่งเดิม ไม่ยก-วางใหม่)
                     // เปิด IDLE_RECENTER_CONSTANT_X แล้วจะพาเฉพาะแกน X กลับกลางโซน (Y คงเดิม)
-                    if (IDLE_RECENTER_CONSTANT_X
+                    if (idleRecenterX
                             && Math.abs(viewX - zsx) > maxScreenWidth * 0.02f) {
                         recenterTo(zsx, (float) viewY, true);
                     }
@@ -343,15 +349,19 @@ public class MouseController {
                 float zsy = hasCustomTarget ? targetBtnY : maxScreenHeight * 0.5f;
                 zsy = Math.max(maxScreenHeight * ZONE_Y_MIN,
                         Math.min(maxScreenHeight * ZONE_Y_MAX, zsy));
-                if (IDLE_RECENTER_CONSTANT_X) {
+                if (idleRecenterX) {
                     if (Math.abs(viewX - zsx) > maxScreenWidth * 0.02f
                             || Math.abs(viewY - zsy) > maxScreenHeight * 0.02f) {
                         recenterTo(zsx, zsy);
                     }
                 } else {
                     // ไม่แตะแกน X (ค้างที่เดิม) รีเซ็ตเฉพาะแกน Y เหมือนเดิม
+                    // ถ้า X ลอยนอกจอ DOWN ใหม่ต้องอยู่ในจอ จึงบีบ X เข้าจอเฉพาะตอนวางนิ้วใหม่
                     if (Math.abs(viewY - zsy) > maxScreenHeight * 0.02f) {
-                        recenterTo((float) viewX, zsy);
+                        final float dx0 = VIEW_X_FREE_IN_ZONE
+                                ? (float) Math.max(0.0, Math.min(maxScreenWidth - 1, viewX))
+                                : (float) viewX;
+                        recenterTo(dx0, zsy);
                     }
                 }
                 return;
@@ -469,16 +479,14 @@ public class MouseController {
     }
 
     // ความชันของค่าความไว (ตั้งจากหน้าตั้งค่า): 1.0 = เส้นตรง (ลดค่าครึ่งหนึ่ง = ช้าลงครึ่งหนึ่งจริงๆ)
-    // [แก้ไข] เดิม 0.8 ทำให้ตอนปรับลดต่ำกว่าจุดพอดี ความเร็วลดลงน้อยกว่าที่ปรับ (เช่น ลดเหลือ 0.5 เท่า ได้แค่ ~0.57 เท่า)
     // ถ้าอยากให้ปรับไวขึ้นอีก (ช่วงสูงเกินจุดพอดีเปลี่ยนน้อยลง) ค่อยลดกลับเป็น 0.8
     private static final float VIEW_SENS_CURVE = 1.0f;
     // ค่าความไวที่ตอนนี้รู้สึกพอดี แยกแกน (ตรงค่านี้ความเร็วเท่าเดิมเป๊ะ) ใส่ตามที่ตั้งในหน้าตั้งค่า
     private static final float VIEW_SENS_PIVOT_X = 0.04f;
     private static final float VIEW_SENS_PIVOT_Y = 0.02f;
 
-    // [แก้ไข] ตัวคูณความเร็วโหมดมุมมอง แยกแกน X / Y
+    // ตัวคูณความเร็วโหมดมุมมอง แยกแกน X / Y
     // 1.0 = เท่าเดิม, 0.5 = ช้าลงครึ่งหนึ่ง, 0.25 = ช้าลง 4 เท่า
-    // X = ค่าเดิม (0.25) / Y = เร่งขึ้นเป็น 0.5 (เร็วขึ้น 2 เท่า) ถ้ายังช้าไปให้เพิ่ม (เช่น 0.7) ถ้าเร็วไปให้ลด (เช่น 0.35)
     private static final float VIEW_SPEED_SCALE_X = 0.5f;
     private static final float VIEW_SPEED_SCALE_Y = 0.5f;
 
@@ -569,7 +577,7 @@ public class MouseController {
         windowManager.addView(mouseLockView, mouseLockParams);
 
         cursorLayer = new FrameLayout(context);
-        // [แก้ไข] ขนาดหน้าต่างเคอร์เซอร์ = ขนาดจอจริงเป๊ะๆ (ไม่ใช้ MATCH_PARENT)
+        // ขนาดหน้าต่างเคอร์เซอร์ = ขนาดจอจริงเป๊ะๆ (ไม่ใช้ MATCH_PARENT)
         // เดิมบางเครื่องหน้าต่างถูกตัดไม่ให้คลุมแถบปุ่มโฮม/ย้อนกลับ เคอร์เซอร์ที่ไปอยู่ตรงนั้นเลยโดนตัดหายไป
         cursorLayerParams = new WindowManager.LayoutParams(
                 Math.round(maxScreenWidth), Math.round(maxScreenHeight),
@@ -602,7 +610,7 @@ public class MouseController {
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY : WindowManager.LayoutParams.TYPE_PHONE;
     }
 
-    // [เพิ่ม] ไม่ให้ระบบหักพื้นที่แถบสถานะ/แถบปุ่มโฮม-ย้อนกลับออกจากหน้าต่าง (Android 11+)
+    // ไม่ให้ระบบหักพื้นที่แถบสถานะ/แถบปุ่มโฮม-ย้อนกลับออกจากหน้าต่าง (Android 11+)
     // ค่าเริ่มต้นของระบบคือเว้นพื้นที่ systemBars ไว้ ทำให้หน้าต่างเคอร์เซอร์ไม่คลุมแถบปุ่มนำทาง
     // เคอร์เซอร์ที่เลื่อนไปอยู่บนปุ่มโฮม/ย้อนกลับจึงถูกตัดหาย
     private void applyNoInsets(WindowManager.LayoutParams p) {
@@ -614,7 +622,7 @@ public class MouseController {
         }
     }
 
-    // [เพิ่ม] ปรับขนาดหน้าต่างเคอร์เซอร์ให้ตรงกับจอจริงทุกครั้งที่ขนาดจอเปลี่ยน (หมุนจอ/ย้ายจอ DeX)
+    // ปรับขนาดหน้าต่างเคอร์เซอร์ให้ตรงกับจอจริงทุกครั้งที่ขนาดจอเปลี่ยน (หมุนจอ/ย้ายจอ DeX)
     private void updateOverlaySizes() {
         try {
             if (windowManager == null) return;
@@ -653,12 +661,6 @@ public class MouseController {
             if (mouseMoveToken != 0) {
                 TouchSimulator.simulateUp(mouseMoveToken, 2, Math.round((float) (viewX / sx)), Math.round((float) (viewY / sy)));
                 mouseMoveToken = 0;
-            }
-            // [เพิ่ม] ปล่อยนิ้วหลอกด้วย เดี๋ยวค้างตำแหน่งเก่า (ครั้งหน้าเข้าโหมดมุมมองใหม่จะ DOWN ให้เอง)
-            if (anchorToken != 0) {
-                TouchSimulator.simulateUp(anchorToken, ANCHOR_POINTER_ID,
-                        Math.round((float) (viewX / sx)), Math.round((float) (viewY / sy)));
-                anchorToken = 0;
             }
         } catch (Exception ignored) {}
     }
@@ -848,34 +850,50 @@ public class MouseController {
                 if (isMouseMode) {
                     // ถ้านิ้วเมาส์ (ID 2) ถูกล้างไปแล้ว ให้ DOWN ใหม่อัตโนมัติ
                     if (mouseMoveToken == 0 || !TouchSimulator.isPointerDown(2)) {
-                        viewX = hasCustomTarget ? targetBtnX : maxScreenWidth * 0.75f;
-                        viewY = hasCustomTarget ? targetBtnY : maxScreenHeight * 0.5f;
+                        if (!viewFlickAccel && VIEW_X_FREE_IN_ZONE) {
+                            // ระบบคงที่: วางนิ้วกลับที่ตำแหน่ง X ปัจจุบัน (บีบเข้าจอเฉพาะตอน DOWN)
+                            // ไม่เด้งกลับไปปุ่มล็อคเมาส์ ส่วนแกน Y ใช้ค่าเดิม
+                            viewX = Math.max(0.0, Math.min(maxScreenWidth - 1, viewX));
+                            viewY = hasCustomTarget ? targetBtnY : maxScreenHeight * 0.5f;
+                        } else {
+                            viewX = hasCustomTarget ? targetBtnX : maxScreenWidth * 0.75f;
+                            viewY = hasCustomTarget ? targetBtnY : maxScreenHeight * 0.5f;
+                        }
                         mouseMoveToken = TouchSimulator.simulateDown(2, Math.round((float) viewX), Math.round((float) viewY));
                     }
 
-                    // [เพิ่ม] กันเหนียวเช่นเดียวกัน: ถ้านิ้วหลอกหลุดไปด้วยเหตุผลใดก็ตาม ให้แปะกลับที่จุดเริ่ม
-                    if (anchorToken == 0 || !TouchSimulator.isPointerDown(ANCHOR_POINTER_ID)) {
-                        float ax = hasCustomTarget ? targetBtnX : maxScreenWidth * 0.75f;
-                        float ay = hasCustomTarget ? targetBtnY : maxScreenHeight * 0.5f;
-                        anchorToken = TouchSimulator.simulateDown(ANCHOR_POINTER_ID, Math.round(ax), Math.round(ay));
-                    }
+                    // คำนวณ dt เสมอ (ไม่ใช่แค่ตอน viewFlickAccel) เพื่อใช้ตรวจจับ "ช่วงเงียบ"
+                    // (มือยกเมาส์ขึ้น) ของระบบคงที่ด้วย ไม่ตัด dt ที่ 32ms แบบเดิมตรงนี้ เพราะต้องรู้ช่วงเงียบที่ยาวได้จริง
+                    long nowNs = System.nanoTime();
+                    float rawDt = lastMoveNs == 0 ? 8f : (nowNs - lastMoveNs) / 1_000_000f;
+                    lastMoveNs = nowNs;
+                    float dtMsFull = Math.max(1f, Math.min(1000f, rawDt));
 
                     // กันเหวี่ยงแรงเกินจนพิกัดกระโดดไกลในเฟรมเดียว (อาการ "ล็อค"/สะบัดกลับตอนหันไว)
-                    // [แก้ไข] ระบบคงที่: แกน X ไม่ตัดระยะเลย (ตัดแล้วสบัดแรงๆ ความเร็วจะไม่คงที่)
-                    //         ตอนนี้ระยะที่เกินโซนถูกยกไปทำต่อหลังวางนิ้วใหม่แทน จึงไม่ทำให้พิกัดกระโดดอันตราย
-                    //         แกน Y และระบบบิตใช้ค่าเดิม 1500
+                    // ระบบคงที่: แกน X ไม่ตัดระยะเลย (ตัดแล้วสบัดแรงๆ ความเร็วจะไม่คงที่)
+                    // แกน Y และระบบบิตใช้ค่าเดิม 1500
                     final float MAX_FRAME_DELTA = 1500f;
                     final float MAX_FRAME_DELTA_X = viewFlickAccel ? MAX_FRAME_DELTA : 1_000_000f;
                     float dx = Math.max(-MAX_FRAME_DELTA_X, Math.min(MAX_FRAME_DELTA_X, sumDx));
                     float dy = Math.max(-MAX_FRAME_DELTA, Math.min(MAX_FRAME_DELTA, sumDy));
 
+                    // ระบบคงที่เท่านั้น: event แรกหลัง "ช่วงเงียบ" (ยกเมาส์แล้ววางใหม่ ตัวรับเมาส์หลุดพื้นผิวชั่วครู่
+                    // แล้ว OS รวม event ที่ค้างคิวมาส่งเป็นก้อนใหญ่ก้อนเดียว)
+                    // [แก้ไขรอบนี้] 1) ล็อก dt ของเพดานไว้ที่ POST_GAP_CAP_DT_MS (เพดานไม่โตตามความยาวช่วงเงียบ)
+                    //              2) ถ้าก้อนแรกใหญ่เกินเพดาน ทิ้งทั้งก้อน (ไม่ใช่การขยับจริง) แทนการบีบ
+                    //              event ถัดไปที่ขยับติดกันปกติ (dt เล็ก) จะไม่โดนแตะเลย
+                    if (!viewFlickAccel && dtMsFull > POST_GAP_MS) {
+                        float capPx = POST_GAP_MAX_V * Math.min(dtMsFull, POST_GAP_CAP_DT_MS);
+                        if (Math.abs(dx) > capPx || Math.abs(dy) > capPx) {
+                            dx = 0f;
+                            dy = 0f;
+                        }
+                    }
+
                     // ระบบสบัดเมาส์: เฉพาะ "ระบบบิต" เท่านั้น
-                    // [แก้ไข] ระบบคงที่ = เมาส์เชิงเส้นปกติ ไม่มีตัวจำกัด/ตัวเร่ง (ระยะเมาส์ x ความไว)
+                    // ระบบคงที่ = เมาส์เชิงเส้นปกติ ไม่มีตัวจำกัด/ตัวเร่ง (ระยะเมาส์ x ความไว)
                     if (viewFlickAccel) {
-                        long nowNs = System.nanoTime();
-                        float rawDt = lastMoveNs == 0 ? 8f : (nowNs - lastMoveNs) / 1_000_000f;
-                        lastMoveNs = nowNs;
-                        float dtMs = Math.max(1f, Math.min(32f, rawDt));
+                        float dtMs = Math.max(1f, Math.min(32f, dtMsFull));
 
                         // ความเร็วนิ้วเสมือนแกน X (px/ms) หลังคูณความไวแล้ว
                         float fvx = Math.abs(dx * gain * viewSensX) / dtMs;
@@ -886,7 +904,7 @@ public class MouseController {
                         }
                     }
 
-                    // [เพิ่ม] ระบบคงที่ใช้โซนความเร็วคงที่เสมอ (นิ้วเสมือนอยู่ในโซนฝั่งขวาที่เกมให้ความเร็วเท่ากัน)
+                    // ระบบคงที่ใช้โซนความเร็วคงที่เสมอ (นิ้วเสมือนอยู่ในโซนฝั่งขวาที่เกมให้ความเร็วเท่ากัน)
                     // ระบบบิตใช้โซนก็ต่อเมื่อเปิด VIEW_CONSTANT_ZONE (ปกติปิด = พฤติกรรมเดิม)
                     final boolean useZone = VIEW_CONSTANT_ZONE || !viewFlickAccel;
 
@@ -897,31 +915,46 @@ public class MouseController {
 
                     if (useZone) {
                         // ===== โซนความเร็วคงที่: หมุนต่อเนื่อง ไม่ทิ้งระยะ ไม่ทัชผิดที่ =====
-                        // ความเร็วคงที่ล้วนๆ ไม่คูณอะไรตามตำแหน่ง (ทั้ง X และ Y)
                         final float mvX = dx * gain * viewSensX;
 
                         // แกน Y
                         viewY += dy * gain * viewSensY;
                         if (VIEW_Y_FREE_IN_ZONE) {
-                            // [แก้ไข] ลากทะลุขอบจอได้ ไม่ยก-วางนิ้วใหม่ (แค่กันเลขลอยไกลเกินจริง ไม่ยกนิ้ว)
+                            // ลากทะลุขอบจอได้ ไม่ยก-วางนิ้วใหม่ (แค่กันเลขลอยไกลเกินจริง ไม่ยกนิ้ว)
                             final double yLim = maxScreenHeight * VIEW_Y_LIMIT_SCREENS;
                             if (viewY < -yLim) viewY = -yLim;
                             else if (viewY > maxScreenHeight + yLim) viewY = maxScreenHeight + yLim;
                         }
 
-                        // [เพิ่มใหม่] แกน X ลากทะลุขอบจอได้เหมือนแกน Y: ไม่ชนขอบโซน ไม่ยก-วางนิ้วใหม่ ไม่รีเซ็ต
-                        // (ข้ามโค้ดโซน/ลูปวางนิ้วใหม่ด้านล่างทั้งหมด)
-                        if (VIEW_X_FREE_IN_ZONE && VIEW_Y_FREE_IN_ZONE) {
-                            viewX += mvX;
+                        // แกน X ลากทะลุขอบจอได้ ไม่ขึ้นกับ VIEW_Y_FREE_IN_ZONE
+                        // กดค้างนิ้วเดียว ไม่ชนขอบโซน ไม่ยก-วางนิ้วใหม่ ไม่รีเซ็ต (ข้ามโค้ดโซน/ลูปวางนิ้วใหม่ด้านล่างทั้งหมด)
+                        if (VIEW_X_FREE_IN_ZONE) {
+                            // [แก้ไขรอบนี้] คูณตัวชดเชยตอนนิ้วอยู่นอกจอ (factorX คืน 1 ถ้า OFFSCREEN_COMPENSATE = false)
+                            // เกมให้ความเร็วเร็วขึ้นตอนนิ้วเลยขอบจอ ไม่ชดเชยจะรู้สึกว่ายกเมาส์หันซ้ำแล้วไวขึ้นเรื่อยๆ
+                            viewX += mvX * factorX((float) viewX);
                             final double xLim = maxScreenWidth * VIEW_X_LIMIT_SCREENS;
                             if (viewX < -xLim) viewX = -xLim;
                             else if (viewX > maxScreenWidth + xLim) viewX = maxScreenWidth + xLim;
+
+                            // ถ้า Y ตั้งเป็นแบบเดิม (VIEW_Y_FREE_IN_ZONE = false) ให้ Y หลุดโซนแล้วยก-วางใหม่เหมือนเดิม
+                            // (X ไม่ถูกรีเซ็ต แค่บีบเข้าจอตอนวางนิ้วใหม่ เพราะ DOWN นอกจอไม่ติด)
+                            if (!VIEW_Y_FREE_IN_ZONE) {
+                                final float yTop = maxScreenHeight * ZONE_Y_MIN;
+                                final float yBot = maxScreenHeight * ZONE_Y_MAX;
+                                if (viewY < yTop || viewY > yBot) {
+                                    final float yNew = viewY > yBot ? yTop + (yBot - yTop) * ZONE_RESTART
+                                                                    : yBot - (yBot - yTop) * ZONE_RESTART;
+                                    sendViewMoveClamped();
+                                    recenterTo((float) Math.max(0.0, Math.min(maxScreenWidth - 1, viewX)), yNew);
+                                }
+                            }
 
                             scheduleViewInject();
                             armIdleRecenter();
                             break;
                         }
 
+                        // ===== ด้านล่างนี้ใช้เฉพาะตอน VIEW_X_FREE_IN_ZONE = false (พฤติกรรมเดิมของแกน X) =====
                         final float zx0 = maxScreenWidth * ZONE_X_MIN, zx1 = maxScreenWidth * ZONE_X_MAX;
                         final float zy0 = maxScreenHeight * ZONE_Y_MIN, zy1 = maxScreenHeight * ZONE_Y_MAX;
 
@@ -949,7 +982,7 @@ public class MouseController {
                             viewX = edge;
 
                             if (VIEW_Y_FREE_IN_ZONE) {
-                                // [แก้ไข] Y คงตามจริง (ไม่บีบ ไม่รีเซ็ต) เว้นแต่ตอนวางนิ้วใหม่ต้องอยู่ในจอ
+                                // Y คงตามจริง (ไม่บีบ ไม่รีเซ็ต) เว้นแต่ตอนวางนิ้วใหม่ต้องอยู่ในจอ
                                 sendViewMoveRawY();
                                 recenterTo(toRight ? restartRightX : restartLeftX, (float) viewY, true);
                             } else {
@@ -1014,7 +1047,7 @@ public class MouseController {
                         scheduleViewInject();
                     }
                 } else {
-                    // ===== โหมดเคอร์เซอร์ปกติ: แก้ให้ลื่น =====
+                    // ===== โหมดเคอร์เซอร์ปกติ =====
                     cursorX += sumDx * gain;
                     cursorY += sumDy * gain;
                     cursorX = Math.max(0f, Math.min(maxScreenWidth - 1, cursorX));
@@ -1116,7 +1149,7 @@ public class MouseController {
 
         if (isMouseMode) {
             if (!wasMouseMode) {
-                // [เพิ่ม] เริ่มโหมดมุมมองใหม่ รีเซ็ตตัวจับเวลาของระบบบิต
+                // เริ่มโหมดมุมมองใหม่ รีเซ็ตตัวจับเวลาของระบบบิต
                 lastMoveNs = 0;
 
                 if (mouseMoveToken != 0) {
@@ -1127,13 +1160,6 @@ public class MouseController {
                 viewY = hasCustomTarget ? targetBtnY : maxScreenHeight * 0.5f;
 
                 mouseMoveToken = TouchSimulator.simulateDown(2, Math.round((float) viewX), Math.round((float) viewY));
-
-                // [เพิ่ม] แปะนิ้วหลอกตัวที่ 3 นิ่งๆ ที่จุดเดียวกับจุดเริ่มมุมมอง
-                // ให้มีนิ้วครบ 3 เสมอตลอดช่วงล็อคเมาส์ (กันเกมตีความ "ยิง+ลากมุมมอง" (2 นิ้ว) เป็นท่า pinch/rotate)
-                if (anchorToken == 0) {
-                    anchorToken = TouchSimulator.simulateDown(ANCHOR_POINTER_ID,
-                            Math.round((float) viewX), Math.round((float) viewY));
-                }
             }
 
             // แก้ช้า: แค่ซ่อนเคอร์เซอร์ ไม่ลบ view ทิ้ง (ครั้งหน้าไม่ต้องสร้าง/โหลดรูปใหม่)
@@ -1141,18 +1167,12 @@ public class MouseController {
 
             if (!typingMode) requestCaptureFast();
         } else {
-            // [เพิ่ม] ออกจากโหมดมุมมอง ยกเลิกงานส่งตำแหน่งที่ค้างอยู่
+            // ออกจากโหมดมุมมอง ยกเลิกงานส่งตำแหน่งที่ค้างอยู่
             if (wasMouseMode) cancelViewInject();
 
             if (wasMouseMode && mouseMoveToken != 0) {
                 TouchSimulator.simulateUp(mouseMoveToken, 2, Math.round((float) viewX), Math.round((float) viewY));
                 mouseMoveToken = 0;
-            }
-            // [เพิ่ม] ปล่อยนิ้วหลอกตอนออกจากโหมดล็อคเมาส์
-            if (wasMouseMode && anchorToken != 0) {
-                TouchSimulator.simulateUp(anchorToken, ANCHOR_POINTER_ID,
-                        Math.round((float) viewX), Math.round((float) viewY));
-                anchorToken = 0;
             }
 
             // ปลดล็อคเมาส์ -> เคอร์เซอร์กลับมาอยู่กลางจอ
@@ -1246,11 +1266,6 @@ public class MouseController {
             TouchSimulator.simulateUp(mouseMoveToken, 2, Math.round((float) viewX), Math.round((float) viewY));
             mouseMoveToken = 0;
         }
-        // [เพิ่ม] ปล่อยนิ้วหลอกคู่กันทุกครั้งที่ปล่อยนิ้วมุมมอง
-        if (anchorToken != 0) {
-            TouchSimulator.simulateUp(anchorToken, ANCHOR_POINTER_ID, Math.round((float) viewX), Math.round((float) viewY));
-            anchorToken = 0;
-        }
     }
 
     public void updateSensitivity(float sensitivity) {
@@ -1275,7 +1290,6 @@ public class MouseController {
         injectHandler.removeCallbacks(captureRunnable);
         // ไม่ inject UP ตรงนี้ (กัน main thread ค้างตอนปิด) FloatingService จะ CANCEL ทุกนิ้วให้เอง
         mouseMoveToken = 0;
-        anchorToken = 0; // [เพิ่ม] เคลียร์ไว้กันค้าง (ไม่ inject UP ด้วยเหตุผลเดียวกับ mouseMoveToken ข้างบน)
         try {
             if (mouseLockView != null) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

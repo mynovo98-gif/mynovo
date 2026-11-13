@@ -31,7 +31,7 @@ public class TouchSimulator {
     private static final boolean DEBUG_LOG = false;
 
     // เวลาค้างนิ้วของ simulateClick (ms) เกมที่รับปุ่มไม่ติดให้เพิ่ม (เช่น 40-60) ถ้าอยากให้ไวสุดให้ลด (เช่น 10-15)
-    private static final long CLICK_HOLD_MS = 12L;
+    private static final long CLICK_HOLD_MS = 15L;
 
     // accepted=false ติดกันกี่ครั้งถึงจะแจ้งผู้ใช้ว่า ROM อาจบล็อก
     private static final int REJECT_STREAK_LIMIT = 8;

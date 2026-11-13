@@ -2,7 +2,7 @@ package com.mynovo.mynovo1;
 
 import android.app.ActivityOptions;
 import android.app.AppOpsManager;
-import android.app.Dialog; // [แก้] เพิ่ม import
+import android.app.Dialog;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -74,10 +74,10 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout navStartGame, navAccount, navActivation, navSettings;
     private FrameLayout fragmentContainer;
 
-    private Dialog currentDialog; // [แก้] เดิมเป็น AlertDialog
+    private Dialog currentDialog;
     private String currentDialogType = "";
 
-    // [ใหม่] wizard Wireless activation (ใช้ WirelessAdbWizardManager ภายใน)
+    // wizard Wireless activation (ใช้ WirelessAdbWizardManager ภายใน)
     private WirelessActivationDialog wirelessDialog;
 
     private final Shizuku.OnBinderReceivedListener BINDER_RECEIVED_LISTENER = new Shizuku.OnBinderReceivedListener() {
@@ -121,7 +121,7 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // [ใหม่] ให้ client ของ shell server (Quick Activation) รู้จัก context
+        // ให้ client ของ shell server (Quick Activation) รู้จัก context
         TouchSimulator.setContext(this);
 
         try {
@@ -143,7 +143,7 @@ public class MainActivity extends AppCompatActivity {
         navActivation.setOnClickListener(v -> handleActivationClick());
         navSettings.setOnClickListener(v -> loadSettingsView());
 
-        // [ใหม่] ปุ่มปากกากลางแถบเมนูล่าง
+        // ปุ่มปากกากลางแถบเมนูล่าง
         addCenterPenButton();
     }
 
@@ -160,7 +160,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        // [ใหม่] ปิด wizard ถ้ายังเปิดอยู่ (จะหยุด mDNS + ล้าง notification ให้เอง)
+        // ปิด wizard ถ้ายังเปิดอยู่ (จะหยุด mDNS + ล้าง notification ให้เอง)
         try {
             if (wirelessDialog != null && wirelessDialog.isShowing()) wirelessDialog.getDialog().dismiss();
         } catch (Exception ignored) {}
@@ -178,19 +178,19 @@ public class MainActivity extends AppCompatActivity {
         checkInputDevicesStatus();
         refreshCurrentDialog();
 
-        // [ใหม่] ลองเชื่อม shell server เบื้องหลัง (เผื่อผู้ใช้เพิ่งรัน activate.sh แล้วสลับกลับมา) เสร็จแล้วอัปเดตสถานะ
+        // ลองเชื่อม shell server เบื้องหลัง (เผื่อผู้ใช้เพิ่งรัน activate.sh แล้วสลับกลับมา) เสร็จแล้วอัปเดตสถานะ
         ShellServerClient.connectAsync(ok -> {
             checkRealActivationStatus();
             if (ok) refreshCurrentDialog();
         });
 
-        // [ใหม่] ถ้าเพิ่งส่งทัชไม่ผ่าน (ROM บล็อก) แสดงวิธีเปิดสวิตช์ของยี่ห้อนั้น
+        // ถ้าเพิ่งส่งทัชไม่ผ่าน (ROM บล็อก) แสดงวิธีเปิดสวิตช์ของยี่ห้อนั้น
         RomGuide.showIfNeeded(this);
     }
 
     private void refreshCurrentDialog() {
         if (currentDialog != null && currentDialog.isShowing()) {
-            // [แก้] Wireless wizard อัปเดตสถานะในตัวเอง ห้ามปิด-เปิดใหม่ ไม่งั้น flow pair/connect จะรีเซ็ต
+            // Wireless wizard อัปเดตสถานะในตัวเอง ห้ามปิด-เปิดใหม่ ไม่งั้น flow pair/connect จะรีเซ็ต
             if ("WIRELESS".equals(currentDialogType)) {
                 if (wirelessDialog != null) wirelessDialog.refresh();
                 return;
@@ -204,15 +204,15 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // [ใหม่] เชื่อม shell server (Quick Activation) อยู่หรือไม่
+    // เชื่อม shell server (Quick Activation) อยู่หรือไม่
     private boolean isShellServerActive() {
         return ShellServerClient.isConnected();
     }
 
     private boolean isReallyActivated() {
-        // [ใหม่] นับ shell server ด้วย
+        // นับ shell server ด้วย
         if (isShellServerActive()) return true;
-        // [ใหม่] ผู้ใช้กด Deactivate แล้ว ไม่นับ Shizuku (จนกว่าจะกด Activate ใหม่)
+        // ผู้ใช้กด Deactivate แล้ว ไม่นับ Shizuku (จนกว่าจะกด Activate ใหม่)
         if (!TouchSimulator.isShizukuEnabled()) return false;
         try {
             if (Shizuku.pingBinder()) {
@@ -248,8 +248,6 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout rootContent = new LinearLayout(this);
         rootContent.setOrientation(LinearLayout.VERTICAL);
         rootContent.setPadding(20, 20, 20, 20);
-
-        // [ลบหัวข้อซ้ำออกเรียบร้อยแล้ว ให้แสดงผลแค่แถบ Toolbar ด้านบนสุดอันเดียว]
 
         btnCardActivation = new LinearLayout(this);
         btnCardActivation.setOrientation(LinearLayout.VERTICAL);
@@ -373,7 +371,7 @@ public class MainActivity extends AppCompatActivity {
         fragmentContainer.addView(layout);
     }
 
-    // ===== [ใหม่] ปุ่มปากกากลางแถบเมนูล่าง (แทรกระหว่าง Account กับ Activation) =====
+    // ===== ปุ่มปากกากลางแถบเมนูล่าง (แทรกระหว่าง Account กับ Activation) =====
     // แทรกจากโค้ด ไม่ต้องแก้ activity_main.xml ต้องมี res/drawable/btn_pen.png
     private void addCenterPenButton() {
         try {
@@ -453,7 +451,7 @@ public class MainActivity extends AppCompatActivity {
             showPcActivationGuideDialog();
         }));
 
-        // [ใหม่] วิธีที่ 4: Quick Activation (Command) แบบ K2 Tap
+        // วิธีที่ 4: Quick Activation (Command) แบบ K2 Tap
         container.addView(createMethodButton("⌨️ Quick Activation (Command)", v -> {
             dialog.dismiss();
             ShellActivationDialog.show(MainActivity.this);
@@ -628,7 +626,7 @@ public class MainActivity extends AppCompatActivity {
         return row;
     }
 
-    // [แก้ทั้งหมด] ใช้ WirelessActivationDialog (wizard 6 ขั้นตอน: Developer options -> USB debugging
+    // ใช้ WirelessActivationDialog (wizard 6 ขั้นตอน: Developer options -> USB debugging
     // -> Wireless debugging -> PAIR -> รอพอร์ตอัตโนมัติ -> ACTIVATE)
     private void showWirelessActivationGuide() {
         wirelessDialog = WirelessActivationDialog.show(this, () -> {
@@ -655,7 +653,7 @@ public class MainActivity extends AppCompatActivity {
         builder.setMessage("1. Connect device via USB\n2. Enable USB Debugging\n3. Run PC activation command\n\nStatus:" + statusCheck);
 
         builder.setPositiveButton("ACTIVATE", (dialog, which) -> {
-            // [ใหม่] หลังกด Deactivate แล้ว กด ACTIVATE เพื่อกลับมาใช้ทางเชื่อมที่คอมเปิดไว้
+            // หลังกด Deactivate แล้ว กด ACTIVATE เพื่อกลับมาใช้ทางเชื่อมที่คอมเปิดไว้
             TouchSimulator.setShizukuEnabled(this, true);
             checkRealActivationStatus();
             if (isReallyActivated()) {
@@ -686,7 +684,7 @@ public class MainActivity extends AppCompatActivity {
         tvTitle.setPadding(32, 32, 32, 16);
         builder.setCustomTitle(tvTitle);
 
-        // [แก้] บอกวิธีที่ใช้งานอยู่ (Command หรือ Shizuku)
+        // บอกวิธีที่ใช้งานอยู่ (Command หรือ Shizuku)
         builder.setMessage(isShellServerActive()
                 ? "Current Status: Activated & Ready (Command Active)"
                 : "Current Status: Activated & Ready (Shizuku Active)");
@@ -695,7 +693,7 @@ public class MainActivity extends AppCompatActivity {
             checkRealActivationStatus();
             Toast.makeText(this, "Status Refreshed", Toast.LENGTH_SHORT).show();
         });
-        // [ใหม่] ปุ่มปิดระบบแอคติเวท
+        // ปุ่มปิดระบบแอคติเวท
         builder.setNeutralButton("Deactivate", (dialog, which) -> deactivateSystem());
         builder.setNegativeButton("Close", null);
 
@@ -706,7 +704,7 @@ public class MainActivity extends AppCompatActivity {
         dialog.show();
     }
 
-    // [ใหม่] ปิดระบบแอคติเวท (ทั้ง Command และ Shizuku)
+    // ปิดระบบแอคติเวท (ทั้ง Command และ Shizuku)
     private void deactivateSystem() {
         // ปล่อยนิ้วเสมือนที่อาจค้างอยู่ และหยุด overlay
         try { TouchSimulator.releaseAllKeys(); } catch (Exception ignored) {}
@@ -1072,9 +1070,9 @@ public class MainActivity extends AppCompatActivity {
         return mode == AppOpsManager.MODE_ALLOWED;
     }
 
-    // ===================== [เพิ่ม] ระบบเปิดเกมบนจอ DeX =====================
+    // ===================== ระบบเปิดเกมบนจอ DeX =====================
 
-    // [เพิ่ม] จอที่ MainActivity อยู่ตอนนี้ (0 = มือถือ)
+    // จอที่ MainActivity อยู่ตอนนี้ (0 = มือถือ)
     @SuppressWarnings("deprecation")
     private int myDisplayId() {
         try {
@@ -1084,7 +1082,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // [เพิ่ม] Samsung DeX เปิดอยู่หรือไม่ (อ่าน Configuration.semDesktopModeEnabled ผ่าน reflection)
+    // Samsung DeX เปิดอยู่หรือไม่ (อ่าน Configuration.semDesktopModeEnabled ผ่าน reflection)
     private boolean isDexModeActive() {
         try {
             Configuration c = getResources().getConfiguration();
@@ -1098,7 +1096,7 @@ public class MainActivity extends AppCompatActivity {
         return false;
     }
 
-    // [เพิ่ม] รันคำสั่ง shell ผ่าน Shizuku (เรียกจากเธรดพื้นหลังเท่านั้น) คืน null ถ้าใช้ไม่ได้
+    // รันคำสั่ง shell ผ่าน Shizuku (เรียกจากเธรดพื้นหลังเท่านั้น) คืน null ถ้าใช้ไม่ได้
     private String runShizukuShell(String cmd) {
         try {
             if (!Shizuku.pingBinder()
@@ -1122,7 +1120,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // [เพิ่ม] หา displayId ของจอ DeX/จอนอก คืน -1 ถ้าไม่เจอ (เรียกจากเธรดพื้นหลัง)
+    // หา displayId ของจอ DeX/จอนอก คืน -1 ถ้าไม่เจอ (เรียกจากเธรดพื้นหลัง)
     private int detectExternalDisplayId() {
         // 1) MainActivity เปิดอยู่บนจอนอกอยู่แล้ว ใช้จอนั้นเลย
         int mine = myDisplayId();
@@ -1153,7 +1151,7 @@ public class MainActivity extends AppCompatActivity {
         return -1;
     }
 
-    // [เพิ่ม] เกมนี้มี ActivityRecord อยู่บนจออื่นที่ไม่ใช่จอเป้าหมายหรือไม่
+    // เกมนี้มี ActivityRecord อยู่บนจออื่นที่ไม่ใช่จอเป้าหมายหรือไม่
     private boolean hasTaskOnOtherDisplay(String dump, String pkg, int targetDisplay) {
         Pattern dispPat = Pattern.compile("Display #(\\d+)");
         int cur = -1;
@@ -1165,9 +1163,9 @@ public class MainActivity extends AppCompatActivity {
         return false;
     }
 
-    // [เพิ่ม] สั่งเปิดเกมบนจอ displayId ที่กำหนด คืน true ถ้าสำเร็จ (เรียกจากเธรดพื้นหลัง)
+    // สั่งเปิดเกมบนจอ displayId ที่กำหนด คืน true ถ้าสำเร็จ (เรียกจากเธรดพื้นหลัง)
     private boolean startGameOnDisplayViaShell(Intent intent, String pkg, int displayId) {
-        // [เพิ่ม] ถ้าเกมมี task ค้างอยู่คนละจอ (เช่นบนมือถือ) ต้องปิดก่อน ไม่งั้น am start จะแค่ดึง task เดิม
+        // ถ้าเกมมี task ค้างอยู่คนละจอ (เช่นบนมือถือ) ต้องปิดก่อน ไม่งั้น am start จะแค่ดึง task เดิม
         String dump = runShizukuShell("dumpsys activity activities | grep -E 'Display #|ActivityRecord'");
         if (dump != null && hasTaskOnOtherDisplay(dump, pkg, displayId)) {
             Log.w("DEX", "game has old task on another display -> force-stop before launch");
@@ -1190,7 +1188,7 @@ public class MainActivity extends AppCompatActivity {
         return !out.contains("Error") && !out.contains("Exception");
     }
 
-    // [แก้ไข] ถ้า DeX เปิดอยู่ จะสั่งเปิดเกมบนจอ DeX ตรงๆ ไม่เปิดบนมือถือ
+    // ถ้า DeX เปิดอยู่ จะสั่งเปิดเกมบนจอ DeX ตรงๆ ไม่เปิดบนมือถือ
     private void launchGame(String packageName) {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
@@ -1253,7 +1251,7 @@ public class MainActivity extends AppCompatActivity {
                 final int did = displayId;
                 final boolean shOk = runShizukuShell("echo ok") != null;
                 runOnUiThread(() -> {
-                    // [เพิ่ม] แสดงผลวินิจฉัยบนจอ เพื่อดูว่าติดที่ขั้นไหน
+                    // แสดงผลวินิจฉัยบนจอ เพื่อดูว่าติดที่ขั้นไหน
                     Toast.makeText(MainActivity.this,
                             "DeX=" + dex + " จอแอป=" + minePre + " จอเป้าหมาย=" + did
                                     + " Shizuku shell=" + shOk + " สั่งเปิดสำเร็จ=" + done,
@@ -1272,8 +1270,9 @@ public class MainActivity extends AppCompatActivity {
                     new Handler(Looper.getMainLooper()).postDelayed(() -> {
                         Intent serviceIntent = new Intent(MainActivity.this, FloatingService.class);
                         serviceIntent.putExtra("GAME_PACKAGE", packageName);
-                        // [เพิ่ม] บอก service ว่าเกมถูกสั่งเปิดบนจอไหน ไม่ต้องเดาจาก dumpsys
-                        if (done && did > 0) serviceIntent.putExtra("GAME_DISPLAY", did);
+                        // บอก service ว่าเกมถูกเปิดบนจอไหน ไม่ต้องเดาจาก dumpsys
+                        // done && did>0 = สั่งเปิดบนจอ DeX จริง, นอกนั้นเกมเปิดตามจอที่ MainActivity อยู่ (0 = มือถือ)
+                        serviceIntent.putExtra("GAME_DISPLAY", (done && did > 0) ? did : minePre);
                         startService(serviceIntent);
                     }, 1200);
                 });
