@@ -138,7 +138,10 @@ public class FloatingService extends Service implements MouseController.MouseEve
     private Map<View, Runnable> rapidFireRunnables = new HashMap<>();
 
     private final Map<View, RapidTap> rapidTapMap = new HashMap<>();
-    private final Map<View, Integer> buttonRateMap = new HashMap<>();
+    // [แก้ไข] เดิมเก็บเป็น "ครั้ง/วิ" ตอนนี้เก็บเป็น "ช่วงห่าง (ms)"
+    private final Map<View, Integer> buttonIntervalMap = new HashMap<>();
+    // [เพิ่ม] โหมดแตะรัวของแต่ละปุ่ม: false/ไม่มีค่า = กดค้างเพื่อรัว, true = กดเริ่ม กดอีกครั้งหยุด
+    private final Map<View, Boolean> buttonRapidToggleMap = new HashMap<>();
     private final Map<View, Integer> buttonPressMsMap = new HashMap<>();
     private int rapidPtrCounter = 0;
     private View rapidMouseHeld = null;
@@ -339,8 +342,8 @@ public class FloatingService extends Service implements MouseController.MouseEve
         int[] loc = new int[2];
         b.getLocationOnScreen(loc);
         rt.setPosition(loc[0] + b.getWidth() / 2f, loc[1] + b.getHeight() / 2f);
-        Integer rate = buttonRateMap.get(b);
-        rt.setRate(rate != null ? rate : 10);
+        Integer iv = buttonIntervalMap.get(b);
+        rt.setIntervalMs(iv != null ? iv : 100);
         Integer pms = buttonPressMsMap.get(b);
         rt.setPressMs(pms != null ? pms : 25);
         rt.start();
@@ -352,6 +355,29 @@ public class FloatingService extends Service implements MouseController.MouseEve
         if (rt != null) rt.stop();
     }
 
+    private boolean isRapidToggle(View b) {
+        Boolean t = buttonRapidToggleMap.get(b);
+        return t != null && t;
+    }
+
+    // กดปุ่ม: โหมดกดค้าง = เริ่มรัว / โหมดกดเริ่ม-กดหยุด = สลับเปิดปิด
+    private void rapidPress(View b) {
+        if (b == null) return;
+        if (isRapidToggle(b)) {
+            RapidTap rt = rapidTapMap.get(b);
+            if (rt != null && rt.isRunning()) rapidStop(b);
+            else rapidStart(b);
+        } else {
+            rapidStart(b);
+        }
+    }
+
+    // ปล่อยปุ่ม: โหมดกดค้าง = หยุด / โหมดกดเริ่ม-กดหยุด = ไม่ทำอะไร (รัวต่อ)
+    private void rapidRelease(View b) {
+        if (b == null) return;
+        if (!isRapidToggle(b)) rapidStop(b);
+    }
+
     private void stopAllRapidTaps() {
         for (RapidTap rt : rapidTapMap.values()) rt.stop();
         rapidMouseHeld = null;
@@ -360,14 +386,16 @@ public class FloatingService extends Service implements MouseController.MouseEve
     private void removeRapidData(View b) {
         RapidTap rt = rapidTapMap.remove(b);
         if (rt != null) rt.release();
-        buttonRateMap.remove(b);
+        buttonIntervalMap.remove(b);
+        buttonRapidToggleMap.remove(b);
         buttonPressMsMap.remove(b);
     }
 
     private void clearAllRapidData() {
         for (RapidTap rt : rapidTapMap.values()) rt.release();
         rapidTapMap.clear();
-        buttonRateMap.clear();
+        buttonIntervalMap.clear();
+        buttonRapidToggleMap.clear();
         buttonPressMsMap.clear();
         rapidMouseHeld = null;
     }
@@ -600,7 +628,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
         if (mapped == null) return;
         if ("RAPID_FIRE".equals(String.valueOf(mapped.getTag()))) {
             rapidMouseHeld = mapped;
-            rapidStart(mapped);
+            rapidPress(mapped);
             return;
         }
         int[] ml = new int[2];
@@ -613,7 +641,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
     @Override
     public void onMouseLockedLeftUp() {
         if (rapidMouseHeld != null) {
-            rapidStop(rapidMouseHeld);
+            rapidRelease(rapidMouseHeld);
             rapidMouseHeld = null;
             return;
         }
@@ -1955,7 +1983,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
                 Integer v = en.getValue();
                 if (v != null && keyMatches(v, event)
                         && "RAPID_FIRE".equals(String.valueOf(en.getKey().getTag()))) {
-                    rapidStop(en.getKey());
+                    rapidRelease(en.getKey());
                     h = true;
                 }
             }
@@ -2006,7 +2034,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
                 }
 
                 if ("RAPID_FIRE".equals(tag)) {
-                    if (!isEditModeActive() && isTargetInForeground) rapidStart(b);
+                    if (!isEditModeActive() && isTargetInForeground) rapidPress(b);
                     handled = true;
                     continue;
                 }
@@ -3359,11 +3387,38 @@ public class FloatingService extends Service implements MouseController.MouseEve
             }
 
             if ("RAPID_FIRE".equals(type)) {
-                Integer r = buttonRateMap.get(container);
-                addIntRow(layout, "ความเร็วแตะ (ครั้ง/วิ): ", 1, 30, r != null ? r : 10,
-                        v -> buttonRateMap.put(container, v));
+                layout.addView(createSettingsLabel("โหมดแตะรัว"));
+                LinearLayout rapidModeRow = new LinearLayout(this);
+                rapidModeRow.setOrientation(LinearLayout.HORIZONTAL);
+                rapidModeRow.setGravity(Gravity.CENTER);
+                final Button btnRapidHold = createSubMenuOption("กดค้างเพื่อรัว", "#2E3447", null);
+                final Button btnRapidToggle = createSubMenuOption("กดเริ่ม/กดหยุด", "#2E3447", null);
+                rapidModeRow.addView(btnRapidHold);
+                rapidModeRow.addView(btnRapidToggle);
+                layout.addView(rapidModeRow);
+                final Runnable refreshRapidMode = () -> {
+                    boolean tg = isRapidToggle(container);
+                    styleModeButton(btnRapidHold, !tg);
+                    styleModeButton(btnRapidToggle, tg);
+                };
+                btnRapidHold.setOnClickListener(v -> {
+                    buttonRapidToggleMap.put(container, false);
+                    rapidStop(container);
+                    refreshRapidMode.run();
+                    savePresetToCloud();
+                });
+                btnRapidToggle.setOnClickListener(v -> {
+                    buttonRapidToggleMap.put(container, true);
+                    refreshRapidMode.run();
+                    savePresetToCloud();
+                });
+                refreshRapidMode.run();
+
+                Integer r = buttonIntervalMap.get(container);
+                addIntRow(layout, "ช่วงห่างระหว่างแตะ Interval (ms): ", 2, 500, r != null ? r : 100,
+                        v -> buttonIntervalMap.put(container, v));
                 Integer p = buttonPressMsMap.get(container);
-                addIntRow(layout, "เวลากดต่อครั้ง (ms): ", 16, 100, p != null ? p : 25,
+                addIntRow(layout, "เวลากดต่อครั้ง Click duration (ms): ", 2, 100, p != null ? p : 25,
                         v -> buttonPressMsMap.put(container, v));
             }
 
@@ -3428,8 +3483,10 @@ public class FloatingService extends Service implements MouseController.MouseEve
                     obj.put("bg", (double) fc[3]);
                     obj.put("bm", (double) fc[4]);
                 }
-                Integer rr = buttonRateMap.get(btn);
-                if (rr != null) obj.put("rate", (int) rr);
+                Integer rr = buttonIntervalMap.get(btn);
+                if (rr != null) obj.put("ims", (int) rr);
+                Boolean tgv = buttonRapidToggleMap.get(btn);
+                if (tgv != null) obj.put("tg", tgv ? 1 : 0);
                 Integer pp = buttonPressMsMap.get(btn);
                 if (pp != null) obj.put("pms", (int) pp);
                 jsonArray.put(obj);
@@ -3498,7 +3555,14 @@ public class FloatingService extends Service implements MouseController.MouseEve
                                         (float) obj.optDouble("bg", 0.0),
                                         (float) obj.optDouble("bm", 4.0)});
                             }
-                            if (obj.has("rate")) buttonRateMap.put(added, obj.getInt("rate"));
+                            if (obj.has("ims")) {
+                                buttonIntervalMap.put(added, obj.getInt("ims"));
+                            } else if (obj.has("rate")) {
+                                // พรีเซ็ตเก่าเก็บเป็นครั้ง/วิ แปลงเป็น ms
+                                int oldRate = Math.max(1, obj.getInt("rate"));
+                                buttonIntervalMap.put(added, Math.max(2, Math.round(1000f / oldRate)));
+                            }
+                            if (obj.has("tg")) buttonRapidToggleMap.put(added, obj.getInt("tg") == 1);
                             if (obj.has("pms")) buttonPressMsMap.put(added, obj.getInt("pms"));
                         }
                     }

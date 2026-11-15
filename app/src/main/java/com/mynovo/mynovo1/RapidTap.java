@@ -18,7 +18,8 @@ import android.os.SystemClock;
 public class RapidTap {
     public static final float MIN_RATE = 1f;
     public static final float MAX_RATE = 30f;
-    private static final long MIN_PRESS_MS = 16L;
+    private static final long MIN_PRESS_MS = 1L;
+    public static final long MIN_INTERVAL_MS = 2L;
 
     // เธรดแยก ไม่ให้จังหวะแตะสะดุดตามหน้าจอ/main thread
     private static final HandlerThread thread = new HandlerThread("RapidTap");
@@ -31,6 +32,8 @@ public class RapidTap {
     private final int pointerId;
     private volatile float x, y;
     private volatile float rate = 10f;
+    // [เพิ่ม] ช่วงห่างระหว่างการแตะแต่ละครั้ง (ms) ตั้งตรงๆ ได้ละเอียดถึง 2ms
+    private volatile long intervalMs = 100L;
     private volatile long pressMs = 25L;
 
     private volatile boolean running = false;
@@ -48,6 +51,12 @@ public class RapidTap {
 
     public void setRate(float tapsPerSecond) {
         this.rate = Math.max(MIN_RATE, Math.min(MAX_RATE, tapsPerSecond));
+        this.intervalMs = Math.max(MIN_INTERVAL_MS, Math.round(1000f / this.rate));
+    }
+
+    // [เพิ่ม] ตั้งช่วงห่างเป็น ms โดยตรง (เริ่มรอบแตะถัดไปทุกๆ intervalMs)
+    public void setIntervalMs(long ms) {
+        this.intervalMs = Math.max(MIN_INTERVAL_MS, ms);
     }
 
     // เวลานิ้วค้างต่อครั้ง (ms) ถ้าเกมไม่รับแตะ ให้เพิ่ม (เช่น 35-50)
@@ -101,10 +110,11 @@ public class RapidTap {
             token = TouchSimulator.simulateDown(pointerId, Math.round(x), Math.round(y));
             isDown = token != 0;
 
-            long press = Math.min(pressMs, Math.max(MIN_PRESS_MS, (long) (1000f / rate) - 5L));
+            long interval = intervalMs;
+            long press = Math.min(pressMs, Math.max(MIN_PRESS_MS, interval - 1L));
             handler.postAtTime(upRunnable, start + press);
             // เก็บเวลาเริ่มรอบไว้คำนวณรอบถัดไปให้จังหวะนิ่ง ไม่เพี้ยนสะสม
-            nextDownAt = start + Math.max(press + 1L, (long) (1000f / rate));
+            nextDownAt = start + Math.max(press + 1L, interval);
         }
     };
 
