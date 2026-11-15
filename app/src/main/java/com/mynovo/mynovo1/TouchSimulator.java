@@ -31,7 +31,7 @@ public class TouchSimulator {
     private static final boolean DEBUG_LOG = false;
 
     // เวลาค้างนิ้วของ simulateClick (ms) เกมที่รับปุ่มไม่ติดให้เพิ่ม (เช่น 40-60) ถ้าอยากให้ไวสุดให้ลด (เช่น 10-15)
-    private static final long CLICK_HOLD_MS = 15L;
+    private static final long CLICK_HOLD_MS = 20L;
 
     // accepted=false ติดกันกี่ครั้งถึงจะแจ้งผู้ใช้ว่า ROM อาจบล็อก
     private static final int REJECT_STREAK_LIMIT = 8;
@@ -598,6 +598,30 @@ public class TouchSimulator {
 
     public static void simulateUp(final long token, final int x, final int y) {
         simulateUp(token, 0, x, y);
+    }
+
+    // [เพิ่ม] ปุ่มแตะแบบกดค้างตามนิ้ว/ปุ่มคีย์บอร์ดของผู้ใช้
+    //   simulatePress(id, x, y) : วางนิ้วลงแล้วค้างไว้ ไม่ปล่อยเอง
+    //   simulateRelease(id)     : ปล่อยนิ้วที่ค้างอยู่ (ใช้พิกัดที่กดไว้)
+    //   isHeld(id)              : pointer นี้ยังกดค้างอยู่ไหม
+    public static boolean isHeld(int pointerId) {
+        return activePointers.containsKey(pointerId);
+    }
+
+    public static void simulatePress(final int pointerId, final int x, final int y) {
+        if (activePointers.containsKey(pointerId)) return; // กันกดซ้ำตอนคีย์บอร์ด repeat
+        if (!accessOk()) {
+            Log.w(TAG, "simulatePress: ไม่มีทางส่ง event (shell server ไม่เชื่อม และ Shizuku ไม่มีสิทธิ์)");
+            return;
+        }
+        injectSyncState(pointerId, MotionEvent.ACTION_DOWN, (float) x, (float) y);
+    }
+
+    public static void simulateRelease(final int pointerId) {
+        final PointerState s = activePointers.get(pointerId);
+        if (s != null) {
+            injectSyncState(pointerId, MotionEvent.ACTION_UP, s.x, s.y);
+        }
     }
 
     public static void simulateClick(final int pointerId, final int x, final int y) {

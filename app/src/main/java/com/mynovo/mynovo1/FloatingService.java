@@ -147,6 +147,22 @@ public class FloatingService extends Service implements MouseController.MouseEve
     private static final int TAP_PTR_BASE = 40;
     private static final int TAP_PTR_POOL = 20;
 
+    // [เพิ่ม] ปุ่มแตะ (NORMAL) ที่กำลังกดค้างอยู่ -> pointer id ที่ใช้
+    private final Map<View, Integer> tapHeldPtr = new HashMap<>();
+
+    private int allocTapPtr() {
+        for (int i = 0; i < TAP_PTR_POOL; i++) {
+            int p = TAP_PTR_BASE + i;
+            if (!tapHeldPtr.containsValue(p)) return p;
+        }
+        return TAP_PTR_BASE;
+    }
+
+    private void releaseAllTapHolds() {
+        for (Integer p : new ArrayList<>(tapHeldPtr.values())) TouchSimulator.simulateRelease(p);
+        tapHeldPtr.clear();
+    }
+
     private MouseController mouseController;
     private boolean isMouseMode = false;
 
@@ -674,6 +690,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
 
     @Override
     public void onWindowFocusLost() {
+        releaseAllTapHolds();
         if (dPadController != null) dPadController.release();
         stopAllRapidTaps();
         onMouseLockedLeftUp();
@@ -1261,7 +1278,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
         if (destroyed) return;
         boolean editMode = isEditModeActive();
 
-        if (editMode) stopAllRapidTaps();
+        if (editMode) { stopAllRapidTaps(); releaseAllTapHolds(); }
 
         if (editModeBackgroundView != null) {
             int wantBgVis = editMode ? View.VISIBLE : View.GONE;
@@ -1335,6 +1352,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
             if (isWaitingForKey) cancelKeyWait();
             if (dPadController != null) dPadController.release();
             stopAllRapidTaps();
+            releaseAllTapHolds();
             TouchSimulator.releaseTouch();
             mouseLeftToken = 0;
             closeSubWindows();
@@ -1941,6 +1959,13 @@ public class FloatingService extends Service implements MouseController.MouseEve
                     h = true;
                 }
             }
+            for (Map.Entry<View, Integer> en : buttonKeyMap.entrySet()) {
+                Integer v = en.getValue();
+                if (v != null && keyMatches(v, event)) {
+                    Integer hp = tapHeldPtr.remove(en.getKey());
+                    if (hp != null) { TouchSimulator.simulateRelease(hp); h = true; }
+                }
+            }
             if (h) return true;
         }
 
@@ -1982,6 +2007,19 @@ public class FloatingService extends Service implements MouseController.MouseEve
 
                 if ("RAPID_FIRE".equals(tag)) {
                     if (!isEditModeActive() && isTargetInForeground) rapidStart(b);
+                    handled = true;
+                    continue;
+                }
+
+                if ("NORMAL".equals(tag)) {
+                    Integer cur = tapHeldPtr.get(b);
+                    if (cur == null || !TouchSimulator.isHeld(cur)) {
+                        int[] l = new int[2];
+                        b.getLocationOnScreen(l);
+                        int hptr = allocTapPtr();
+                        tapHeldPtr.put(b, hptr);
+                        TouchSimulator.simulatePress(hptr, l[0] + b.getWidth() / 2, l[1] + b.getHeight() / 2);
+                    }
                     handled = true;
                     continue;
                 }
@@ -2326,6 +2364,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
 
     private void toggleMouseLock() {
         if (isTypingMode) return;
+        releaseAllTapHolds();
         if (dPadController != null) dPadController.release();
         stopAllRapidTaps();
         TouchSimulator.releaseTouch();
@@ -3540,6 +3579,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
     };
 
     private void applyForegroundChange(boolean nowForeground) {
+        releaseAllTapHolds();
         boolean prevForeground = isTargetInForeground;
         isTargetInForeground = nowForeground;
 

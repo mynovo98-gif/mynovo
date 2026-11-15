@@ -40,7 +40,7 @@ public class MouseController {
     // ขอบเขตโซน (สัดส่วนของจอ) = ระยะที่นิ้วเสมือน "ลาก" ได้ในโหมดคงที่
     // ถ้าฝั่งซ้ายของโซนกล้องหมุนเร็วกว่าฝั่งขวา ให้เพิ่ม ZONE_X_MIN (เช่น 0.5)
     // [หมายเหตุ] ถ้า VIEW_X_FREE_IN_ZONE = true ค่า ZONE_X_* ไม่ถูกใช้แล้ว (ไม่ว่าแกน Y จะตั้งเป็นอะไร)
-    private static final float ZONE_X_MIN = 0.40f;
+    private static final float ZONE_X_MIN = 0.55f;
     private static final float ZONE_X_MAX = 0.98f;
     // [หมายเหตุ] ZONE_Y_*, ZONE_RESTART ใช้เฉพาะตอน VIEW_Y_FREE_IN_ZONE = false (พฤติกรรมเดิมของแกน Y)
     private static final float ZONE_Y_MIN = 0.12f;
@@ -106,7 +106,7 @@ public class MouseController {
     // [แก้ไขรอบนี้] ฝั่งซ้ายยังเร็วกว่าขวาอยู่ -> ลด LEFT_HALF_GAIN จาก 0.075 เหลือ 0.04 (ลดลงอีกราวครึ่งหนึ่ง)
     //              ถ้าซ้ายยังเร็วกว่าขวา ให้ลดอีก (เช่น 0.02) / ถ้าช้ากว่าขวาแล้ว ให้เพิ่ม (เช่น 0.055)
     private static final float LEFT_HALF_X = 0.525f;
-    private static final float LEFT_HALF_GAIN = 0.95f;
+    private static final float LEFT_HALF_GAIN = 0.9f;
     private static final float LEFT_HALF_BAND =  1.0f;
 
     // [เพิ่มรอบนี้] ตัวลดความเร็วเพิ่มเติมฝั่งซ้าย (ใช้ร่วมกับ leftHalfFactor)
@@ -116,7 +116,7 @@ public class MouseController {
     // [แก้ไขรอบนี้] ขอให้ฝั่งซ้ายช้ามากๆ ไว้ก่อน แล้วค่อยๆ ไล่เพิ่มทีละนิด เลยตั้งให้ต่ำมาก (เกือบนิ่ง) เป็นจุดเริ่ม
     // วิธีไล่เพิ่ม: ลองเล่นแล้วถ้าซ้ายช้าเกินไป ค่อยๆ เพิ่มทีละนิด เช่น 0.005 -> 0.008 -> 0.012 -> 0.02 ...
     // เพิ่มทีละขั้นเล็กๆ แล้วลองเทสใหม่ทุกครั้ง จนกว่าซ้าย-ขวาจะหมุนรอบเท่ากันพอดี (อย่าเพิ่งกระโดดขึ้นเยอะในทีเดียว)
-    private static final float LEFT_EXTRA_GAIN = 0.035f;
+    private static final float LEFT_EXTRA_GAIN = 0.7f;
     // เส้นแบ่งซ้าย/ขวา (สัดส่วนของความกว้างจอ)
     private static final float LEFT_EXTRA_X = 0.5f;
     // ความกว้างช่วงเปลี่ยนนุ่มๆ รอบเส้นแบ่ง (สัดส่วนของความกว้างจอ)
@@ -133,7 +133,7 @@ public class MouseController {
     private static final float LEFT_FAST_SPEED_MAX = 1.0f;
     // gain ของฝั่งซ้ายตอนสะบัดเร็วสุด (ต่ำกว่า LEFT_EXTRA_GAIN ปกติมาก ยิ่งน้อยยิ่งหรี่แรงตอนสะบัดเร็ว)
     // ถ้าสะบัดเร็วแล้วยังเร็วไปอยู่ ให้ลดค่านี้ลงอีก (เช่น 0.005) / ถ้าสะบัดเร็วแล้วรู้สึกหน่วงเกิน ให้เพิ่มขึ้น
-    private static final float LEFT_EXTRA_GAIN_FAST = 0.15f;
+    private static final float LEFT_EXTRA_GAIN_FAST = 0.45f;
 
     // [เพิ่ม] ตัวคูณความเร็วตอน "หันซ้าย" (ตามทิศที่เมาส์ขยับ ไม่เกี่ยวกับตำแหน่งนิ้วเสมือน)
     // 1.0 = เท่าเดิม, 0.9 = ช้าลง 10%, 0.8 = ช้าลง 20%, 0.7 = ช้าลง 30%
@@ -160,7 +160,7 @@ public class MouseController {
     private static final float OFFSCREEN_GAIN_Y = 1.0f;
     // ระยะที่ค่อยๆ เปลี่ยนความเร็วเมื่อเลยขอบออกไป (สัดส่วนของขนาดจอ) จะได้ไม่กระโดดตรงขอบ
     // ขยายจาก 0.005 เป็น 0.03 ให้ความเร็วเปลี่ยนนุ่มขึ้นตรงขอบจอ นิ้วที่แกว่งอยู่รอบขอบจอจะไม่สั่น
-    private static final float OFFSCREEN_BAND = 0.5f;
+    private static final float OFFSCREEN_BAND = 0.8f;
     // BAND ของแกน Y (ค่าเดิม)
     private static final float OFFSCREEN_BAND_Y = 0.04f;
     private static final boolean OFFSCREEN_STACK_LEFT = false;
@@ -261,6 +261,11 @@ public class MouseController {
     private boolean pressing = false;
     // คลิกขวากำลังถูกกดอยู่ (กัน onRightClick ถูกเรียกซ้ำจาก DOWN + BUTTON_PRESS ของการคลิกครั้งเดียว)
     private boolean rightDown = false;
+    // [เพิ่ม] สถานะปุ่มขวาของ event ก่อนหน้า ใช้จับการ "กดขวา" จากการเปลี่ยนของ buttonState
+    // กันกรณีกดขวาตอนซ้ายค้างแล้วระบบไม่ส่งมาเป็น DOWN/BUTTON_PRESS
+    private boolean prevSecondary = false;
+    // [เพิ่ม] สถานะปุ่มซ้ายของ event ก่อนหน้า (ไว้จับซ้ายที่กดตอนขวาค้างอยู่ กรณีระบบไม่ส่ง BUTTON_PRESS)
+    private boolean prevPrimary = false;
 
     // [เพิ่ม] นับจำนวนครั้งติดกันที่ TouchSimulator.isPointerDown(2) รายงานว่า "ไม่ได้กดอยู่" ทั้งที่ token ยังไม่เป็น 0
     // กันการ flicker 1 เฟรม (รายงานผิดชั่วขณะ) ทำให้โดนยก-วางนิ้วใหม่ (รีเซ็ท/กระตุก) ทั้งที่จริงๆ นิ้วยังกดอยู่
@@ -565,13 +570,13 @@ public class MouseController {
     private static final float VIEW_SENS_CURVE = 1.0f;
     // ค่าความไวที่ตอนนี้รู้สึกพอดี แยกแกน (ตรงค่านี้ความเร็วเท่าเดิมเป๊ะ) ใส่ตามที่ตั้งในหน้าตั้งค่า
     private static final float VIEW_SENS_PIVOT_X = 0.02f;
-    private static final float VIEW_SENS_PIVOT_Y = 0.02f;
+    private static final float VIEW_SENS_PIVOT_Y = 0.04f;
 
     // ตัวคูณความเร็วโหมดมุมมอง แยกแกน X / Y
     // 1.0 = เท่าเดิม, 0.5 = ช้าลงครึ่งหนึ่ง, 0.25 = ช้าลง 4 เท่า
     // [แก้ไขรอบนี้] เกมหมุนเร็วไปทั้งจอ (ไม่ใช่แค่ฝั่งซ้าย) เลยลดสเกลรวมจาก 0.5 เหลือ 0.35 (ช้าลงอีก ~30%)
     // ถ้ายังเร็วไปให้ลดอีก (เช่น 0.25) / ถ้าช้าไปให้เพิ่มขึ้น (เช่น 0.45)
-    private static final float VIEW_SPEED_SCALE_X = 0.35f;
+    private static final float VIEW_SPEED_SCALE_X = 0.30f;
     private static final float VIEW_SPEED_SCALE_Y = 0.35f;
 
     private float softenViewSens(float s, float pivot, float scale) {
@@ -915,6 +920,31 @@ public class MouseController {
     }
 
     private void handlePointerEvent(MotionEvent e) {
+        // [เพิ่ม] ตรวจปุ่มขวาจากการเปลี่ยนของ buttonState ในทุก event
+        // กันกรณีกดขวาตอนซ้ายค้างแล้วระบบไม่ส่งมาเป็น DOWN/BUTTON_PRESS (คลิกซ้าย-ขวาต่อเนื่องแล้วขวาไม่ติด)
+        boolean secNow = (e.getButtonState() & MotionEvent.BUTTON_SECONDARY) != 0;
+        if (secNow && !prevSecondary && !rightDown) {
+            rightDown = true;
+            eventListener.onRightClick();
+        }
+        if (!secNow) rightDown = false;
+        prevSecondary = secNow;
+
+        // [เพิ่ม] จับปุ่มซ้ายจากการเปลี่ยนของ buttonState (กดซ้ายตอนขวายังค้างอยู่ แล้วระบบส่งมาเป็น MOVE ไม่ใช่ DOWN/BUTTON_PRESS)
+        boolean priNow = (e.getButtonState() & MotionEvent.BUTTON_PRIMARY) != 0;
+        int act0 = e.getActionMasked();
+        if (isMouseMode && act0 != MotionEvent.ACTION_DOWN && act0 != MotionEvent.ACTION_BUTTON_PRESS
+                && act0 != MotionEvent.ACTION_UP && act0 != MotionEvent.ACTION_BUTTON_RELEASE) {
+            if (priNow && !prevPrimary && !pressing) {
+                pressing = true;
+                eventListener.onMouseLockedLeftDown();
+            } else if (!priNow && prevPrimary && pressing) {
+                pressing = false;
+                eventListener.onMouseLockedLeftUp();
+            }
+        }
+        prevPrimary = priNow;
+
         // ปล่อยสถานะคลิกขวาเมื่อปุ่มขวาไม่ได้ถูกกดแล้ว (ใช้ buttonState ของ event ที่ตามมา)
         int act = e.getActionMasked();
         if (rightDown && act != MotionEvent.ACTION_DOWN && act != MotionEvent.ACTION_BUTTON_PRESS
@@ -1203,8 +1233,11 @@ public class MouseController {
                 // คลิกขวา: ACTION_DOWN ของเมาส์จะมี buttonState ขวา (actionButton เป็น 0) ส่วน BUTTON_PRESS มี actionButton ขวา
                 // ต้องแยกออกมาเป็นคลิกขวาทั้งสองแบบ ไม่งั้น DOWN จะถูกนับเป็นคลิกซ้าย (ไปกดนิ้ว/ไปตั้งเป็น MS_L)
                 // และใช้ rightDown กันเรียก onRightClick ซ้ำ 2 ครั้งในการคลิกครั้งเดียว
-                if (e.getActionButton() == MotionEvent.BUTTON_SECONDARY
-                        || (e.getButtonState() & MotionEvent.BUTTON_SECONDARY) != 0) {
+                // [แก้ไข] ถ้า actionButton ระบุปุ่มมาชัดเจน (เช่น ซ้าย) ให้ตัดสินจาก actionButton เท่านั้น
+                // เดิมดู buttonState ด้วย ทำให้กดซ้ายตอนขวาค้างอยู่ถูกนับเป็นคลิกขวาแล้วทิ้ง (ซ้ายไม่ติด)
+                final int ab = e.getActionButton();
+                if (ab == MotionEvent.BUTTON_SECONDARY
+                        || (ab == 0 && (e.getButtonState() & MotionEvent.BUTTON_SECONDARY) != 0)) {
                     if (!rightDown) {
                         rightDown = true;
                         eventListener.onRightClick();
@@ -1387,6 +1420,7 @@ public class MouseController {
 
     public void releaseMouseState() {
         rightDown = false;
+        prevSecondary = false;
         lostPointerStreak = 0;
         // ปล่อยนิ้วคลิกซ้ายที่กดค้างอยู่ (ถ้ามี)
         if (pressing && isMouseMode) {
