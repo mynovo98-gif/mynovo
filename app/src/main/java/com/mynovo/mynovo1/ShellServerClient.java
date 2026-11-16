@@ -3,6 +3,7 @@ package com.mynovo.mynovo1;
 import android.content.Context;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.os.Looper;
 import android.os.Parcel;
 import android.os.SystemClock;
 import android.util.Log;
@@ -56,6 +57,8 @@ public final class ShellServerClient {
     // เธรดแยกสำหรับส่งคำสั่ง grab (ห้ามเขียน socket บน main thread)
     private static final HandlerThread cmdThread = new HandlerThread("ShellSrvCmd");
     private static final Handler cmdHandler;
+    // ใช้ส่งผลกลับ callback บน main thread
+    private static final Handler mainHandler = new Handler(Looper.getMainLooper());
     static {
         cmdThread.start();
         cmdHandler = new Handler(cmdThread.getLooper());
@@ -75,6 +78,11 @@ public final class ShellServerClient {
         keyListener = l;
     }
 
+    private static void deliver(Consumer<Boolean> cb, boolean value) {
+        if (cb == null) return;
+        mainHandler.post(() -> cb.accept(value));
+    }
+
     public static void ensureConnectedAsync() {
         if (connected) return;
         synchronized (lock) {
@@ -85,6 +93,26 @@ public final class ShellServerClient {
             connecting = true;
         }
         Thread t = new Thread(ShellServerClient::connectBlocking, "ShellSrvConnect");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /**
+     * [เพิ่ม] เชื่อมต่อ InputServer แบบ async แล้วเรียก callback (บน main thread)
+     * ว่าเชื่อมต่อสำเร็จหรือไม่ ลองซ้ำสูงสุดประมาณ 3 วินาที
+     */
+    public static void connectAsync(Consumer<Boolean> callback) {
+        if (connected) {
+            deliver(callback, true);
+            return;
+        }
+        Thread t = new Thread(() -> {
+            for (int i = 0; i < 10 && !connected; i++) {
+                ensureConnectedAsync();
+                try { Thread.sleep(300); } catch (InterruptedException ignored) { }
+            }
+            deliver(callback, connected);
+        }, "ShellSrvConnectAsync");
         t.setDaemon(true);
         t.start();
     }
@@ -242,13 +270,14 @@ public final class ShellServerClient {
     }
 
     /**
-     * [เพิ่ม] สั่งปิด InputServer แล้วเรียก callback บอกว่าส่งคำสั่งสำเร็จหรือไม่
-     * (callback รันบนเธรดคำสั่ง ไม่ใช่ main thread ถ้าแตะ UI ให้ห่อด้วย runOnUiThread)
+     * [เพิ่ม] สั่งปิด InputServer แล้วเรียก callback (บน main thread) ว่าส่งคำสั่งสำเร็จหรือไม่
+     * ถ้าสำเร็จจะตัดการเชื่อมต่อฝั่งแอปทันที เพื่อให้ isConnected() เป็น false
      */
     public static void stopServerAsync(Consumer<Boolean> callback) {
         cmdHandler.post(() -> {
             boolean sent = connected && writeInt(-1);
-            if (callback != null) callback.accept(sent);
+            if (sent) dropConnection(null);
+            deliver(callback, sent);
         });
     }
 
