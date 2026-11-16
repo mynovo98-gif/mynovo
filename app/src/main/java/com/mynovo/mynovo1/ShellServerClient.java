@@ -15,6 +15,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.util.function.Consumer;
 
 /**
  * ตัวเชื่อมต่อไปยัง InputServer (activate.sh) ผ่าน TCP 127.0.0.1
@@ -237,6 +238,17 @@ public final class ShellServerClient {
     public static void stopServer() {
         cmdHandler.post(() -> {
             if (connected) writeInt(-1);
+        });
+    }
+
+    /**
+     * [เพิ่ม] สั่งปิด InputServer แล้วเรียก callback บอกว่าส่งคำสั่งสำเร็จหรือไม่
+     * (callback รันบนเธรดคำสั่ง ไม่ใช่ main thread ถ้าแตะ UI ให้ห่อด้วย runOnUiThread)
+     */
+    public static void stopServerAsync(Consumer<Boolean> callback) {
+        cmdHandler.post(() -> {
+            boolean sent = connected && writeInt(-1);
+            if (callback != null) callback.accept(sent);
         });
     }
 
