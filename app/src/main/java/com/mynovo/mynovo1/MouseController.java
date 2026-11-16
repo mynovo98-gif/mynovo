@@ -40,10 +40,10 @@ public class MouseController {
     // ขอบเขตโซน (สัดส่วนของจอ) = ระยะที่นิ้วเสมือน "ลาก" ได้ในโหมดคงที่
     // ถ้าฝั่งซ้ายของโซนกล้องหมุนเร็วกว่าฝั่งขวา ให้เพิ่ม ZONE_X_MIN (เช่น 0.5)
     // [หมายเหตุ] ถ้า VIEW_X_FREE_IN_ZONE = true ค่า ZONE_X_* ไม่ถูกใช้แล้ว (ไม่ว่าแกน Y จะตั้งเป็นอะไร)
-    private static final float ZONE_X_MIN = 0.35f;
+    private static final float ZONE_X_MIN = 0.46f;
     private static final float ZONE_X_MAX = 0.98f;
     // [หมายเหตุ] ZONE_Y_*, ZONE_RESTART ใช้เฉพาะตอน VIEW_Y_FREE_IN_ZONE = false (พฤติกรรมเดิมของแกน Y)
-    private static final float ZONE_Y_MIN = 0.12f;
+    private static final float ZONE_Y_MIN = 0.18f;
     private static final float ZONE_Y_MAX = 0.88f;
     // วางนิ้วใหม่ที่ตำแหน่งกี่ % ของโซนจากปลายด้านตรงข้าม (ใช้กับแกน Y เท่านั้น)
     private static final float ZONE_RESTART = 0.04f;
@@ -89,7 +89,7 @@ public class MouseController {
     // [เพิ่ม] ช่วงปลอดภัยของ Y ตอน "วางนิ้วใหม่" (สัดส่วนของความสูงจอ)
     // DOWN ใหม่ห้ามอยู่ติดขอบบน/ล่าง ไม่งั้นระบบมองเป็นการปัดจากขอบ (ดึงแถบแจ้งเตือน/ท่าทางโฮม)
     // นิ้วที่ลากเลยขอบหลังวางแล้วยังทะลุได้เหมือนเดิม (ไม่เกี่ยวกับค่านี้)
-    private static final float DOWN_SAFE_Y_MIN = 0.12f;
+    private static final float DOWN_SAFE_Y_MIN = 0.26f;
     private static final float DOWN_SAFE_Y_MAX = 0.88f;
 
     // ระยะลากสูงสุดของโหมดมุมมองจากจุดเริ่ม (สัดส่วนของความกว้าง/สูงจอ) เกินแล้วจะยกนิ้วแล้ววางใหม่
@@ -116,7 +116,7 @@ public class MouseController {
     // [แก้ไขรอบนี้] ขอให้ฝั่งซ้ายช้ามากๆ ไว้ก่อน แล้วค่อยๆ ไล่เพิ่มทีละนิด เลยตั้งให้ต่ำมาก (เกือบนิ่ง) เป็นจุดเริ่ม
     // วิธีไล่เพิ่ม: ลองเล่นแล้วถ้าซ้ายช้าเกินไป ค่อยๆ เพิ่มทีละนิด เช่น 0.005 -> 0.008 -> 0.012 -> 0.02 ...
     // เพิ่มทีละขั้นเล็กๆ แล้วลองเทสใหม่ทุกครั้ง จนกว่าซ้าย-ขวาจะหมุนรอบเท่ากันพอดี (อย่าเพิ่งกระโดดขึ้นเยอะในทีเดียว)
-    private static final float LEFT_EXTRA_GAIN = 0.6f;
+    private static final float LEFT_EXTRA_GAIN = 0.7f;
     // เส้นแบ่งซ้าย/ขวา (สัดส่วนของความกว้างจอ)
     private static final float LEFT_EXTRA_X = 0.5f;
     // ความกว้างช่วงเปลี่ยนนุ่มๆ รอบเส้นแบ่ง (สัดส่วนของความกว้างจอ)
@@ -133,7 +133,7 @@ public class MouseController {
     private static final float LEFT_FAST_SPEED_MAX = 0.9f;
     // gain ของฝั่งซ้ายตอนสะบัดเร็วสุด (ต่ำกว่า LEFT_EXTRA_GAIN ปกติมาก ยิ่งน้อยยิ่งหรี่แรงตอนสะบัดเร็ว)
     // ถ้าสะบัดเร็วแล้วยังเร็วไปอยู่ ให้ลดค่านี้ลงอีก (เช่น 0.005) / ถ้าสะบัดเร็วแล้วรู้สึกหน่วงเกิน ให้เพิ่มขึ้น
-    private static final float LEFT_EXTRA_GAIN_FAST = 0.55f;
+    private static final float LEFT_EXTRA_GAIN_FAST = 0.66f;
 
     // [เพิ่ม] ตัวคูณความเร็วตอน "หันซ้าย" (ตามทิศที่เมาส์ขยับ ไม่เกี่ยวกับตำแหน่งนิ้วเสมือน)
     // 1.0 = เท่าเดิม, 0.9 = ช้าลง 10%, 0.8 = ช้าลง 20%, 0.7 = ช้าลง 30%
@@ -153,9 +153,9 @@ public class MouseController {
     // ตอนนิ้วเสมือนลากหลุดขอบจอ เกมให้ความเร็วเร็วขึ้น เลยชดเชยให้เท่าตอนอยู่ในจอ (ใช้ทั้งแกน X และ Y)
     // OFFSCREEN_GAIN: 1.0 = ปิดการชดเชย (ความเร็วคงที่ทั้งแกน X และ Y)
     // ถ้านอกจอยังเร็วกว่าในจอให้ลดลงเล็กน้อย (เช่น 0.8)
-    private static final float OFFSCREEN_GAIN_X = 0.25f;
+    private static final float OFFSCREEN_GAIN_X = 0.35f;
     // ตัวคูณต่ำสุดของแกน X นอกจอ (กันช้าลงเรื่อยๆ ตอนสะบัดไกล) เพิ่ม = นอกจอเร็วขึ้น
-    private static final float OFFSCREEN_MIN_X = 0.25f;
+    private static final float OFFSCREEN_MIN_X = 0.35f;
     // แกน Y กลับไปใช้ค่าเดิม (1.0 = ไม่ชดเชย)
     private static final float OFFSCREEN_GAIN_Y = 1.0f;
     // ระยะที่ค่อยๆ เปลี่ยนความเร็วเมื่อเลยขอบออกไป (สัดส่วนของขนาดจอ) จะได้ไม่กระโดดตรงขอบ

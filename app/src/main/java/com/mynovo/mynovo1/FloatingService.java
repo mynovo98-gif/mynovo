@@ -61,8 +61,13 @@ public class FloatingService extends Service implements MouseController.MouseEve
     private volatile int gameDisplayId = -1;
     // forcedDisplayId: เป็นแค่ "คำใบ้" จาก Intent (ไม่ล็อกอีกต่อไป) ตัวจริงดูจากจอที่เกมรันอยู่จริง
     private volatile int forcedDisplayId = -1;
-    // สวิตช์สลับจอ (ใช้แก้กรณีตรวจจอผิดด้านแบบสลับกันตลอด) เก็บค่าถาวรใน prefs
-    private volatile boolean swapDisplays = false;
+
+    // ปุ่มลัดเปิด/ปิดการแสดงปุ่มทั้งหมด (-1 = ยังไม่ตั้ง) เก็บค่าถาวรใน prefs
+    private volatile int toggleBtnsKeyId = -1;
+    private boolean isWaitingToggleKey = false;
+    private Runnable cancelToggleKeyRunnable = null;
+    private Button btnToggleKeyRef = null;
+
     private volatile int lastExtDisplayId = -1;
     private volatile int lastObservedReal = -1;
 
@@ -178,7 +183,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
     private int dpadSizeDp = 160;
     private int globalBtnSizeDp = 32;
 
-    private static final float BTN_WINDOW_ALPHA = 0.45f;
+    private static final float BTN_WINDOW_ALPHA = 0.39f;
     private static final float BTN_MIN_ALPHA = 0.4f;
     private float globalBtnAlpha = 1.0f;
     private int dpadSize;
@@ -405,7 +410,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
         super.onCreate();
         try {
             SharedPreferences cp = getSharedPreferences("MynovoCore", MODE_PRIVATE);
-            swapDisplays = cp.getBoolean("swap_displays", false);
+            toggleBtnsKeyId = cp.getInt("toggle_btns_key", -1);
             lastExtDisplayId = cp.getInt("last_ext_display", -1);
         } catch (Exception ignored) {}
     }
@@ -533,6 +538,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
             TouchSimulator.releaseTouch();
             mouseLeftToken = 0;
             if (isWaitingForKey) cancelKeyWait();
+            if (isWaitingToggleKey) cancelToggleKeyWait();
             closeSubWindows();
             closeButtonSettings();
             closeWarningDialog();
@@ -959,19 +965,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
              .apply();
     }
 
-    private int findExternalDisplayId() {
-        try {
-            android.hardware.display.DisplayManager dm =
-                    (android.hardware.display.DisplayManager) getSystemService(DISPLAY_SERVICE);
-            if (dm != null) {
-                for (android.view.Display d : dm.getDisplays()) {
-                    if (d.getDisplayId() != android.view.Display.DEFAULT_DISPLAY) return d.getDisplayId();
-                }
-            }
-        } catch (Exception ignored) {}
-        return lastExtDisplayId;
-    }
-
     private void rememberExternal(int id) {
         if (id > 0 && id != lastExtDisplayId) {
             lastExtDisplayId = id;
@@ -982,13 +975,11 @@ public class FloatingService extends Service implements MouseController.MouseEve
         }
     }
 
-    // real: 0 = มือถือ, >0 = จอภายนอก, <0 = ไม่รู้  -> คืนจอที่จะวางปุ่ม (คำนึงถึงสวิตช์สลับจอ)
+    // real: 0 = มือถือ, >0 = จอภายนอก, <0 = ไม่รู้  -> คืนจอที่จะวางปุ่ม
+    // [แก้ไข] เอาระบบสลับจอออกแล้ว คืนค่าจอที่ตรวจเจอตรง ๆ
     private int mapDisplay(int real) {
         if (real > 0) rememberExternal(real);
-        if (!swapDisplays || real < 0) return real;
-        if (real > 0) return 0;
-        int ext = findExternalDisplayId();
-        return ext > 0 ? ext : 0;
+        return real;
     }
 
     private int detectInitialDisplaySync(final String pkg) {
@@ -1285,9 +1276,11 @@ public class FloatingService extends Service implements MouseController.MouseEve
         return false;
     }
 
+    // [แก้ไข] ซ่อนได้เมื่อมีปุ่ม "ซ่อนปุ่ม" บนจอ หรือมีการตั้งปุ่มลัดไว้ในตั้งค่า
     private void applyButtonsHiddenState() {
         if (destroyed || !isTargetInForeground) return;
-        boolean hide = buttonsHidden && !isEditModeActive() && hasHideButtonsButton();
+        boolean hide = buttonsHidden && !isEditModeActive()
+                && (hasHideButtonsButton() || toggleBtnsKeyId != -1);
         for (View b : mappingButtons) {
             if (b == null) continue;
             boolean keep = "HIDE_BTNS".equals(String.valueOf(b.getTag()));
@@ -1300,6 +1293,68 @@ public class FloatingService extends Service implements MouseController.MouseEve
         if (destroyed || isEditModeActive() || !isTargetInForeground) return;
         buttonsHidden = !buttonsHidden;
         applyButtonsHiddenState();
+    }
+
+    // ===== [ใหม่] ปุ่มลัดเปิด/ปิดการแสดงปุ่มทั้งหมด =====
+
+    private String toggleKeyButtonText() {
+        if (isWaitingToggleKey) return "⌨️ กดปุ่มที่ต้องการ... (BACK = ยกเลิก)";
+        return "🔘 ปุ่มลัด: " + (toggleBtnsKeyId == -1
+                ? "ยังไม่ตั้ง (แตะเพื่อเลือก)" : labelOfId(toggleBtnsKeyId));
+    }
+
+    private void refreshToggleKeyButton() {
+        if (btnToggleKeyRef != null) btnToggleKeyRef.setText(toggleKeyButtonText());
+    }
+
+    private void startToggleKeyWait() {
+        if (isWaitingForKey) cancelKeyWait();
+        isWaitingToggleKey = true;
+        refreshToggleKeyButton();
+        if (menuView != null) menuView.requestFocus();
+        if (cancelToggleKeyRunnable != null) handler.removeCallbacks(cancelToggleKeyRunnable);
+        cancelToggleKeyRunnable = this::cancelToggleKeyWait;
+        handler.postDelayed(cancelToggleKeyRunnable, 10000);
+    }
+
+    private void cancelToggleKeyWait() {
+        if (cancelToggleKeyRunnable != null) handler.removeCallbacks(cancelToggleKeyRunnable);
+        cancelToggleKeyRunnable = null;
+        isWaitingToggleKey = false;
+        refreshToggleKeyButton();
+    }
+
+    private void setToggleKey(int id) {
+        toggleBtnsKeyId = id;
+        try {
+            getSharedPreferences("MynovoCore", MODE_PRIVATE).edit()
+                    .putInt("toggle_btns_key", id).apply();
+        } catch (Exception ignored) {}
+        if (id == -1 && !hasHideButtonsButton()) buttonsHidden = false;
+        refreshToggleKeyButton();
+    }
+
+    private void assignToggleKey(KeyEvent e) {
+        if (e.getKeyCode() == KeyEvent.KEYCODE_UNKNOWN && e.getScanCode() == 0) {
+            cancelToggleKeyWait();
+            return;
+        }
+        if (dpadKeyOf(e) != -1) {
+            Toast.makeText(this, "W A S D ล็อคไว้สำหรับ D-Pad", Toast.LENGTH_SHORT).show();
+            cancelToggleKeyWait();
+            return;
+        }
+        for (Integer v : buttonKeyMap.values()) {
+            if (v != null && keyMatches(v, e)) {
+                Toast.makeText(this, "ปุ่มนี้ถูกใช้กับปุ่มบนหน้าจอแล้ว", Toast.LENGTH_SHORT).show();
+                cancelToggleKeyWait();
+                return;
+            }
+        }
+        cancelToggleKeyWait();
+        setToggleKey(makeKeyId(e.getKeyCode(), e.getScanCode()));
+        Toast.makeText(this, "✅ ตั้งปุ่มลัดเป็น " + labelOfId(toggleBtnsKeyId),
+                Toast.LENGTH_SHORT).show();
     }
 
     private void updateEditModeUI() {
@@ -1749,6 +1804,8 @@ public class FloatingService extends Service implements MouseController.MouseEve
             return;
         }
 
+        if (isWaitingToggleKey) cancelToggleKeyWait();
+
         if (isWaitingForKey && pendingMappingButton != null && pendingMappingButton != container) {
             cancelKeyWait();
         }
@@ -1912,6 +1969,11 @@ public class FloatingService extends Service implements MouseController.MouseEve
     }
 
     private boolean isKeyAllowedForButton(View btn, KeyEvent ev) {
+        if (toggleBtnsKeyId != -1 && keyMatches(toggleBtnsKeyId, ev)) {
+            Toast.makeText(this, "ปุ่มนี้ใช้เป็นปุ่มลัดเปิด/ปิดปุ่มอยู่", Toast.LENGTH_SHORT).show();
+            return false;
+        }
+
         boolean isWASD = dpadKeyOf(ev) != -1;
         String btnType = btn.getTag() != null ? btn.getTag().toString() : "NORMAL";
 
@@ -1955,6 +2017,10 @@ public class FloatingService extends Service implements MouseController.MouseEve
         if (destroyed) return false;
         int keyCode = event.getKeyCode();
         if (keyCode == KeyEvent.KEYCODE_BACK) {
+            if (isWaitingToggleKey) {
+                if (event.getAction() == KeyEvent.ACTION_DOWN) cancelToggleKeyWait();
+                return true;
+            }
             if (isWaitingForKey) {
                 if (event.getAction() == KeyEvent.ACTION_DOWN) cancelKeyWait();
                 return true;
@@ -1964,6 +2030,21 @@ public class FloatingService extends Service implements MouseController.MouseEve
 
         boolean isDown = (event.getAction() == KeyEvent.ACTION_DOWN);
         boolean isUp = (event.getAction() == KeyEvent.ACTION_UP);
+
+        // กำลังรอรับปุ่มสำหรับ "ปุ่มลัดเปิด/ปิดปุ่ม"
+        if (isWaitingToggleKey) {
+            if (isDown && event.getRepeatCount() == 0) assignToggleKey(event);
+            return true;
+        }
+
+        // กดปุ่มลัด -> เปิด/ปิดการแสดงปุ่มทั้งหมด
+        if (toggleBtnsKeyId != -1 && keyMatches(toggleBtnsKeyId, event)) {
+            if (isDown && event.getRepeatCount() == 0 && !isEditModeActive()
+                    && isTargetInForeground && !tapDebounced(0x7000 + event.getKeyCode())) {
+                toggleButtonsHidden();
+            }
+            return true;
+        }
 
         int dpadKey = dpadKeyOf(event);
         if (dpadKey != -1) {
@@ -2762,32 +2843,25 @@ public class FloatingService extends Service implements MouseController.MouseEve
             });
             layout.addView(speedSeekBar);
 
-            layout.addView(createSettingsLabel("จอที่แสดงปุ่ม (ถ้าปุ่มขึ้นผิดจอตลอด ให้กดสลับ)"));
-            final Button btnSwap = createSubMenuOption(
-                    swapDisplays ? "🔁 สลับจอ: เปิด" : "🔁 สลับจอ: ปิด", "#2E3447", null);
-            btnSwap.setLayoutParams(new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(44)));
-            styleModeButton(btnSwap, swapDisplays);
-            btnSwap.setOnClickListener(v -> {
-                swapDisplays = !swapDisplays;
-                try {
-                    getSharedPreferences("MynovoCore", MODE_PRIVATE).edit()
-                            .putBoolean("swap_displays", swapDisplays).apply();
-                } catch (Exception ignored) {}
-                btnSwap.setText(swapDisplays ? "🔁 สลับจอ: เปิด" : "🔁 สลับจอ: ปิด");
-                styleModeButton(btnSwap, swapDisplays);
-                pendingExtId = -1;
-                pendingExtCount = 0;
-                final int obs = lastObservedReal;
-                if (obs >= 0) {
-                    new Thread(() -> {
-                        int m = mapDisplay(obs);
-                        if (m > 0) ensureDisplayAccessible(m);
-                        gameDisplayId = (m > 0) ? m : -1;
-                    }).start();
-                }
-            });
-            layout.addView(btnSwap);
+            // [ใหม่] ปุ่มลัดเปิด/ปิดการแสดงปุ่ม (แทนระบบสลับจอเดิม)
+            layout.addView(createSettingsLabel("ปุ่มลัดเปิด/ปิดการแสดงปุ่ม"));
+            LinearLayout toggleRow = new LinearLayout(this);
+            toggleRow.setOrientation(LinearLayout.HORIZONTAL);
+            toggleRow.setGravity(Gravity.CENTER_VERTICAL);
+
+            btnToggleKeyRef = createSubMenuOption(toggleKeyButtonText(), "#2E3447",
+                    v -> startToggleKeyWait());
+            btnToggleKeyRef.setLayoutParams(new LinearLayout.LayoutParams(0, dpToPx(44), 3f));
+
+            Button btnClearKey = createSubMenuOption("ล้าง", "#FF5555",
+                    v -> { cancelToggleKeyWait(); setToggleKey(-1); });
+            LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(0, dpToPx(44), 1f);
+            clp.leftMargin = dpToPx(8);
+            btnClearKey.setLayoutParams(clp);
+
+            toggleRow.addView(btnToggleKeyRef);
+            toggleRow.addView(btnClearKey);
+            layout.addView(toggleRow);
 
             Button btnClose = new Button(this);
             btnClose.setText("CLOSE");
@@ -2799,6 +2873,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
             btnParams.topMargin = dpToPx(30);
             btnClose.setLayoutParams(btnParams);
             btnClose.setOnClickListener(v -> {
+                if (isWaitingToggleKey) cancelToggleKeyWait();
                 if (isWaitingForKey) cancelKeyWait();
                 iconSettingsView.setVisibility(View.GONE);
                 menuView.setVisibility(View.VISIBLE);
@@ -3929,5 +4004,3 @@ public class FloatingService extends Service implements MouseController.MouseEve
         super.onDestroy();
     }
 }
-
-        
