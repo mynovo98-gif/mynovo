@@ -5,3 +5,8 @@ local.properties
 *.apk
 *.jks
 *.keystore
+
+.cxx/
+build/
+local.properties
+.gradle/
