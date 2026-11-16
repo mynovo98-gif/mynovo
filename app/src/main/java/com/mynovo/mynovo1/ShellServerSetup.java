@@ -33,7 +33,8 @@ public final class ShellServerSetup {
         if (dir == null) throw new IOException("external files dir not available");
 
         File script = new File(dir, "activate.sh");
-        writeText(script, buildScript(c.getPackageName()));
+        // [แก้ไข] ส่งตำแหน่งโฟลเดอร์ lib ของแอปเข้าไปด้วย เพื่อให้สคริปต์คัดลอกตัวช่วยจับคีย์บอร์ด (libkbgrab.so)
+        writeText(script, buildScript(c.getPackageName(), c.getApplicationInfo().nativeLibraryDir));
         script.setReadable(true, false);
 
         File token = new File(dir, "token");
@@ -69,10 +70,11 @@ public final class ShellServerSetup {
         }
     }
 
-    private static String buildScript(String pkg) {
+    private static String buildScript(String pkg, String nativeLibDir) {
         String cls = InputServer.class.getName();
         return "#!/system/bin/sh\n"
                 + "PKG=" + pkg + "\n"
+                + "NATIVE_DIR=\"" + (nativeLibDir == null ? "" : nativeLibDir) + "\"\n"
                 + "DIR=\"$(cd \"$(dirname \"$0\")\" && pwd)\"\n"
                 + "APK=\"$(pm path $PKG | head -n 1 | cut -d: -f2)\"\n"
                 + "if [ -z \"$APK\" ]; then\n"
@@ -80,11 +82,25 @@ public final class ShellServerSetup {
                 + "  exit 1\n"
                 + "fi\n"
                 + "pkill -f " + cls + " >/dev/null 2>&1\n"
+                // [เพิ่ม] ปิดตัวช่วยจับคีย์บอร์ดตัวเก่า (ปล่อย grab) ก่อนคัดลอกทับ
+                + "pkill -f mynovo_kbgrab >/dev/null 2>&1\n"
                 + "sleep 0.3\n"
+                // [เพิ่ม] คัดลอกตัวช่วยจับคีย์บอร์ดไปที่ที่ shell รันได้ (หาไม่เจอก็ข้าม ระบบอื่นยังใช้ได้ปกติ)
+                + "KB=/data/local/tmp/mynovo_kbgrab\n"
+                + "KB_SRC=\"$NATIVE_DIR/libkbgrab.so\"\n"
+                + "if [ ! -f \"$KB_SRC\" ]; then\n"
+                + "  KB_SRC=\"$(ls \"$(dirname \"$APK\")\"/lib/*/libkbgrab.so 2>/dev/null | head -n 1)\"\n"
+                + "fi\n"
+                + "rm -f $KB\n"
+                + "if [ -n \"$KB_SRC\" ] && [ -f \"$KB_SRC\" ]; then\n"
+                + "  cp \"$KB_SRC\" $KB && chmod 755 $KB\n"
+                + "else\n"
+                + "  echo \"note: libkbgrab.so not found (keyboard grab disabled)\"\n"
+                + "fi\n"
                 + "LOG=/data/local/tmp/mynovo_server.log\n"
                 // </dev/null ตัด stdin ไม่ให้ process ผูกกับ adb stream
                 + "CLASSPATH=\"$APK\" setsid nohup app_process /system/bin " + cls
-                + " \"$DIR/token\" > $LOG 2>&1 </dev/null &\n"
+                + " \"$DIR/token\" $KB > $LOG 2>&1 </dev/null &\n"
                 + "sleep 1\n"
                 + "echo \"started (log: $LOG)\"\n"
                 + "head -c 400 $LOG\n";

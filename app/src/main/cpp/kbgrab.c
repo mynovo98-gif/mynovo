@@ -1,0 +1,245 @@
+// kbgrab.c - ตัวช่วยจับคีย์บอร์ดแบบ exclusive (EVIOCGRAB)
+// รันด้วยสิทธิ์ shell โดย InputServer (คัดลอกไป /data/local/tmp/mynovo_kbgrab ผ่าน activate.sh)
+//
+// คำสั่งทาง stdin (1 ตัวอักษร): G = เริ่ม grab U = ปล่อย grab Q = ออก
+// ผลลัพธ์ทาง stdout (ข้อความทีละบรรทัด):
+// H <n> ตอนเริ่ม: เจอคีย์บอร์ดกี่ตัว
+// S <n> จำนวนคีย์บอร์ดที่ grab อยู่ตอนนี้ (0 = grab ไม่สำเร็จ/ไม่มี)
+// K <code> <v> ปุ่ม Linux scancode, v = 0 ปล่อย / 1 กด / 2 ค้าง(repeat) (ส่งเฉพาะตอน grab อยู่)
+// R ผู้ใช้กด Ctrl+Esc = ปล่อย grab ทั้งหมด (ทางหนีไฟ)
+//
+// ถ้า stdin ปิด (InputServer ตาย/ถูกปิด) ตัวนี้จะออกเอง และ kernel จะปล่อย grab ให้อัตโนมัติ
+
+#define _GNU_SOURCE
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdalign.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <dirent.h>
+#include <poll.h>
+#include <sys/ioctl.h>
+#include <sys/inotify.h>
+#include <linux/input.h>
+
+#define MAX_DEV 16
+#define TB(b, a) (((a)[(b) / 8] >> ((b) % 8)) & 1)
+
+#ifndef EVIOCGRAB
+#define EVIOCGRAB _IOW('E', 0x90, int)
+#endif
+
+typedef struct {
+    int fd;
+    int g; // grab อยู่หรือไม่
+    char path[64];
+} Dev;
+
+static Dev devs[MAX_DEV];
+static int ndev = 0;
+static int want = 0; // ผู้ใช้สั่งให้ grab อยู่หรือไม่
+static int ctrlDown = 0;
+
+static void say(const char *s) {
+    size_t l = strlen(s);
+    while (l > 0) {
+        ssize_t w = write(1, s, l);
+        if (w < 0) {
+            if (errno == EINTR) continue;
+            _exit(0); // InputServer ปิดท่อแล้ว
+        }
+        s += w;
+        l -= (size_t) w;
+    }
+}
+
+static int grabbed_count(void) {
+    int n = 0;
+    for (int i = 0; i < ndev; i++) if (devs[i].g) n++;
+    return n;
+}
+
+static void report_state(void) {
+    char b[32];
+    snprintf(b, sizeof b, "S %d\n", grabbed_count());
+    say(b);
+}
+
+static int is_keyboard(int fd) {
+    unsigned char ev[(EV_MAX + 7) / 8 + 1];
+    unsigned char key[(KEY_MAX + 7) / 8 + 1];
+    memset(ev, 0, sizeof ev);
+    memset(key, 0, sizeof key);
+    if (ioctl(fd, EVIOCGBIT(0, sizeof ev), ev) < 0) return 0;
+    if (!TB(EV_KEY, ev)) return 0;
+    if (ioctl(fd, EVIOCGBIT(EV_KEY, sizeof key), key) < 0) return 0;
+    // ต้องมี A, Z, SPACE, ENTER ถึงนับเป็นคีย์บอร์ดจริง (ไม่แย่งปุ่มวอลุ่ม/เพาเวอร์/เมาส์)
+    return TB(KEY_A, key) && TB(KEY_Z, key) && TB(KEY_SPACE, key) && TB(KEY_ENTER, key);
+}
+
+static void add_dev(const char *path) {
+    if (ndev >= MAX_DEV) return;
+    for (int i = 0; i < ndev; i++) {
+        if (strcmp(devs[i].path, path) == 0) return;
+    }
+    int fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+    if (fd < 0) return;
+    if (!is_keyboard(fd)) {
+        close(fd);
+        return;
+    }
+    Dev *d = &devs[ndev];
+    d->fd = fd;
+    d->g = 0;
+    snprintf(d->path, sizeof d->path, "%s", path);
+    ndev++;
+    if (want && ioctl(fd, EVIOCGRAB, 1) == 0) d->g = 1;
+}
+
+static void remove_dev(int i) {
+    close(devs[i].fd);
+    devs[i] = devs[ndev - 1];
+    ndev--;
+}
+
+static void scan_devices(void) {
+    DIR *dir = opendir("/dev/input");
+    if (!dir) return;
+    struct dirent *e;
+    char path[64];
+    while ((e = readdir(dir)) != NULL) {
+        if (strncmp(e->d_name, "event", 5) != 0) continue;
+        snprintf(path, sizeof path, "/dev/input/%s", e->d_name);
+        add_dev(path);
+    }
+    closedir(dir);
+}
+
+static void set_grab(int on) {
+    want = on;
+    for (int i = 0; i < ndev; i++) {
+        if (on && !devs[i].g) {
+            if (ioctl(devs[i].fd, EVIOCGRAB, 1) == 0) devs[i].g = 1;
+        } else if (!on && devs[i].g) {
+            ioctl(devs[i].fd, EVIOCGRAB, 0);
+            devs[i].g = 0;
+        }
+    }
+    report_state();
+}
+
+static void handle_key(int code, int value) {
+    if (code == KEY_LEFTCTRL || code == KEY_RIGHTCTRL) ctrlDown = (value != 0);
+
+    // ทางหนีไฟ: Ctrl+Esc = ปล่อย grab ทั้งหมด (คีย์บอร์ดกลับไปทำงานกับระบบตามปกติ)
+    if (code == KEY_ESC && value == 1 && ctrlDown) {
+        set_grab(0);
+        say("R\n");
+        return;
+    }
+    char b[48];
+    snprintf(b, sizeof b, "K %d %d\n", code, value);
+    say(b);
+}
+
+// คืน 0 ถ้าอุปกรณ์หาย/อ่านไม่ได้ (ให้ลบออก)
+static int read_dev(int i) {
+    struct input_event ev[32];
+    ssize_t n = read(devs[i].fd, ev, sizeof ev);
+    if (n < 0) {
+        if (errno == EAGAIN || errno == EINTR) return 1;
+        return 0;
+    }
+    if (n == 0) return 0;
+    int cnt = (int) (n / (ssize_t) sizeof(struct input_event));
+    for (int k = 0; k < cnt; k++) {
+        if (ev[k].type != EV_KEY) continue;
+        if (ev[k].value < 0 || ev[k].value > 2) continue;
+        if (!devs[i].g) continue; // ไม่ได้ grab: ทิ้ง ไม่ส่งซ้ำกับทางปกติของระบบ
+        handle_key(ev[k].code, ev[k].value);
+    }
+    return 1;
+}
+
+static void handle_inotify(int in) {
+    char buf[512] __attribute__((aligned(alignof(struct inotify_event))));
+    ssize_t n = read(in, buf, sizeof buf);
+    if (n <= 0) return;
+    int added = 0;
+    for (char *p = buf; p < buf + n;) {
+        struct inotify_event *e = (struct inotify_event *) p;
+        if ((e->mask & IN_CREATE) && e->len > 0 && strncmp(e->name, "event", 5) == 0) {
+            usleep(200000); // รอให้ระบบตั้งสิทธิ์ไฟล์ให้เสร็จก่อน
+            char path[64];
+            snprintf(path, sizeof path, "/dev/input/%s", e->name);
+            int before = ndev;
+            add_dev(path);
+            if (ndev > before) added = 1;
+        }
+        p += sizeof(struct inotify_event) + e->len;
+    }
+    if (added && want) report_state();
+}
+
+int main(void) {
+    int in = inotify_init1(IN_CLOEXEC | IN_NONBLOCK);
+    if (in >= 0) inotify_add_watch(in, "/dev/input", IN_CREATE);
+
+    scan_devices();
+    {
+        char b[32];
+        snprintf(b, sizeof b, "H %d\n", ndev);
+        say(b);
+    }
+
+    for (;;) {
+        struct pollfd p[2 + MAX_DEV];
+        int cnt = ndev;
+        p[0].fd = 0;
+        p[0].events = POLLIN;
+        p[0].revents = 0;
+        p[1].fd = in; // -1 ถ้า inotify ใช้ไม่ได้ (poll จะข้ามให้)
+        p[1].events = POLLIN;
+        p[1].revents = 0;
+        for (int i = 0; i < cnt; i++) {
+            p[2 + i].fd = devs[i].fd;
+            p[2 + i].events = POLLIN;
+            p[2 + i].revents = 0;
+        }
+
+        int r = poll(p, (nfds_t) (2 + cnt), -1);
+        if (r < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+
+        // อุปกรณ์: วนจากท้ายไปหัว เพราะ remove_dev สลับตัวท้ายมาแทนที่
+        for (int i = cnt - 1; i >= 0; i--) {
+            if (!p[2 + i].revents) continue;
+            if (!read_dev(i)) remove_dev(i);
+        }
+
+        if (p[0].revents & (POLLIN | POLLHUP | POLLERR)) {
+            char c[64];
+            ssize_t n = read(0, c, sizeof c);
+            if (n <= 0) break; // InputServer หาย -> ออก (kernel ปล่อย grab ให้เอง)
+            int quit = 0;
+            for (ssize_t k = 0; k < n; k++) {
+                if (c[k] == 'G') set_grab(1);
+                else if (c[k] == 'U') set_grab(0);
+                else if (c[k] == 'Q') quit = 1;
+            }
+            if (quit) break;
+        }
+
+        if (in >= 0 && (p[1].revents & POLLIN)) handle_inotify(in);
+    }
+
+    for (int i = 0; i < ndev; i++) {
+        if (devs[i].g) ioctl(devs[i].fd, EVIOCGRAB, 0);
+        close(devs[i].fd);
+    }
+    return 0;
+}

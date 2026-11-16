@@ -52,6 +52,10 @@ public class FloatingService extends Service implements MouseController.MouseEve
 
     public static final String ACTION_STOP = "com.mynovo.mynovo1.ACTION_STOP_FLOATING";
 
+    // ใช้ร่วมกับ KeyBlockService เพื่อกันปุ่ม Windows ไม่ให้ออกหน้าหลัก
+    public static volatile boolean blockMetaKey = false;
+    public static volatile FloatingService instance = null;
+
     private WindowManager windowManager;
 
     private android.view.Display targetDisplay;
@@ -67,6 +71,19 @@ public class FloatingService extends Service implements MouseController.MouseEve
     private boolean isWaitingToggleKey = false;
     private Runnable cancelToggleKeyRunnable = null;
     private Button btnToggleKeyRef = null;
+
+    // ===== [KB] จับคีย์บอร์ดแบบ exclusive (kbgrab ผ่าน InputServer / ShellServerClient) =====
+    // kbGrabEnabled   : ผู้ใช้เปิดใช้ระบบนี้ (ตั้งค่าระบบ) เก็บถาวรใน prefs
+    // kbEscaped       : ผู้ใช้กด Ctrl+Esc ปล่อยชั่วคราว (รีเซ็ตเมื่อกลับเข้าเกม หรือแตะปุ่มในตั้งค่า)
+    // kbGrabRequested : ตอนนี้ขอ grab อยู่หรือไม่
+    // kbGrabCount     : จำนวนคีย์บอร์ดที่ grab อยู่จริง (0 = ไม่สำเร็จ/ไม่มีคีย์บอร์ด)
+    private volatile boolean kbGrabEnabled = true;
+    private volatile boolean kbEscaped = false;
+    private volatile boolean kbGrabRequested = false;
+    private volatile int kbGrabCount = 0;
+    private boolean settingsTextEditing = false;
+    private Button btnKbGrabRef = null;
+    private long kbDownTime = 0;
 
     private volatile int lastExtDisplayId = -1;
     private volatile int lastObservedReal = -1;
@@ -254,6 +271,19 @@ public class FloatingService extends Service implements MouseController.MouseEve
         Log.i("NAV", "restored gesture=" + v + " detail=" + d);
     }
 
+    // เปิด KeyBlockService (Accessibility) ผ่าน Shizuku อัตโนมัติ
+    private void enableKeyBlockService() {
+        try {
+            String cn = getPackageName() + "/" + KeyBlockService.class.getName();
+            String cur = cleanSetting(runShizukuShell("settings get secure enabled_accessibility_services"));
+            if (cur == null || !cur.contains(cn)) {
+                String nv = (cur == null) ? cn : cur + ":" + cn;
+                runShizukuShell("settings put secure enabled_accessibility_services " + nv);
+            }
+            runShizukuShell("settings put secure accessibility_enabled 1");
+        } catch (Throwable ignored) {}
+    }
+
     private int dpToPx(int dp) {
         Context c = displayContext != null ? displayContext : this;
         float density = c.getResources().getDisplayMetrics().density;
@@ -408,10 +438,12 @@ public class FloatingService extends Service implements MouseController.MouseEve
     @Override
     public void onCreate() {
         super.onCreate();
+        instance = this;
         try {
             SharedPreferences cp = getSharedPreferences("MynovoCore", MODE_PRIVATE);
             toggleBtnsKeyId = cp.getInt("toggle_btns_key", -1);
             lastExtDisplayId = cp.getInt("last_ext_display", -1);
+            kbGrabEnabled = cp.getBoolean("kb_grab_enabled", true); // [KB]
         } catch (Exception ignored) {}
     }
 
@@ -429,10 +461,13 @@ public class FloatingService extends Service implements MouseController.MouseEve
             maxScreenHeight = initSize[1];
 
             TouchSimulator.setContext(this);
+            ShellServerClient.setKeyListener(kbListener); // [KB]
             pushDisplayIdToSimulator(targetDisplay.getDisplayId());
             loadSettings();
 
             enableGestureNav();
+            new Thread(this::enableKeyBlockService).start();
+            blockMetaKey = true;
             startForegroundServiceForAndroid16();
 
             createEditModeBackground();
@@ -449,6 +484,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
 
             checkFirstTimeLaunch();
             registerDisplayListener();
+            updateKbGrab(); // [KB]
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -599,6 +635,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
             if (!isTargetInForeground) {
                 handler.post(() -> applyForegroundChange(false));
             }
+            updateKbGrab(); // [KB]
         } catch (Exception e) {}
     }
 
@@ -679,8 +716,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
                 toggleViewModeFromKey();
             } else if ("MOUSE_LOCK".equals(tag)) {
                 toggleMouseLock();
-            } else if ("HIDE_BTNS".equals(tag)) {
-                if (!tapDebounced(60002)) toggleButtonsHidden();
             } else {
                 if (tapDebounced(60002)) continue;
                 int[] loc = new int[2];
@@ -1269,22 +1304,13 @@ public class FloatingService extends Service implements MouseController.MouseEve
                 || isWaitingForKey;
     }
 
-    private boolean hasHideButtonsButton() {
-        for (View b : mappingButtons) {
-            if (b != null && "HIDE_BTNS".equals(String.valueOf(b.getTag()))) return true;
-        }
-        return false;
-    }
-
-    // [แก้ไข] ซ่อนได้เมื่อมีปุ่ม "ซ่อนปุ่ม" บนจอ หรือมีการตั้งปุ่มลัดไว้ในตั้งค่า
+    // [แก้ไข] ซ่อนปุ่มได้เฉพาะเมื่อมีการตั้งปุ่มลัดไว้ในตั้งค่าระบบ (เอาปุ่ม "ซ่อนปุ่ม" บนจอออกแล้ว)
     private void applyButtonsHiddenState() {
         if (destroyed || !isTargetInForeground) return;
-        boolean hide = buttonsHidden && !isEditModeActive()
-                && (hasHideButtonsButton() || toggleBtnsKeyId != -1);
+        boolean hide = buttonsHidden && !isEditModeActive() && toggleBtnsKeyId != -1;
+        int want = hide ? View.INVISIBLE : View.VISIBLE;
         for (View b : mappingButtons) {
             if (b == null) continue;
-            boolean keep = "HIDE_BTNS".equals(String.valueOf(b.getTag()));
-            int want = (hide && !keep) ? View.INVISIBLE : View.VISIBLE;
             if (b.getVisibility() != want) b.setVisibility(want);
         }
     }
@@ -1295,7 +1321,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
         applyButtonsHiddenState();
     }
 
-    // ===== [ใหม่] ปุ่มลัดเปิด/ปิดการแสดงปุ่มทั้งหมด =====
+    // ===== ปุ่มลัดเปิด/ปิดการแสดงปุ่มทั้งหมด =====
 
     private String toggleKeyButtonText() {
         if (isWaitingToggleKey) return "⌨️ กดปุ่มที่ต้องการ... (BACK = ยกเลิก)";
@@ -1330,7 +1356,10 @@ public class FloatingService extends Service implements MouseController.MouseEve
             getSharedPreferences("MynovoCore", MODE_PRIVATE).edit()
                     .putInt("toggle_btns_key", id).apply();
         } catch (Exception ignored) {}
-        if (id == -1 && !hasHideButtonsButton()) buttonsHidden = false;
+        if (id == -1) {
+            buttonsHidden = false;
+            applyButtonsHiddenState();
+        }
         refreshToggleKeyButton();
     }
 
@@ -1355,6 +1384,175 @@ public class FloatingService extends Service implements MouseController.MouseEve
         setToggleKey(makeKeyId(e.getKeyCode(), e.getScanCode()));
         Toast.makeText(this, "✅ ตั้งปุ่มลัดเป็น " + labelOfId(toggleBtnsKeyId),
                 Toast.LENGTH_SHORT).show();
+    }
+
+    // ===== [KB] จับคีย์บอร์ดแบบ exclusive =====
+
+    private static final android.util.SparseIntArray SCAN_TO_KEYCODE = new android.util.SparseIntArray();
+    static {
+        SparseFill.fill(SCAN_TO_KEYCODE);
+    }
+
+    // ตารางแปลง Linux scancode -> Android keycode (เฉพาะปุ่มคีย์บอร์ดมาตรฐาน)
+    private static final class SparseFill {
+        static void fill(android.util.SparseIntArray m) {
+            m.put(1, KeyEvent.KEYCODE_ESCAPE);
+            for (int i = 0; i < 9; i++) m.put(2 + i, KeyEvent.KEYCODE_1 + i);
+            m.put(11, KeyEvent.KEYCODE_0);
+            m.put(12, KeyEvent.KEYCODE_MINUS);
+            m.put(13, KeyEvent.KEYCODE_EQUALS);
+            m.put(14, KeyEvent.KEYCODE_DEL);
+            m.put(15, KeyEvent.KEYCODE_TAB);
+            int[] r1 = {KeyEvent.KEYCODE_Q, KeyEvent.KEYCODE_W, KeyEvent.KEYCODE_E, KeyEvent.KEYCODE_R,
+                    KeyEvent.KEYCODE_T, KeyEvent.KEYCODE_Y, KeyEvent.KEYCODE_U, KeyEvent.KEYCODE_I,
+                    KeyEvent.KEYCODE_O, KeyEvent.KEYCODE_P};
+            for (int i = 0; i < r1.length; i++) m.put(16 + i, r1[i]);
+            m.put(26, KeyEvent.KEYCODE_LEFT_BRACKET);
+            m.put(27, KeyEvent.KEYCODE_RIGHT_BRACKET);
+            m.put(28, KeyEvent.KEYCODE_ENTER);
+            m.put(29, KeyEvent.KEYCODE_CTRL_LEFT);
+            int[] r2 = {KeyEvent.KEYCODE_A, KeyEvent.KEYCODE_S, KeyEvent.KEYCODE_D, KeyEvent.KEYCODE_F,
+                    KeyEvent.KEYCODE_G, KeyEvent.KEYCODE_H, KeyEvent.KEYCODE_J, KeyEvent.KEYCODE_K,
+                    KeyEvent.KEYCODE_L};
+            for (int i = 0; i < r2.length; i++) m.put(30 + i, r2[i]);
+            m.put(39, KeyEvent.KEYCODE_SEMICOLON);
+            m.put(40, KeyEvent.KEYCODE_APOSTROPHE);
+            m.put(41, KeyEvent.KEYCODE_GRAVE);
+            m.put(42, KeyEvent.KEYCODE_SHIFT_LEFT);
+            m.put(43, KeyEvent.KEYCODE_BACKSLASH);
+            int[] r3 = {KeyEvent.KEYCODE_Z, KeyEvent.KEYCODE_X, KeyEvent.KEYCODE_C, KeyEvent.KEYCODE_V,
+                    KeyEvent.KEYCODE_B, KeyEvent.KEYCODE_N, KeyEvent.KEYCODE_M};
+            for (int i = 0; i < r3.length; i++) m.put(44 + i, r3[i]);
+            m.put(51, KeyEvent.KEYCODE_COMMA);
+            m.put(52, KeyEvent.KEYCODE_PERIOD);
+            m.put(53, KeyEvent.KEYCODE_SLASH);
+            m.put(54, KeyEvent.KEYCODE_SHIFT_RIGHT);
+            m.put(55, KeyEvent.KEYCODE_NUMPAD_MULTIPLY);
+            m.put(56, KeyEvent.KEYCODE_ALT_LEFT);
+            m.put(57, KeyEvent.KEYCODE_SPACE);
+            m.put(58, KeyEvent.KEYCODE_CAPS_LOCK);
+            for (int i = 0; i < 10; i++) m.put(59 + i, KeyEvent.KEYCODE_F1 + i);
+            m.put(69, KeyEvent.KEYCODE_NUM_LOCK);
+            m.put(70, KeyEvent.KEYCODE_SCROLL_LOCK);
+            for (int i = 0; i < 3; i++) m.put(71 + i, KeyEvent.KEYCODE_NUMPAD_7 + i);
+            m.put(74, KeyEvent.KEYCODE_NUMPAD_SUBTRACT);
+            for (int i = 0; i < 3; i++) m.put(75 + i, KeyEvent.KEYCODE_NUMPAD_4 + i);
+            m.put(78, KeyEvent.KEYCODE_NUMPAD_ADD);
+            for (int i = 0; i < 3; i++) m.put(79 + i, KeyEvent.KEYCODE_NUMPAD_1 + i);
+            m.put(82, KeyEvent.KEYCODE_NUMPAD_0);
+            m.put(83, KeyEvent.KEYCODE_NUMPAD_DOT);
+            m.put(87, KeyEvent.KEYCODE_F11);
+            m.put(88, KeyEvent.KEYCODE_F12);
+            m.put(96, KeyEvent.KEYCODE_NUMPAD_ENTER);
+            m.put(97, KeyEvent.KEYCODE_CTRL_RIGHT);
+            m.put(98, KeyEvent.KEYCODE_NUMPAD_DIVIDE);
+            m.put(99, KeyEvent.KEYCODE_SYSRQ);
+            m.put(100, KeyEvent.KEYCODE_ALT_RIGHT);
+            m.put(102, KeyEvent.KEYCODE_MOVE_HOME);
+            m.put(103, KeyEvent.KEYCODE_DPAD_UP);
+            m.put(104, KeyEvent.KEYCODE_PAGE_UP);
+            m.put(105, KeyEvent.KEYCODE_DPAD_LEFT);
+            m.put(106, KeyEvent.KEYCODE_DPAD_RIGHT);
+            m.put(107, KeyEvent.KEYCODE_MOVE_END);
+            m.put(108, KeyEvent.KEYCODE_DPAD_DOWN);
+            m.put(109, KeyEvent.KEYCODE_PAGE_DOWN);
+            m.put(110, KeyEvent.KEYCODE_INSERT);
+            m.put(111, KeyEvent.KEYCODE_FORWARD_DEL);
+            m.put(119, KeyEvent.KEYCODE_BREAK);
+            m.put(125, KeyEvent.KEYCODE_META_LEFT);
+            m.put(126, KeyEvent.KEYCODE_META_RIGHT);
+            m.put(127, KeyEvent.KEYCODE_MENU);
+        }
+    }
+
+    // เฟรมที่ได้จาก kbgrab (ถูกเรียกจากเธรดอ่านของ ShellServerClient จึงส่งต่อเข้า main handler ทุกครั้ง)
+    private final ShellServerClient.KeyListener kbListener = new ShellServerClient.KeyListener() {
+        @Override public void onKey(final int scanCode, final int value) {
+            handler.post(() -> onKbKey(scanCode, value));
+        }
+        @Override public void onEscape() {
+            handler.post(() -> onKbEscape());
+        }
+        @Override public void onGrabState(final int grabbedCount) {
+            handler.post(() -> {
+                kbGrabCount = grabbedCount;
+                refreshKbGrabButton();
+            });
+        }
+        @Override public void onDisconnected() {
+            handler.post(() -> {
+                kbGrabCount = 0;
+                refreshKbGrabButton();
+            });
+        }
+    };
+
+    private void onKbKey(int scanCode, int value) {
+        if (destroyed || !kbGrabRequested) return;
+        if (value < 0 || value > 2) return;
+        int kc = SCAN_TO_KEYCODE.get(scanCode, KeyEvent.KEYCODE_UNKNOWN);
+        long now = android.os.SystemClock.uptimeMillis();
+        if (value == 1 || kbDownTime == 0) kbDownTime = now;
+        int action = (value == 0) ? KeyEvent.ACTION_UP : KeyEvent.ACTION_DOWN;
+        int repeat = (value == 2) ? 1 : 0;
+        KeyEvent ev = new KeyEvent(kbDownTime, now, action, kc, repeat, 0, 0, scanCode);
+        handleKey(ev);
+    }
+
+    // ผู้ใช้กด Ctrl+Esc: ปล่อยคีย์บอร์ดคืนระบบชั่วคราว
+    private void onKbEscape() {
+        if (destroyed) return;
+        kbEscaped = true;
+        updateKbGrab();
+        Toast.makeText(this, "⌨️ ปล่อยคีย์บอร์ดคืนระบบแล้ว (เปิดใหม่ได้ที่ตั้งค่าระบบ)",
+                Toast.LENGTH_LONG).show();
+    }
+
+    // คำนวณว่าตอนนี้ควร grab หรือไม่ แล้วสั่งเมื่อสถานะเปลี่ยน
+    private void updateKbGrab() {
+        boolean want = kbGrabEnabled && !kbEscaped && !destroyed && overlayBuilt
+                && isTargetInForeground && !isTypingMode && !settingsTextEditing;
+        if (want == kbGrabRequested) {
+            refreshKbGrabButton();
+            return;
+        }
+        kbGrabRequested = want;
+        if (!want) {
+            kbGrabCount = 0;
+            // grab หลุดกลางทางอาจไม่ได้รับ "ปล่อยปุ่ม" ต้องเคลียร์ปุ่มที่ค้าง
+            releaseAllTapHolds();
+            if (dPadController != null) dPadController.release();
+            stopAllRapidTaps();
+        }
+        ShellServerClient.requestKbGrab(want);
+        refreshKbGrabButton();
+    }
+
+    private String kbGrabButtonText() {
+        if (!kbGrabEnabled) return "⌨️ จับคีย์บอร์ด: ปิด (แตะเพื่อเปิด)";
+        if (kbEscaped) return "⌨️ ปล่อยชั่วคราว (แตะเพื่อจับอีกครั้ง)";
+        if (!ShellServerClient.isConnected()) return "⌨️ จับคีย์บอร์ด: เปิด (รอ activate.sh)";
+        if (kbGrabCount > 0) return "⌨️ จับคีย์บอร์ด: เปิด (จับอยู่ " + kbGrabCount + " ตัว)";
+        return "⌨️ จับคีย์บอร์ด: เปิด (ไม่พบคีย์บอร์ด)";
+    }
+
+    private void refreshKbGrabButton() {
+        if (btnKbGrabRef != null) btnKbGrabRef.setText(kbGrabButtonText());
+    }
+
+    private void onKbGrabButtonClick() {
+        if (kbGrabEnabled && kbEscaped) {
+            kbEscaped = false;
+        } else {
+            kbGrabEnabled = !kbGrabEnabled;
+            kbEscaped = false;
+            try {
+                getSharedPreferences("MynovoCore", MODE_PRIVATE).edit()
+                        .putBoolean("kb_grab_enabled", kbGrabEnabled).apply();
+            } catch (Exception ignored) {}
+        }
+        updateKbGrab();
+        refreshKbGrabButton();
     }
 
     private void updateEditModeUI() {
@@ -1451,11 +1649,13 @@ public class FloatingService extends Service implements MouseController.MouseEve
                         Color.parseColor("#9950FA7B"), PorterDuff.Mode.SRC_ATOP);
             }
             Toast.makeText(this, "⌨️ โหมดพิมพ์: แตะไอคอนเพื่อกลับ", Toast.LENGTH_SHORT).show();
+            updateKbGrab(); // [KB] โหมดพิมพ์ = ปล่อยคีย์บอร์ดคืนระบบ
         } else {
             isTypingMode = false;
             mouseController.setTypingMode(false);
             isMouseMode = mouseController.isMouseActive();
             if (floatingView instanceof ImageView) ((ImageView) floatingView).clearColorFilter();
+            updateKbGrab(); // [KB]
         }
     }
 
@@ -1676,8 +1876,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
             View b = e.getKey();
             if (v == null || b == null || idKeyCode(v) != 60001) continue;
             String tag = String.valueOf(b.getTag());
-            if ("HIDE_MOUSE".equals(tag) || "MOUSE_LOCK".equals(tag) || "DPAD".equals(tag)
-                    || "HIDE_BTNS".equals(tag)) continue;
+            if ("HIDE_MOUSE".equals(tag) || "MOUSE_LOCK".equals(tag) || "DPAD".equals(tag)) continue;
             return b;
         }
         return null;
@@ -1773,7 +1972,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
         if (type.equals("DPAD") && dpadResId != 0) {
             tv.setText("");
         } else {
-            tv.setText(type.equals("DPAD") ? "🕹️" : type.equals("HIDE_MOUSE") ? "👁️" : type.equals("RAPID_FIRE") ? "⚡" : type.equals("MOUSE_LOCK") ? "🖱️" : type.equals("FIRE") ? "Fire" : type.equals("HIDE_BTNS") ? "🙈" : "?");
+            tv.setText(type.equals("DPAD") ? "🕹️" : type.equals("HIDE_MOUSE") ? "👁️" : type.equals("RAPID_FIRE") ? "⚡" : type.equals("MOUSE_LOCK") ? "🖱️" : type.equals("FIRE") ? "Fire" : "?");
         }
     }
 
@@ -2106,14 +2305,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
                     continue;
                 }
 
-                if ("HIDE_BTNS".equals(tag)) {
-                    if (!isEditModeActive() && !tapDebounced(keyCode * 31 + System.identityHashCode(b))) {
-                        toggleButtonsHidden();
-                    }
-                    handled = true;
-                    continue;
-                }
-
                 if ("RAPID_FIRE".equals(tag)) {
                     if (!isEditModeActive() && isTargetInForeground) rapidPress(b);
                     handled = true;
@@ -2415,6 +2606,9 @@ public class FloatingService extends Service implements MouseController.MouseEve
     }
 
     private void setSettingsFocusable(boolean on) {
+        // [KB] ตอนพิมพ์ตัวเลขในช่องตั้งค่า ต้องปล่อยคีย์บอร์ดคืนระบบ ไม่งั้นพิมพ์ไม่ได้
+        settingsTextEditing = on;
+        updateKbGrab();
         try {
             if (buttonSettingsView == null || buttonSettingsParams == null
                     || buttonSettingsView.getParent() == null) return;
@@ -2547,7 +2741,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
             int idZoom = getDrawableId("btn_zoom", R.drawable.btn_b);
 
             int idFire = getDrawableId("btn_fire_box", R.drawable.btn_b);
-            int idHideBtns = getDrawableId("btn_hide", R.drawable.btn_b);
 
             int defaultCenterX = (int)(maxScreenWidth / 2f) - dpToPx(80);
             int defaultCenterY = (int)(maxScreenHeight / 2f) - dpToPx(80);
@@ -2578,17 +2771,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
                     int fireKeyId = makeKeyId(60001, 0);
                     addNewMappingButton("FIRE", defaultCenterX, defaultCenterY, false, fireKeyId, true);
                 }
-            ));
-
-            rows.addView(createButtonRow(
-                "ซ่อนปุ่ม", idHideBtns, v -> {
-                    if (hasHideButtonsButton()) {
-                        Toast.makeText(this, "มีปุ่มซ่อนปุ่มอยู่แล้ว", Toast.LENGTH_SHORT).show();
-                        return;
-                    }
-                    addNewMappingButton("HIDE_BTNS", defaultCenterX, defaultCenterY, false, -1, true);
-                },
-                null, 0, null
             ));
 
             addMenuLayout.addView(sv, new LinearLayout.LayoutParams(
@@ -2843,7 +3025,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
             });
             layout.addView(speedSeekBar);
 
-            // [ใหม่] ปุ่มลัดเปิด/ปิดการแสดงปุ่ม (แทนระบบสลับจอเดิม)
+            // ปุ่มลัดเปิด/ปิดการแสดงปุ่ม
             layout.addView(createSettingsLabel("ปุ่มลัดเปิด/ปิดการแสดงปุ่ม"));
             LinearLayout toggleRow = new LinearLayout(this);
             toggleRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -2862,6 +3044,14 @@ public class FloatingService extends Service implements MouseController.MouseEve
             toggleRow.addView(btnToggleKeyRef);
             toggleRow.addView(btnClearKey);
             layout.addView(toggleRow);
+
+            // [KB] จับคีย์บอร์ดแบบ exclusive (ต้องรัน activate.sh ไว้)
+            layout.addView(createSettingsLabel("จับคีย์บอร์ดแบบ exclusive (Ctrl+Esc = ปล่อยคืนระบบ)"));
+            btnKbGrabRef = createSubMenuOption(kbGrabButtonText(), "#2E3447",
+                    v -> onKbGrabButtonClick());
+            btnKbGrabRef.setLayoutParams(new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(44)));
+            layout.addView(btnKbGrabRef);
 
             Button btnClose = new Button(this);
             btnClose.setText("CLOSE");
@@ -3174,10 +3364,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
                     label = "🖱️";
                     mapBtn.setBackground(makeButtonBg());
                 }
-                else if (type.equals("HIDE_BTNS")) {
-                    label = "🙈";
-                    mapBtn.setBackground(makeButtonBg());
-                }
                 else if (type.equals("FIRE")) {
                     int fireRes = getDrawableId("btn_fire", 0);
                     if (fireRes != 0) {
@@ -3389,7 +3575,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
         if ("SWIPE".equals(type)) return "ปัด";
         if ("ZOOM".equals(type)) return "ซูม";
         if ("FIRE".equals(type)) return "ยิง";
-        if ("HIDE_BTNS".equals(type)) return "ซ่อนปุ่ม";
         return "แตะ";
     }
 
@@ -3400,6 +3585,11 @@ public class FloatingService extends Service implements MouseController.MouseEve
             }
         } catch (Exception ignored) {}
         buttonSettingsView = null;
+        // [KB] ปิดหน้าตั้งค่าปุ่มขณะกำลังพิมพ์ตัวเลข -> กลับมา grab ต่อ
+        if (settingsTextEditing) {
+            settingsTextEditing = false;
+            updateKbGrab();
+        }
     }
 
     private void openButtonSettings(final View container) {
@@ -3611,6 +3801,8 @@ public class FloatingService extends Service implements MouseController.MouseEve
                         int x = obj.getInt("x");
                         int y = obj.getInt("y");
                         String type = obj.has("type") ? obj.getString("type") : "NORMAL";
+                        // ข้ามปุ่ม "ซ่อนปุ่ม" ที่ค้างอยู่ในพรีเซ็ตเก่า (ฟังก์ชันนี้ถูกลบออกแล้ว)
+                        if ("HIDE_BTNS".equals(type)) continue;
                         int key = obj.has("key") ? obj.getInt("key") : -1;
                         if ("FIRE".equals(type) && key == -1) {
                             key = makeKeyId(60001, 0);
@@ -3721,12 +3913,15 @@ public class FloatingService extends Service implements MouseController.MouseEve
         releaseAllTapHolds();
         boolean prevForeground = isTargetInForeground;
         isTargetInForeground = nowForeground;
+        blockMetaKey = nowForeground;
 
         if (!prevForeground && nowForeground) {
             activeTouchPointers.clear();
             TouchSimulator.releaseTouch();
             mouseLeftToken = 0;
+            kbEscaped = false; // [KB] กลับเข้าเกมแล้ว จับคีย์บอร์ดอีกครั้ง
         }
+        updateKbGrab(); // [KB] ออกจากเกม = ปล่อยคีย์บอร์ดคืนระบบ
 
         if (floatingView == null) return;
 
@@ -3768,6 +3963,11 @@ public class FloatingService extends Service implements MouseController.MouseEve
             try {
                 if (isTargetInForeground && !isEditModeActive() && mouseController != null) {
                     mouseController.checkAndRegainFocus();
+                }
+                // [KB] ต้องการ grab อยู่แต่ยังไม่ได้เชื่อม InputServer (เช่นรัน activate.sh ทีหลัง) -> ลองเชื่อมใหม่
+                if (kbGrabRequested && !ShellServerClient.isConnected()) {
+                    ShellServerClient.ensureConnectedAsync();
+                    refreshKbGrabButton();
                 }
             } catch (Exception ignored) {}
             if (isChecking && !destroyed) handler.postDelayed(this, 400);
@@ -3927,8 +4127,18 @@ public class FloatingService extends Service implements MouseController.MouseEve
     @Override
     public void onDestroy() {
         destroyed = true;
+        blockMetaKey = false;
+        instance = null;
         isChecking = false;
         probeActive = false;
+
+        // [KB] ปล่อยคีย์บอร์ดคืนระบบและเลิกรับเฟรมคีย์
+        try {
+            kbGrabRequested = false;
+            ShellServerClient.setKeyListener(null);
+            ShellServerClient.requestKbGrab(false);
+        } catch (Throwable ignored) {}
+
         try {
             final DisplayProbeActivity probe = DisplayProbeActivity.instance;
             if (probe != null) probe.runOnUiThread(probe::finish);

@@ -1,0 +1,28 @@
+The target system is: Android - 1 - aarch64
+The host system is: Linux - 5.10.236-android12-9-31998796-abS908EXXSEGZH4 - aarch64
+Compiling the C compiler identification source file "CMakeCCompilerId.c" succeeded.
+Compiler: /opt/ndk/android-ndk-r27d/toolchains/llvm/prebuilt/linux-arm64/bin/clang 
+Build flags: -g;-DANDROID;-fdata-sections;-ffunction-sections;-funwind-tables;-fstack-protector-strong;-no-canonical-prefixes;-D_FORTIFY_SOURCE=2;-Wformat;-Werror=format-security;
+Id flags: -c;--target=aarch64-none-linux-android26 
+
+The output was:
+0
+
+
+Compilation of the C compiler identification source "CMakeCCompilerId.c" produced "CMakeCCompilerId.o"
+
+The C compiler identification is Clang, found in "/storage/internal_new/project/mynovo/app/.cxx/Debug/595gb1z1/arm64-v8a/CMakeFiles/3.22.1/CompilerIdC/CMakeCCompilerId.o"
+
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" succeeded.
+Compiler: /opt/ndk/android-ndk-r27d/toolchains/llvm/prebuilt/linux-arm64/bin/clang++ 
+Build flags: -g;-DANDROID;-fdata-sections;-ffunction-sections;-funwind-tables;-fstack-protector-strong;-no-canonical-prefixes;-D_FORTIFY_SOURCE=2;-Wformat;-Werror=format-security;;
+Id flags: -c;--target=aarch64-none-linux-android26 
+
+The output was:
+0
+
+
+Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "CMakeCXXCompilerId.o"
+
+The CXX compiler identification is Clang, found in "/storage/internal_new/project/mynovo/app/.cxx/Debug/595gb1z1/arm64-v8a/CMakeFiles/3.22.1/CompilerIdCXX/CMakeCXXCompilerId.o"
+

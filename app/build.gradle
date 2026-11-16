@@ -6,6 +6,9 @@ android {
     namespace 'com.mynovo.mynovo1'
     compileSdk 35
 
+    // [แก้] ให้ตรงกับ NDK ที่ติดตั้งในเครื่อง (r27d)
+    ndkVersion "27.3.13750724"
+
     defaultConfig {
         applicationId "com.mynovo.mynovo1"
         minSdk 26
@@ -13,6 +16,18 @@ android {
         versionCode 1
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+
+        // [เพิ่ม] สร้างเฉพาะสถาปัตยกรรมของมือถือ (เครื่องส่วนใหญ่ปัจจุบันคือ arm64)
+        ndk {
+            abiFilters "arm64-v8a"
+        }
+    }
+
+    // [เพิ่ม] ให้ Gradle คอมไพล์โฟลเดอร์ cpp (native-lib, uinput_driver, kbgrab)
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+        }
     }
 
     buildTypes {
@@ -29,6 +44,10 @@ android {
     }
 
     packagingOptions {
+        // [เพิ่ม] แตกไฟล์ .so ลงโฟลเดอร์ lib จริง เพื่อให้ activate.sh คัดลอก libkbgrab.so ได้
+        jniLibs {
+            useLegacyPackaging true
+        }
         resources {
             excludes += [
                 'META-INF/DEPENDENCIES',

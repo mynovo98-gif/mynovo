@@ -25,13 +25,13 @@ public class DPadController {
      * ระยะลากจากกึ่งกลาง เป็นสัดส่วนของขนาด D-pad
      * ยิ่งน้อยยิ่งลากสั้น (เดิม 0.38) — ถ้าเกมไม่ยอมวิ่งเต็มสปีดให้ปรับขึ้น
      */
-    private static final float RADIUS_RATIO = 0.10f;
+    private static final float RADIUS_RATIO = 0.38f;
 
     /** ระยะลากขั้นต่ำ (px) กันเล็กจนเกมมองว่าไม่ได้ขยับ (deadzone) */
     private static final int MIN_RADIUS_PX = 14;
 
     /** ความไวตอนลากจากกลางไปขอบ: ยิ่งสเต็ปน้อย/หน่วงน้อย ยิ่งไว (เดิม 4 สเต็ป, 50+25*i ms) */
-    private static final int RAMP_STEPS = 2;
+    private static final int RAMP_STEPS = 1;
     private static final long RAMP_START_MS = 5L;
     private static final long RAMP_STEP_MS = 10L;
 

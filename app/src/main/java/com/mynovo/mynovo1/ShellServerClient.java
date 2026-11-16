@@ -2,239 +2,245 @@ package com.mynovo.mynovo1;
 
 import android.content.Context;
 import android.os.Handler;
-import android.os.Looper;
+import android.os.HandlerThread;
 import android.os.Parcel;
 import android.os.SystemClock;
 import android.util.Log;
 import android.view.MotionEvent;
 
+import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
+import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
-import java.util.ArrayDeque;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /**
- * ฝั่งแอป: เชื่อม InputServer (ที่เปิดด้วย activate.sh) แล้วส่ง MotionEvent ไปให้ inject
- * การ connect ทำนอก main thread เสมอ (Android ห้ามใช้ socket บน main thread)
- * ต้องมี <uses-permission android:name="android.permission.INTERNET"/> ใน AndroidManifest
+ * ตัวเชื่อมต่อไปยัง InputServer (activate.sh) ผ่าน TCP 127.0.0.1
+ *  - แอป -> server : [len:int][MotionEvent parcel]  /  -2 = เริ่ม grab คีย์บอร์ด  /  -3 = ปล่อย grab  /  -1 = ปิด server
+ *  - server -> แอป : เฟรมละ 9 ไบต์ [type:1][a:int][b:int]
+ *      type 1 = ปุ่มคีย์บอร์ด (a = Linux scancode, b = 0 ปล่อย / 1 กด / 2 ค้าง)
+ *      type 2 = ผู้ใช้กด Ctrl+Esc (ทางหนีไฟ ปล่อย grab)
+ *      type 3 = จำนวนคีย์บอร์ดที่ grab อยู่ (a)
+ *
+ * InputServer รับ client ได้ทีละ 1 ตัว (ตัวใหม่แทนตัวเก่า) จึงต้องใช้การเชื่อมต่อเดียวนี้ร่วมกัน
+ * ทั้งการส่งทัชและการรับคีย์บอร์ด
  */
 public final class ShellServerClient {
     private static final String TAG = "ShellServerClient";
-    private static final long RETRY_INTERVAL_MS = 2000L;
+    private static final String HOST = "127.0.0.1";
 
-    public interface Callback {
-        void onResult(boolean connected);
+    public interface KeyListener {
+        /** เรียกจากเธรดอ่านของตัวเชื่อมต่อ (ไม่ใช่ main thread) */
+        void onKey(int scanCode, int value);
+        void onEscape();
+        void onGrabState(int grabbedCount);
+        void onDisconnected();
     }
 
     private static final Object lock = new Object();
-    private static final Object connectLock = new Object();
-    private static final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private static final ExecutorService exec = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "ShellServerConnect");
-        t.setDaemon(true);
-        return t;
-    });
+    private static final Object writeLock = new Object();
 
-    private static volatile Socket socket;
-    private static volatile DataOutputStream out;
-    private static volatile Context appContext;
-    private static volatile long lastTryUptime = 0;
+    private static Context appCtx;
+    private static Socket socket;
+    private static DataOutputStream out;
+    private static volatile boolean connected = false;
+    private static boolean connecting = false;
+    private static long lastTry = 0;
+
+    private static volatile KeyListener keyListener;
+    private static volatile boolean wantGrab = false;
+
+    // เธรดแยกสำหรับส่งคำสั่ง grab (ห้ามเขียน socket บน main thread)
+    private static final HandlerThread cmdThread = new HandlerThread("ShellSrvCmd");
+    private static final Handler cmdHandler;
+    static {
+        cmdThread.start();
+        cmdHandler = new Handler(cmdThread.getLooper());
+    }
 
     private ShellServerClient() {}
 
     public static void setContext(Context c) {
-        if (c != null) appContext = c.getApplicationContext();
+        if (c != null) appCtx = c.getApplicationContext();
     }
 
-    // ไม่ใช้ lock เพื่อไม่ให้ main thread ถูกบล็อกตอน send() กำลังเขียน socket
     public static boolean isConnected() {
-        Socket s = socket;
-        return s != null && s.isConnected() && !s.isClosed();
+        return connected;
     }
 
-    // เรียกได้ถี่ๆ (มี throttle 2 วินาที) ใช้ตอน inject แล้วยังไม่เชื่อม
+    public static void setKeyListener(KeyListener l) {
+        keyListener = l;
+    }
+
     public static void ensureConnectedAsync() {
-        if (isConnected()) return;
-        long now = SystemClock.uptimeMillis();
-        if (now - lastTryUptime < RETRY_INTERVAL_MS) return;
-        lastTryUptime = now;
-        startConnect(null);
-    }
-
-    // ใช้กับปุ่ม "ตรวจสอบสถานะ" ในหน้าตั้งค่า (ไม่มี throttle) callback วิ่งบน main thread
-    public static void connectAsync(Callback cb) {
-        if (isConnected()) {
-            if (cb != null) mainHandler.post(() -> cb.onResult(true));
-            return;
+        if (connected) return;
+        synchronized (lock) {
+            if (connecting) return;
+            long now = SystemClock.uptimeMillis();
+            if (now - lastTry < 1000) return;
+            lastTry = now;
+            connecting = true;
         }
-        lastTryUptime = SystemClock.uptimeMillis();
-        startConnect(cb);
+        Thread t = new Thread(ShellServerClient::connectBlocking, "ShellSrvConnect");
+        t.setDaemon(true);
+        t.start();
     }
 
-    // สั่งปิด InputServer (ปุ่ม Deactivate) callback วิ่งบน main thread: true = ส่งคำสั่งปิดสำเร็จ
-    public static void stopServerAsync(final Callback cb) {
-        exec.execute(() -> {
-            boolean sent = false;
-            // รอให้ CANCEL ที่เพิ่งสั่งปล่อยนิ้วในคิวถูกส่งออกไปก่อน ไม่งั้นนิ้วอาจค้างในระบบ
-            try { Thread.sleep(150); } catch (InterruptedException ignored) {}
-            if (isConnected() || connectBlocking()) {
-                try {
-                    synchronized (lock) {
-                        if (out != null) {
-                            out.writeInt(-1);
-                            out.flush();
-                            sent = true;
-                        }
-                    }
-                } catch (IOException ignored) {}
-            }
-            close();
-            final boolean result = sent;
-            if (cb != null) mainHandler.post(() -> cb.onResult(result));
-        });
-    }
-
-    private static void startConnect(final Callback cb) {
-        exec.execute(() -> {
-            boolean ok = connectBlocking();
-            if (cb != null) mainHandler.post(() -> cb.onResult(ok));
-        });
-    }
-
-    private static boolean connectBlocking() {
-        synchronized (connectLock) {
-            if (isConnected()) return true;
-            Context c = appContext;
-            if (c == null) {
-                Log.w(TAG, "connect: no context (call ShellServerClient.setContext first)");
-                return false;
-            }
+    private static void connectBlocking() {
+        Socket s = null;
+        try {
+            Context c = appCtx;
+            if (c == null) return;
             String token = ShellServerSetup.readToken(c);
-            if (token == null) {
-                Log.w(TAG, "connect: no token file (call ShellServerSetup.prepare first)");
-                return false;
-            }
+            if (token == null) return;
 
-            Socket s = new Socket();
-            try {
-                s.connect(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), InputServer.PORT), 300);
-                s.setTcpNoDelay(true);
-                s.setSoTimeout(1000);
-                DataOutputStream o = new DataOutputStream(new BufferedOutputStream(s.getOutputStream(), 4096));
-                o.writeUTF(token);
+            s = new Socket();
+            s.connect(new InetSocketAddress(HOST, InputServer.PORT), 500);
+            s.setTcpNoDelay(true);
+            s.setKeepAlive(true);
+            s.setSoTimeout(2000);
+
+            DataOutputStream o = new DataOutputStream(new BufferedOutputStream(s.getOutputStream(), 4096));
+            o.writeUTF(token);
+            o.flush();
+            int r = s.getInputStream().read();
+            if (r != 1) {
+                closeQuietly(s);
+                return;
+            }
+            s.setSoTimeout(0);
+            DataInputStream in = new DataInputStream(new BufferedInputStream(s.getInputStream(), 256));
+
+            synchronized (writeLock) { out = o; }
+            synchronized (lock) { socket = s; }
+            connected = true;
+            Log.i(TAG, "connected to InputServer");
+
+            final Socket fs = s;
+            final DataInputStream fin = in;
+            Thread rt = new Thread(() -> readLoop(fs, fin), "ShellSrvRead");
+            rt.setDaemon(true);
+            rt.start();
+
+            // server เริ่มจากสถานะไม่ grab เสมอ ถ้าแอปต้องการ grab อยู่ให้ส่งซ้ำ
+            if (wantGrab) writeInt(-2);
+        } catch (Throwable t) {
+            closeQuietly(s);
+        } finally {
+            synchronized (lock) { connecting = false; }
+        }
+    }
+
+    private static void readLoop(Socket s, DataInputStream in) {
+        try {
+            while (true) {
+                int type = in.readUnsignedByte();
+                int a = in.readInt();
+                int b = in.readInt();
+                KeyListener l = keyListener;
+                if (l == null) continue;
+                if (type == 1) l.onKey(a, b);
+                else if (type == 2) l.onEscape();
+                else if (type == 3) l.onGrabState(a);
+            }
+        } catch (Throwable ignored) {
+        }
+        dropConnection(s);
+    }
+
+    private static void dropConnection(Socket s) {
+        boolean was = false;
+        Socket toClose = null;
+        synchronized (lock) {
+            if (s != null && socket != s) {
+                toClose = s;
+            } else {
+                was = socket != null;
+                toClose = socket;
+                socket = null;
+                connected = false;
+            }
+        }
+        synchronized (writeLock) {
+            if (was) out = null;
+        }
+        closeQuietly(toClose);
+        if (was) {
+            Log.i(TAG, "disconnected from InputServer");
+            KeyListener l = keyListener;
+            if (l != null) l.onDisconnected();
+        }
+    }
+
+    private static void closeQuietly(Socket s) {
+        if (s == null) return;
+        try { s.close(); } catch (IOException ignored) { }
+    }
+
+    private static boolean writeInt(int v) {
+        try {
+            synchronized (writeLock) {
+                DataOutputStream o = out;
+                if (o == null) return false;
+                o.writeInt(v);
                 o.flush();
-                int r = s.getInputStream().read();
-                if (r != 1) {
-                    Log.w(TAG, "connect: server rejected token (reply=" + r + ")");
-                    s.close();
-                    return false;
-                }
-                s.setSoTimeout(0);
-                synchronized (lock) {
-                    closeLocked();
-                    socket = s;
-                    out = o;
-                }
-                Log.i(TAG, "connected to shell server");
-                return true;
-            } catch (IOException e) {
-                Log.w(TAG, "connect failed: " + e);
-                try { s.close(); } catch (IOException ignored) {}
-                return false;
             }
+            return true;
+        } catch (IOException e) {
+            dropConnection(null);
+            return false;
         }
     }
 
-    // ---------- ส่งแบบ async: เรียกจาก main thread ได้ ไม่บล็อก ----------
-    private static final int MAX_QUEUE = 256;
-    private static final ArrayDeque<MotionEvent> queue = new ArrayDeque<>();
-    private static final Object qLock = new Object();
-    private static Thread senderThread;
-
-    /**
-     * คัดลอก event เข้าคิวแล้วคืนทันที เธรดส่งแยกจะเขียนลง socket เอง
-     * MOVE ที่ติดกันจะถูกรวมเหลือตัวล่าสุด และ MOVE จะถูกทิ้งถ้าคิวเต็ม
-     * (DOWN/UP/CANCEL ไม่ถูกทิ้ง เพื่อไม่ให้นิ้วค้าง)
-     */
-    public static void sendAsync(MotionEvent ev) {
-        final MotionEvent c = MotionEvent.obtain(ev);
-        synchronized (qLock) {
-            if (c.getActionMasked() == MotionEvent.ACTION_MOVE) {
-                MotionEvent tail = queue.peekLast();
-                if (tail != null && tail.getActionMasked() == MotionEvent.ACTION_MOVE
-                        && tail.getPointerCount() == c.getPointerCount()) {
-                    queue.pollLast().recycle();
-                } else if (queue.size() >= MAX_QUEUE) {
-                    c.recycle();
-                    return;
-                }
-            }
-            queue.addLast(c);
-            if (senderThread == null) {
-                senderThread = new Thread(ShellServerClient::senderLoop, "ShellServerSender");
-                senderThread.setDaemon(true);
-                senderThread.start();
-            }
-            qLock.notify();
-        }
-    }
-
-    private static void senderLoop() {
-        while (true) {
-            MotionEvent e;
-            synchronized (qLock) {
-                while (queue.isEmpty()) {
-                    try { qLock.wait(); } catch (InterruptedException ie) { return; }
-                }
-                e = queue.pollFirst();
-            }
-            try {
-                if (isConnected()) send(e);
-                else ensureConnectedAsync();
-            } finally {
-                e.recycle();
-            }
-        }
-    }
-
-    // เรียกจากเธรดส่ง event เท่านั้น ส่ง false ถ้าเขียนไม่สำเร็จ (ปิดการเชื่อมต่อให้เอง)
+    /** ส่ง MotionEvent ไปให้ server inject (เรียกจากเธรดส่ง event ของ TouchSimulator) */
     public static boolean send(MotionEvent ev) {
+        if (!connected) return false;
         Parcel p = Parcel.obtain();
         try {
             ev.writeToParcel(p, 0);
             byte[] b = p.marshall();
-            synchronized (lock) {
-                if (out == null) return false;
-                out.writeInt(b.length);
-                out.write(b);
-                out.flush();
+            synchronized (writeLock) {
+                DataOutputStream o = out;
+                if (o == null) return false;
+                o.writeInt(b.length);
+                o.write(b);
+                o.flush();
             }
             return true;
         } catch (IOException e) {
-            Log.w(TAG, "send failed, closing", e);
-            close();
+            dropConnection(null);
             return false;
         } finally {
             p.recycle();
         }
     }
 
-    public static void close() {
-        synchronized (lock) {
-            closeLocked();
+    /**
+     * ขอเริ่ม/ปล่อย grab คีย์บอร์ด จำค่าที่ต้องการไว้ ถ้ายังไม่เชื่อมต่อจะส่งให้เองตอนเชื่อมต่อสำเร็จ
+     * @return true ถ้าเชื่อมต่ออยู่และกำลังส่งคำสั่ง
+     */
+    public static boolean requestKbGrab(boolean on) {
+        wantGrab = on;
+        if (on && !connected) {
+            ensureConnectedAsync();
+            return false;
         }
+        cmdHandler.post(() -> {
+            if (connected) writeInt(wantGrab ? -2 : -3);
+        });
+        return connected;
     }
 
-    private static void closeLocked() {
-        try {
-            if (socket != null) socket.close();
-        } catch (IOException ignored) {}
-        socket = null;
-        out = null;
+    /** สั่งปิด InputServer */
+    public static void stopServer() {
+        cmdHandler.post(() -> {
+            if (connected) writeInt(-1);
+        });
+    }
+
+    public static void disconnect() {
+        dropConnection(null);
     }
 }

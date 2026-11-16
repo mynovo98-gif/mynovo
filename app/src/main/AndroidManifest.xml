@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
-    package="com.mynovo.mynovo1">
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
     <uses-permission android:name="moe.shizuku.privileged.permission.POST_BINDER" />
@@ -80,6 +79,19 @@
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Overlay tool for keymapping and touch simulation" />
+        </service>
+
+        <!-- กันปุ่ม Windows ไม่ให้ออกหน้าหลักขณะเล่นเกม -->
+        <service
+            android:name=".KeyBlockService"
+            android:exported="false"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/key_block_service_config" />
         </service>
 
     </application>

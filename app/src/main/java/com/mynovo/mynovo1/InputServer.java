@@ -6,10 +6,15 @@ import android.view.InputEvent;
 import android.view.MotionEvent;
 
 import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.lang.reflect.Method;
 import java.net.BindException;
 import java.net.InetAddress;
@@ -30,6 +35,15 @@ import java.net.Socket;
  *     (เดิมนิ้วจะค้างในระบบ ทำให้เกม/หน้าจอเหมือนค้าง)
  *  3) ถ้าได้ ACTION_DOWN ซ้อนตอนที่นิ้วเก่ายังไม่ปล่อย จะ CANCEL ของเก่าก่อน
  *  4) handshake มี timeout กันการเชื่อมต่อเปล่าบล็อก server
+ *
+ * [KB] เพิ่มระบบจับคีย์บอร์ดแบบ exclusive (EVIOCGRAB):
+ *  - args[1] (ไม่บังคับ) = path ของตัวช่วย native (/data/local/tmp/mynovo_kbgrab) ที่ activate.sh คัดลอกไว้
+ *  - แอป -> server: writeInt(-2) = เริ่ม grab, writeInt(-3) = ปล่อย grab (-1 เดิม = สั่งปิด server)
+ *  - server -> แอป: เฟรมละ 9 ไบต์ = [type:1][a:int][b:int]
+ *      type 1 = ปุ่มคีย์บอร์ด  a = Linux scancode, b = 0 ปล่อย / 1 กด / 2 ค้าง
+ *      type 2 = ผู้ใช้กด Ctrl+Esc ปล่อย grab (ทางหนีไฟ)
+ *      type 3 = จำนวนคีย์บอร์ดที่ grab อยู่ (a = จำนวน, 0 = ไม่สำเร็จ)
+ *  - ถ้า client หลุด/ถูกแทนที่ จะปล่อย grab ให้อัตโนมัติ คีย์บอร์ดจึงไม่ค้างตาย
  */
 public class InputServer {
     public static final int PORT = 38417;
@@ -44,6 +58,15 @@ public class InputServer {
     private static MotionEvent lastEvent;
     private static boolean active;
 
+    // ===== [KB] จับคีย์บอร์ด =====
+    private static String kbPath;
+    private static final Object kbLock = new Object();
+    private static Process kbProc;          // เข้าถึงใน synchronized (kbLock)
+    private static OutputStream kbIn;       // stdin ของตัวช่วย
+    private static final Object outLock = new Object();
+    private static DataOutputStream currentOut; // ท่อส่งกลับไปหา client ปัจจุบัน
+    private static Socket outSocket;
+
     public static void main(String[] args) {
         try {
             run(args);
@@ -56,13 +79,16 @@ public class InputServer {
 
     private static void run(String[] args) throws Exception {
         if (args.length < 1) {
-            System.out.println("usage: InputServer <tokenFile>");
+            System.out.println("usage: InputServer <tokenFile> [kbGrabHelperPath]");
             System.exit(2);
         }
         token = readToken(args[0]);
         if (token.isEmpty()) {
             System.out.println("token file is empty or missing: " + args[0]);
             System.exit(2);
+        }
+        if (args.length >= 2 && args[1] != null && !args[1].isEmpty()) {
+            kbPath = args[1];
         }
 
         Class<?> smClass = Class.forName("android.os.ServiceManager");
@@ -84,7 +110,8 @@ public class InputServer {
             System.out.println("already running (port " + PORT + " in use)");
             return;
         }
-        System.out.println("InputServer started on 127.0.0.1:" + PORT + " uid=" + android.os.Process.myUid());
+        System.out.println("InputServer started on 127.0.0.1:" + PORT + " uid=" + android.os.Process.myUid()
+                + " kbHelper=" + kbPath);
 
         while (true) {
             try {
@@ -118,9 +145,16 @@ public class InputServer {
                 cancelActive();
                 current = s;
             }
+            // [KB] client ใหม่เริ่มจากสถานะไม่ grab (ถ้าอยาก grab ให้ส่ง -2 มาเอง)
+            kbSetGrab(false);
             s.setSoTimeout(0);
             s.getOutputStream().write(1);
             s.getOutputStream().flush();
+            // [KB] หลัง handshake เสร็จค่อยเปิดท่อส่งเฟรมคีย์บอร์ดกลับไปหา client
+            synchronized (outLock) {
+                currentOut = new DataOutputStream(new BufferedOutputStream(s.getOutputStream(), 256));
+                outSocket = s;
+            }
             System.out.println("client connected");
 
             while (true) {
@@ -129,7 +163,16 @@ public class InputServer {
                     System.out.println("stop requested, exiting");
                     System.out.flush();
                     synchronized (injectLock) { cancelActive(); }
+                    kbShutdown(); // [KB]
                     System.exit(0);
+                }
+                // [KB] -2 = เริ่ม grab คีย์บอร์ด, -3 = ปล่อย grab (รับเฉพาะจาก client ปัจจุบัน)
+                if (len == -2 || len == -3) {
+                    boolean stale0;
+                    synchronized (injectLock) { stale0 = current != s; }
+                    if (stale0) break;
+                    kbSetGrab(len == -2);
+                    continue;
                 }
                 if (len <= 0 || len > 65536) break;
                 byte[] buf = new byte[len];
@@ -161,12 +204,22 @@ public class InputServer {
         } catch (Throwable t) {
             System.out.println("error: " + t);
         } finally {
+            boolean wasCurrent = false;
             synchronized (injectLock) {
                 if (current == s) {
                     current = null;
                     cancelActive(); // ปล่อยนิ้วที่ค้าง
+                    wasCurrent = true;
                 }
             }
+            // [KB] client หลุด -> ปิดท่อส่งกลับ และปล่อย grab คีย์บอร์ดคืนให้ระบบ
+            synchronized (outLock) {
+                if (outSocket == s) {
+                    currentOut = null;
+                    outSocket = null;
+                }
+            }
+            if (wasCurrent) kbSetGrab(false);
             closeQuietly(s);
             System.out.println("client disconnected");
         }
@@ -231,6 +284,128 @@ public class InputServer {
             return s == null ? "" : s.trim();
         } catch (IOException e) {
             return "";
+        }
+    }
+
+    // ===================== [KB] จับคีย์บอร์ดแบบ exclusive =====================
+
+    // ส่งเฟรม 9 ไบต์กลับไปหา client ปัจจุบัน (ถ้าไม่มี client ก็ทิ้ง)
+    private static void sendToClient(int type, int a, int b) {
+        synchronized (outLock) {
+            if (currentOut == null) return;
+            try {
+                currentOut.writeByte(type);
+                currentOut.writeInt(a);
+                currentOut.writeInt(b);
+                currentOut.flush();
+            } catch (IOException e) {
+                currentOut = null;
+                outSocket = null;
+            }
+        }
+    }
+
+    // เปิด/ปิด grab: เริ่มตัวช่วยตอนเปิดครั้งแรก แล้วส่งคำสั่งทาง stdin ('G' / 'U')
+    private static void kbSetGrab(boolean on) {
+        synchronized (kbLock) {
+            try {
+                if (kbProc == null) {
+                    if (!on) return;
+                    if (!kbStartHelper()) {
+                        sendToClient(3, 0, 0); // grab ไม่สำเร็จ แอปจะใช้ทางเดิม (รับปุ่มผ่านหน้าต่าง) ต่อไป
+                        return;
+                    }
+                }
+                kbIn.write(on ? 'G' : 'U');
+                kbIn.flush();
+            } catch (IOException e) {
+                System.out.println("kb write error: " + e);
+                kbKillLocked();
+                if (on) sendToClient(3, 0, 0);
+            }
+        }
+    }
+
+    // เรียกภายใน kbLock
+    private static boolean kbStartHelper() {
+        try {
+            if (kbPath == null || !new File(kbPath).canExecute()) {
+                System.out.println("kb helper not available: " + kbPath);
+                return false;
+            }
+            ProcessBuilder pb = new ProcessBuilder(kbPath);
+            pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+            final Process p = pb.start();
+            kbProc = p;
+            kbIn = p.getOutputStream();
+            Thread t = new Thread(() -> kbReadLoop(p), "kb-reader");
+            t.setDaemon(true);
+            t.start();
+            System.out.println("kb helper started");
+            return true;
+        } catch (Throwable t) {
+            System.out.println("kb helper start failed: " + t);
+            kbProc = null;
+            kbIn = null;
+            return false;
+        }
+    }
+
+    // อ่านข้อความจากตัวช่วยทีละบรรทัดแล้วส่งต่อให้แอปเป็นเฟรม
+    private static void kbReadLoop(Process p) {
+        try (BufferedReader br = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+            String l;
+            while ((l = br.readLine()) != null) {
+                if (l.isEmpty()) continue;
+                char c = l.charAt(0);
+                try {
+                    if (c == 'K') {
+                        String[] a = l.split(" ");
+                        if (a.length >= 3) {
+                            sendToClient(1, Integer.parseInt(a[1]), Integer.parseInt(a[2]));
+                        }
+                    } else if (c == 'R') {
+                        sendToClient(2, 0, 0);
+                    } else if (c == 'S') {
+                        String[] a = l.split(" ");
+                        sendToClient(3, a.length >= 2 ? Integer.parseInt(a[1]) : 0, 0);
+                    } else if (c == 'H') {
+                        System.out.println("kb helper: " + l);
+                    }
+                } catch (NumberFormatException ignored) {
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        synchronized (kbLock) {
+            if (kbProc == p) {
+                kbProc = null;
+                kbIn = null;
+            }
+        }
+        try { p.destroy(); } catch (Throwable ignored) { }
+        sendToClient(3, 0, 0); // ตัวช่วยตาย = ไม่มี grab แล้ว
+    }
+
+    // เรียกภายใน kbLock
+    private static void kbKillLocked() {
+        Process p = kbProc;
+        kbProc = null;
+        kbIn = null;
+        if (p != null) {
+            try { p.destroy(); } catch (Throwable ignored) { }
+        }
+    }
+
+    private static void kbShutdown() {
+        synchronized (kbLock) {
+            if (kbIn != null) {
+                try {
+                    kbIn.write('Q');
+                    kbIn.flush();
+                } catch (IOException ignored) { }
+            }
+            kbKillLocked();
         }
     }
 }
