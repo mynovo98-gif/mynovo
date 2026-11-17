@@ -84,7 +84,7 @@
         <!-- กันปุ่ม Windows ไม่ให้ออกหน้าหลักขณะเล่นเกม -->
         <service
             android:name=".KeyBlockService"
-            android:exported="false"
+            android:exported="true"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
