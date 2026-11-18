@@ -34,7 +34,7 @@
 typedef struct {
     int fd;
     int g; // grab อยู่หรือไม่
-    int rw; // [เพิ่ม] เปิดแบบเขียนได้หรือไม่ (ใช้สั่งไฟ LED)
+    int rw; // เปิดแบบเขียนได้หรือไม่ (ใช้สั่งไฟ LED)
     char path[64];
 } Dev;
 
@@ -56,7 +56,7 @@ static void say(const char *s) {
     }
 }
 
-// [เพิ่ม] สั่งเปิด/ดับไฟ Caps Lock ของคีย์บอร์ดตัวนี้ (ทำได้เฉพาะที่เปิดแบบ O_RDWR)
+// สั่งเปิด/ดับไฟ Caps Lock ของคีย์บอร์ดตัวนี้ (ทำได้เฉพาะที่เปิดแบบ O_RDWR)
 static void set_caps_led(const Dev *d, int on) {
     if (!d->rw) return;
     struct input_event ev[2];
@@ -100,7 +100,7 @@ static void add_dev(const char *path) {
     for (int i = 0; i < ndev; i++) {
         if (strcmp(devs[i].path, path) == 0) return;
     }
-    // [แก้] ลองเปิดแบบอ่าน+เขียนก่อน (เพื่อสั่งไฟ LED) ถ้าไม่ได้ค่อยถอยกลับเป็นอ่านอย่างเดียว
+    // ลองเปิดแบบอ่าน+เขียนก่อน (เพื่อสั่งไฟ LED) ถ้าไม่ได้ค่อยถอยกลับเป็นอ่านอย่างเดียว
     int rw = 1;
     int fd = open(path, O_RDWR | O_NONBLOCK | O_CLOEXEC);
     if (fd < 0) {
@@ -120,7 +120,7 @@ static void add_dev(const char *path) {
     ndev++;
     if (want && ioctl(fd, EVIOCGRAB, 1) == 0) {
         d->g = 1;
-        set_caps_led(d, 0); // [เพิ่ม] คีย์บอร์ดที่เสียบใหม่ตอนกำลัง grab ให้ดับไฟด้วย
+        set_caps_led(d, 0); // คีย์บอร์ดที่เสียบใหม่ตอนกำลัง grab ให้ดับไฟด้วย
     }
 }
 
@@ -149,20 +149,20 @@ static void set_grab(int on) {
         if (on && !devs[i].g) {
             if (ioctl(devs[i].fd, EVIOCGRAB, 1) == 0) {
                 devs[i].g = 1;
-                set_caps_led(&devs[i], 0); // [เพิ่ม] เริ่ม grab: ดับไฟ Caps
+                set_caps_led(&devs[i], 0); // เริ่ม grab: ดับไฟ Caps
             }
         } else if (!on && devs[i].g) {
-            set_caps_led(&devs[i], 0); // [เพิ่ม] ปล่อย grab: ดับไฟ Caps ก่อนคืนให้ระบบ
+            set_caps_led(&devs[i], 0); // ปล่อย grab: ดับไฟ Caps ก่อนคืนให้ระบบ
             ioctl(devs[i].fd, EVIOCGRAB, 0);
             devs[i].g = 0;
-            set_caps_led(&devs[i], 0); // [เพิ่ม] ย้ำอีกรอบหลังปล่อย
+            set_caps_led(&devs[i], 0); // ย้ำอีกรอบหลังปล่อย
         }
     }
     report_state();
 }
 
 static void handle_key(int code, int value) {
-    if (code == KEY_LEFTCTRL || code == KEY_RIGHTCTRL) ctrlDown = (value != 0);
+    // [แก้] ย้ายการติดตามสถานะ Ctrl ไปที่ read_dev() แล้ว (ทำงานแม้ไม่ได้ grab)
 
     // ทางหนีไฟ: Ctrl+Esc = ปล่อย grab ทั้งหมด (คีย์บอร์ดกลับไปทำงานกับระบบตามปกติ)
     if (code == KEY_ESC && value == 1 && ctrlDown) {
@@ -188,7 +188,17 @@ static int read_dev(int i) {
     for (int k = 0; k < cnt; k++) {
         if (ev[k].type != EV_KEY) continue;
         if (ev[k].value < 0 || ev[k].value > 2) continue;
+
+        // [แก้] ติดตามสถานะ Ctrl ตลอด แม้ไม่ได้ grab กันค้างหลังกด Ctrl+Esc
+        if (ev[k].code == KEY_LEFTCTRL || ev[k].code == KEY_RIGHTCTRL)
+            ctrlDown = (ev[k].value != 0);
+
         if (!devs[i].g) continue; // ไม่ได้ grab: ทิ้ง ไม่ส่งซ้ำกับทางปกติของระบบ
+
+        // [เพิ่ม] กด/ปล่อย Caps ตอน grab: ดับไฟซ้ำ กันคีย์บอร์ดที่สลับไฟเอง
+        if (ev[k].code == KEY_CAPSLOCK && ev[k].value != 2)
+            set_caps_led(&devs[i], 0);
+
         handle_key(ev[k].code, ev[k].value);
     }
     return 1;
@@ -270,7 +280,7 @@ int main(void) {
 
     for (int i = 0; i < ndev; i++) {
         if (devs[i].g) {
-            set_caps_led(&devs[i], 0); // [เพิ่ม] ออกจากโปรแกรม: ดับไฟก่อนปล่อย
+            set_caps_led(&devs[i], 0); // ออกจากโปรแกรม: ดับไฟก่อนปล่อย
             ioctl(devs[i].fd, EVIOCGRAB, 0);
         }
         close(devs[i].fd);

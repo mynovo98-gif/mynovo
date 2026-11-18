@@ -84,6 +84,8 @@ public class FloatingService extends Service implements MouseController.MouseEve
     private boolean settingsTextEditing = false;
     private Button btnKbGrabRef = null;
     private long kbDownTime = 0;
+    // [แก้ lag] จำกัดความถี่การลองเชื่อม InputServer ใหม่
+    private long lastKbReconnectAt = 0;
 
     private volatile int lastExtDisplayId = -1;
     private volatile int lastObservedReal = -1;
@@ -1468,6 +1470,9 @@ public class FloatingService extends Service implements MouseController.MouseEve
     // เฟรมที่ได้จาก kbgrab (ถูกเรียกจากเธรดอ่านของ ShellServerClient จึงส่งต่อเข้า main handler ทุกครั้ง)
     private final ShellServerClient.KeyListener kbListener = new ShellServerClient.KeyListener() {
         @Override public void onKey(final int scanCode, final int value) {
+            // [แก้ lag] ทิ้งเฟรม key-repeat (value==2) ตั้งแต่ต้นทาง ไม่ต้องส่งเข้า main thread
+            // (ปุ่มที่ map ไว้ใช้แค่ down/up อยู่แล้ว)
+            if (value == 2) return;
             handler.post(() -> onKbKey(scanCode, value));
         }
         @Override public void onEscape() {
@@ -2249,7 +2254,8 @@ public class FloatingService extends Service implements MouseController.MouseEve
         if (dpadKey != -1) {
             if (!isEditModeActive()) {
                 if (dPadController != null) {
-                    if (isDown || isUp) {
+                    // [แก้ lag] ไม่ส่ง key-repeat เข้า D-Pad ซ้ำ ๆ (สถานะกดค้างถูกตั้งไว้แล้วตอน down)
+                    if (isUp || (isDown && event.getRepeatCount() == 0)) {
                         dPadController.onKeyEvent(dpadKey, isDown);
                     }
                     return true;
@@ -3965,9 +3971,14 @@ public class FloatingService extends Service implements MouseController.MouseEve
                     mouseController.checkAndRegainFocus();
                 }
                 // [KB] ต้องการ grab อยู่แต่ยังไม่ได้เชื่อม InputServer (เช่นรัน activate.sh ทีหลัง) -> ลองเชื่อมใหม่
+                // [แก้ lag] เดิมลองทุก 400ms ตลอดเวลา เปลี่ยนเป็นทุก 3 วินาที
                 if (kbGrabRequested && !ShellServerClient.isConnected()) {
-                    ShellServerClient.ensureConnectedAsync();
-                    refreshKbGrabButton();
+                    long nowMs = android.os.SystemClock.uptimeMillis();
+                    if (nowMs - lastKbReconnectAt >= 3000) {
+                        lastKbReconnectAt = nowMs;
+                        ShellServerClient.ensureConnectedAsync();
+                        refreshKbGrabButton();
+                    }
                 }
             } catch (Exception ignored) {}
             if (isChecking && !destroyed) handler.postDelayed(this, 400);
@@ -4045,10 +4056,19 @@ public class FloatingService extends Service implements MouseController.MouseEve
             try { proc.waitFor(); } catch (Exception ignored) {}
 
             if (targetResumed) {
-                int real = queryDisplayViaWindow(targetPackage);
-                if (real < 0) {
-                    if (onDefault && otherId <= 0) real = 0;
-                    else if (!onDefault && otherId > 0) real = otherId;
+                // [แก้ lag] ผลจาก activities ชัดเจนและตรงกับจอปัจจุบันอยู่แล้ว -> ไม่ต้องรัน
+                // "dumpsys window displays" ซ้ำ (หนักมาก) ใช้เฉพาะตอนกำกวมหรือจอเปลี่ยน
+                int quick = -1;
+                if (onDefault && otherId <= 0) quick = 0;
+                else if (!onDefault && otherId > 0) quick = otherId;
+                int desired = gameDisplayId > 0 ? gameDisplayId : 0;
+
+                int real;
+                if (displayConfirmed && quick >= 0 && quick == desired) {
+                    real = quick;
+                } else {
+                    real = queryDisplayViaWindow(targetPackage);
+                    if (real < 0) real = quick;
                 }
                 if (real >= 0) applyObservedGameDisplay(real);
                 return targetPackage;
@@ -4070,7 +4090,16 @@ public class FloatingService extends Service implements MouseController.MouseEve
         long now = android.os.SystemClock.uptimeMillis();
         if (!usage.equals(prevUsage)) { prevUsage = usage; usageChangedAt = now; }
 
-        if (!shizukuBusy && now - lastShizukuCheck >= 1000) {
+        // [แก้ lag] เดิมสั่ง dumpsys ผ่าน Shizuku ทุก 1 วินาทีตลอดเวลา (หนักมาก ทำให้เกม/ระบบกระตุก)
+        // ตอนนี้: ถ้า UsageStats บอกว่าเกมอยู่หน้าจอนิ่ง ๆ แล้ว ให้เช็กห่างขึ้นเป็น 2.5 วินาที
+        // ถ้ามีการเปลี่ยนแอปเมื่อไม่นานนี้ หรือไม่ใช่เกม ให้เช็กถี่ 1 วินาทีเหมือนเดิม
+        boolean stableOnTarget = !targetPackage.isEmpty()
+                && targetPackage.equals(usage)
+                && now - usageChangedAt > 3000
+                && displayConfirmed;
+        long shizukuInterval = stableOnTarget ? 2500 : 1000;
+
+        if (!shizukuBusy && now - lastShizukuCheck >= shizukuInterval) {
             lastShizukuCheck = now;
             shizukuBusy = true;
             new Thread(() -> {
@@ -4081,7 +4110,8 @@ public class FloatingService extends Service implements MouseController.MouseEve
             }).start();
         }
         String sz = shizukuTopApp;
-        if (sz != null && shizukuAt > usageChangedAt && now - shizukuAt < 5000) {
+        // [แก้ lag] ขยายอายุผล Shizuku ให้สอดคล้องกับช่วงเช็กที่ห่างขึ้น
+        if (sz != null && shizukuAt > usageChangedAt && now - shizukuAt < 6000) {
             fgSource = "shizuku";
             return sz;
         }
