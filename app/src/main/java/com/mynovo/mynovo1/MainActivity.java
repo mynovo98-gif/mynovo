@@ -379,7 +379,7 @@ public class MainActivity extends AppCompatActivity {
         layout.addView(etEmail);
         layout.addView(etPass);
 
-        layout.addView(makeAccountButton("LOGIN", "#BD93F9", v -> {
+        layout.addView(makeAccountButton("เข้าสู่ระบบ", "#BD93F9", v -> {
             String email = etEmail.getText().toString().trim();
             String pass = etPass.getText().toString();
             if (email.isEmpty() || pass.isEmpty()) {
@@ -400,7 +400,7 @@ public class MainActivity extends AppCompatActivity {
                     });
         }));
 
-        layout.addView(makeAccountButton("REGISTER", "#282C34", v -> {
+        layout.addView(makeAccountButton("สร้างแอคเคาท์", "#282C34", v -> {
             String email = etEmail.getText().toString().trim();
             String pass = etPass.getText().toString();
             if (email.isEmpty() || pass.length() < 6) {
@@ -422,7 +422,7 @@ public class MainActivity extends AppCompatActivity {
         }));
 
         TextView tvForgot = new TextView(this);
-        tvForgot.setText("Forgot password?");
+        tvForgot.setText("รีเซ็ตรหัส/เปลี่ยนรหัส");
         tvForgot.setTextColor(Color.parseColor("#8BE9FD"));
         tvForgot.setTextSize(12f);
         tvForgot.setGravity(Gravity.CENTER);
