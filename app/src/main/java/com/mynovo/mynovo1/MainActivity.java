@@ -21,6 +21,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
 import android.text.Editable;
+import android.text.InputType;
 import android.text.TextWatcher;
 import android.util.Log;
 import android.view.Display;
@@ -41,6 +42,9 @@ import android.widget.Toast;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.cardview.widget.CardView;
+
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -341,19 +345,175 @@ public class MainActivity extends AppCompatActivity {
         checkInputDevicesStatus();
     }
 
+    // ===================== ระบบ Account (Firebase Email/Password) =====================
+
     private void loadAccountView() {
+        FirebaseUser user = null;
+        try {
+            user = FirebaseAuth.getInstance().getCurrentUser();
+        } catch (Exception ignored) {}
+        if (user != null) showAccountLoggedIn(user);
+        else showAccountLogin();
+    }
+
+    private void showAccountLogin() {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setGravity(Gravity.CENTER);
-        layout.setPadding(32, 32, 32, 32);
-        TextView tv = new TextView(this);
-        tv.setText("👤 Account & Cloud Sync\nComing Soon...");
-        tv.setTextColor(Color.WHITE);
-        tv.setTextSize(16f);
-        tv.setGravity(Gravity.CENTER);
-        layout.addView(tv);
+        layout.setPadding(40, 32, 40, 32);
+
+        TextView tvTitle = new TextView(this);
+        tvTitle.setText("👤 Account & Cloud Sync");
+        tvTitle.setTextColor(Color.parseColor("#8BE9FD"));
+        tvTitle.setTextSize(18f);
+        tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+        tvTitle.setGravity(Gravity.CENTER);
+        tvTitle.setPadding(0, 0, 0, 24);
+        layout.addView(tvTitle);
+
+        final EditText etEmail = makeAccountInput("Email", false);
+        final EditText etPass = makeAccountInput("Password (min 6)", true);
+        layout.addView(etEmail);
+        layout.addView(etPass);
+
+        layout.addView(makeAccountButton("LOGIN", "#BD93F9", v -> {
+            String email = etEmail.getText().toString().trim();
+            String pass = etPass.getText().toString();
+            if (email.isEmpty() || pass.isEmpty()) {
+                Toast.makeText(this, "กรอกอีเมลและรหัสผ่านก่อน", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            FirebaseAuth.getInstance().signInWithEmailAndPassword(email, pass)
+                    .addOnCompleteListener(task -> {
+                        if (isFinishing()) return;
+                        if (task.isSuccessful()) {
+                            Toast.makeText(this, "✅ Login สำเร็จ", Toast.LENGTH_SHORT).show();
+                            loadAccountView();
+                        } else {
+                            Toast.makeText(this, "❌ " + (task.getException() != null
+                                    ? task.getException().getMessage() : "Login failed"),
+                                    Toast.LENGTH_LONG).show();
+                        }
+                    });
+        }));
+
+        layout.addView(makeAccountButton("REGISTER", "#282C34", v -> {
+            String email = etEmail.getText().toString().trim();
+            String pass = etPass.getText().toString();
+            if (email.isEmpty() || pass.length() < 6) {
+                Toast.makeText(this, "กรอกอีเมล และรหัสผ่านอย่างน้อย 6 ตัว", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            FirebaseAuth.getInstance().createUserWithEmailAndPassword(email, pass)
+                    .addOnCompleteListener(task -> {
+                        if (isFinishing()) return;
+                        if (task.isSuccessful()) {
+                            Toast.makeText(this, "✅ สมัครสำเร็จ", Toast.LENGTH_SHORT).show();
+                            loadAccountView();
+                        } else {
+                            Toast.makeText(this, "❌ " + (task.getException() != null
+                                    ? task.getException().getMessage() : "Register failed"),
+                                    Toast.LENGTH_LONG).show();
+                        }
+                    });
+        }));
+
+        TextView tvForgot = new TextView(this);
+        tvForgot.setText("Forgot password?");
+        tvForgot.setTextColor(Color.parseColor("#8BE9FD"));
+        tvForgot.setTextSize(12f);
+        tvForgot.setGravity(Gravity.CENTER);
+        tvForgot.setPadding(0, 20, 0, 0);
+        tvForgot.setOnClickListener(v -> {
+            String email = etEmail.getText().toString().trim();
+            if (email.isEmpty()) {
+                Toast.makeText(this, "กรอกอีเมลก่อน", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            FirebaseAuth.getInstance().sendPasswordResetEmail(email)
+                    .addOnCompleteListener(task -> {
+                        if (isFinishing()) return;
+                        Toast.makeText(this, task.isSuccessful()
+                                ? "📧 ส่งลิงก์รีเซ็ตรหัสผ่านแล้ว"
+                                : "❌ ส่งไม่สำเร็จ", Toast.LENGTH_LONG).show();
+                    });
+        });
+        layout.addView(tvForgot);
+
+        scroll.addView(layout);
+        fragmentContainer.removeAllViews();
+        fragmentContainer.addView(scroll);
+    }
+
+    private void showAccountLoggedIn(FirebaseUser user) {
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setGravity(Gravity.CENTER);
+        layout.setPadding(40, 32, 40, 32);
+
+        TextView tvTitle = new TextView(this);
+        tvTitle.setText("👤 Signed in");
+        tvTitle.setTextColor(Color.parseColor("#50FA7B"));
+        tvTitle.setTextSize(18f);
+        tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+        tvTitle.setGravity(Gravity.CENTER);
+        layout.addView(tvTitle);
+
+        TextView tvEmail = new TextView(this);
+        tvEmail.setText(user.getEmail() != null ? user.getEmail() : "(no email)");
+        tvEmail.setTextColor(Color.WHITE);
+        tvEmail.setTextSize(14f);
+        tvEmail.setGravity(Gravity.CENTER);
+        tvEmail.setPadding(0, 12, 0, 24);
+        layout.addView(tvEmail);
+
+        layout.addView(makeAccountButton("LOGOUT", "#FF5555", v -> {
+            FirebaseAuth.getInstance().signOut();
+            Toast.makeText(this, "Logged out", Toast.LENGTH_SHORT).show();
+            loadAccountView();
+        }));
+
         fragmentContainer.removeAllViews();
         fragmentContainer.addView(layout);
+    }
+
+    private EditText makeAccountInput(String hint, boolean password) {
+        EditText et = new EditText(this);
+        et.setHint(hint);
+        et.setHintTextColor(Color.parseColor("#6272A4"));
+        et.setTextColor(Color.WHITE);
+        et.setTextSize(14f);
+        et.setSingleLine(true);
+        et.setPadding(24, 20, 24, 20);
+        et.setBackgroundColor(Color.parseColor("#0F111A"));
+        et.setInputType(password
+                ? (InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD)
+                : (InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS));
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        p.setMargins(0, 8, 0, 8);
+        et.setLayoutParams(p);
+        return et;
+    }
+
+    private View makeAccountButton(String text, String colorHex, View.OnClickListener l) {
+        TextView btn = new TextView(this);
+        btn.setText(text);
+        btn.setTextColor(Color.WHITE);
+        btn.setTextSize(13f);
+        btn.setTypeface(null, android.graphics.Typeface.BOLD);
+        btn.setGravity(Gravity.CENTER);
+        btn.setPadding(24, 20, 24, 20);
+        btn.setBackgroundColor(Color.parseColor(colorHex));
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        p.setMargins(0, 12, 0, 0);
+        btn.setLayoutParams(p);
+        btn.setOnClickListener(l);
+        return btn;
     }
 
     private void loadSettingsView() {
