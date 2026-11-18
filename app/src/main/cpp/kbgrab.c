@@ -34,6 +34,7 @@
 typedef struct {
     int fd;
     int g; // grab อยู่หรือไม่
+    int rw; // [เพิ่ม] เปิดแบบเขียนได้หรือไม่ (ใช้สั่งไฟ LED)
     char path[64];
 } Dev;
 
@@ -53,6 +54,21 @@ static void say(const char *s) {
         s += w;
         l -= (size_t) w;
     }
+}
+
+// [เพิ่ม] สั่งเปิด/ดับไฟ Caps Lock ของคีย์บอร์ดตัวนี้ (ทำได้เฉพาะที่เปิดแบบ O_RDWR)
+static void set_caps_led(const Dev *d, int on) {
+    if (!d->rw) return;
+    struct input_event ev[2];
+    memset(ev, 0, sizeof ev);
+    ev[0].type = EV_LED;
+    ev[0].code = LED_CAPSL;
+    ev[0].value = on ? 1 : 0;
+    ev[1].type = EV_SYN;
+    ev[1].code = SYN_REPORT;
+    ev[1].value = 0;
+    ssize_t r = write(d->fd, ev, sizeof ev);
+    (void) r;
 }
 
 static int grabbed_count(void) {
@@ -84,7 +100,13 @@ static void add_dev(const char *path) {
     for (int i = 0; i < ndev; i++) {
         if (strcmp(devs[i].path, path) == 0) return;
     }
-    int fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+    // [แก้] ลองเปิดแบบอ่าน+เขียนก่อน (เพื่อสั่งไฟ LED) ถ้าไม่ได้ค่อยถอยกลับเป็นอ่านอย่างเดียว
+    int rw = 1;
+    int fd = open(path, O_RDWR | O_NONBLOCK | O_CLOEXEC);
+    if (fd < 0) {
+        rw = 0;
+        fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+    }
     if (fd < 0) return;
     if (!is_keyboard(fd)) {
         close(fd);
@@ -93,9 +115,13 @@ static void add_dev(const char *path) {
     Dev *d = &devs[ndev];
     d->fd = fd;
     d->g = 0;
+    d->rw = rw;
     snprintf(d->path, sizeof d->path, "%s", path);
     ndev++;
-    if (want && ioctl(fd, EVIOCGRAB, 1) == 0) d->g = 1;
+    if (want && ioctl(fd, EVIOCGRAB, 1) == 0) {
+        d->g = 1;
+        set_caps_led(d, 0); // [เพิ่ม] คีย์บอร์ดที่เสียบใหม่ตอนกำลัง grab ให้ดับไฟด้วย
+    }
 }
 
 static void remove_dev(int i) {
@@ -121,10 +147,15 @@ static void set_grab(int on) {
     want = on;
     for (int i = 0; i < ndev; i++) {
         if (on && !devs[i].g) {
-            if (ioctl(devs[i].fd, EVIOCGRAB, 1) == 0) devs[i].g = 1;
+            if (ioctl(devs[i].fd, EVIOCGRAB, 1) == 0) {
+                devs[i].g = 1;
+                set_caps_led(&devs[i], 0); // [เพิ่ม] เริ่ม grab: ดับไฟ Caps
+            }
         } else if (!on && devs[i].g) {
+            set_caps_led(&devs[i], 0); // [เพิ่ม] ปล่อย grab: ดับไฟ Caps ก่อนคืนให้ระบบ
             ioctl(devs[i].fd, EVIOCGRAB, 0);
             devs[i].g = 0;
+            set_caps_led(&devs[i], 0); // [เพิ่ม] ย้ำอีกรอบหลังปล่อย
         }
     }
     report_state();
@@ -238,7 +269,10 @@ int main(void) {
     }
 
     for (int i = 0; i < ndev; i++) {
-        if (devs[i].g) ioctl(devs[i].fd, EVIOCGRAB, 0);
+        if (devs[i].g) {
+            set_caps_led(&devs[i], 0); // [เพิ่ม] ออกจากโปรแกรม: ดับไฟก่อนปล่อย
+            ioctl(devs[i].fd, EVIOCGRAB, 0);
+        }
         close(devs[i].fd);
     }
     return 0;
