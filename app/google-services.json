@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "529867720711",
+    "project_id": "blue-mouse-pro",
+    "storage_bucket": "blue-mouse-pro.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:529867720711:android:570c899ac1d72a89ba02a2",
+        "android_client_info": {
+          "package_name": "com.mynovo.mynovo1"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAWN0jmPTD33_sCfqE0tQErvVbePXLZYhA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

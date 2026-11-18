@@ -1,12 +1,12 @@
 plugins {
     id 'com.android.application'
+    id 'com.google.gms.google-services'
 }
 
 android {
     namespace 'com.mynovo.mynovo1'
     compileSdk 35
 
-    // [แก้] ให้ตรงกับ NDK ที่ติดตั้งในเครื่อง (r27d)
     ndkVersion "27.3.13750724"
 
     defaultConfig {
@@ -17,13 +17,11 @@ android {
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
-        // [เพิ่ม] สร้างเฉพาะสถาปัตยกรรมของมือถือ (เครื่องส่วนใหญ่ปัจจุบันคือ arm64)
         ndk {
             abiFilters "arm64-v8a"
         }
     }
 
-    // [เพิ่ม] ให้ Gradle คอมไพล์โฟลเดอร์ cpp (native-lib, uinput_driver, kbgrab)
     externalNativeBuild {
         cmake {
             path "src/main/cpp/CMakeLists.txt"
@@ -44,7 +42,6 @@ android {
     }
 
     packagingOptions {
-        // [เพิ่ม] แตกไฟล์ .so ลงโฟลเดอร์ lib จริง เพื่อให้ activate.sh คัดลอก libkbgrab.so ได้
         jniLibs {
             useLegacyPackaging true
         }
@@ -63,7 +60,6 @@ android {
     }
 }
 
-// กัน BouncyCastle รุ่นเก่า (jdk15to18) ที่ไลบรารีอื่นดึงมา ซ้อนกับ jdk18on
 configurations.all {
     exclude group: 'org.bouncycastle', module: 'bcprov-jdk15to18'
     exclude group: 'org.bouncycastle', module: 'bcpkix-jdk15to18'
@@ -84,4 +80,8 @@ dependencies {
     implementation 'org.bouncycastle:bcprov-jdk18on:1.78.1'
     implementation 'org.bouncycastle:bcpkix-jdk18on:1.78.1'
     implementation 'org.bouncycastle:bcutil-jdk18on:1.78.1'
+
+    implementation platform('com.google.firebase:firebase-bom:33.5.1')
+    implementation 'com.google.firebase:firebase-auth'
+    implementation 'com.google.android.gms:play-services-auth:21.2.0'
 }

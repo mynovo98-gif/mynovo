@@ -59,6 +59,23 @@
             </intent-filter>
         </activity>
 
+        <!-- ===== เพิ่มใหม่: ระบบ Login / Register / Forgot Password (Firebase Auth) ===== -->
+        <activity
+            android:name=".LoginActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape" />
+
+        <activity
+            android:name=".RegisterActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape" />
+
+        <activity
+            android:name=".ForgotPasswordActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape" />
+        <!-- ===== จบส่วนที่เพิ่มใหม่ ===== -->
+
         <!-- หน้าจับคู่สำหรับโหมด DeX (เปิดเป็นหน้าต่างแยกข้างหน้าตั้งค่า) -->
         <activity
             android:name=".PairingActivity"
