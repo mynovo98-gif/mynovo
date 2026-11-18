@@ -1,4 +1,5 @@
 <resources>
     <string name="app_name">Blue Mouse pro</string>
     <string name="key_block_service_desc">กันปุ่ม Windows ไม่ให้ออกหน้าหลักขณะเล่นเกม</string>
+    <string name="default_web_client_id">project-529867720711</string>
 </resources>
