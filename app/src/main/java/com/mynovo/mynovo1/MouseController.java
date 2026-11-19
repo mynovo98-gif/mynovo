@@ -40,7 +40,7 @@ public class MouseController {
     // ขอบเขตโซน (สัดส่วนของจอ) = ระยะที่นิ้วเสมือน "ลาก" ได้ในโหมดคงที่
     // ถ้าฝั่งซ้ายของโซนกล้องหมุนเร็วกว่าฝั่งขวา ให้เพิ่ม ZONE_X_MIN (เช่น 0.5)
     // [หมายเหตุ] ถ้า VIEW_X_FREE_IN_ZONE = true ค่า ZONE_X_* ไม่ถูกใช้แล้ว (ไม่ว่าแกน Y จะตั้งเป็นอะไร)
-    private static final float ZONE_X_MIN = 0.26f;
+    private static final float ZONE_X_MIN = 0.36f;
     private static final float ZONE_X_MAX = 0.95f;
     // [หมายเหตุ] ZONE_Y_*, ZONE_RESTART ใช้เฉพาะตอน VIEW_Y_FREE_IN_ZONE = false (พฤติกรรมเดิมของแกน Y)
     private static final float ZONE_Y_MIN = 0.12f;
