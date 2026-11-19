@@ -264,7 +264,57 @@ public class FloatingService extends Service implements MouseController.MouseEve
         new Thread(this::enableGestureNavBlocking).start();
     }
 
+    // ===== เลือก FPS (ล็อกรีเฟรชเรตหน้าจอ) 60/90/120 =====
+    private volatile int fpsTargetHz = 0; // 0 = ไม่ล็อก
+    private boolean rateSwitched = false;
+    private String prevPeakRate = null, prevMinRate = null;
+    private final Button[] btnRateOpt = new Button[3];
+    private static final int[] RATE_STEPS = {60, 90, 120};
+
+    private void applyRefreshRate(final int hz) {
+        new Thread(() -> {
+            if (!rateSwitched) {
+                prevPeakRate = cleanSetting(runShizukuShell("settings get system peak_refresh_rate"));
+                prevMinRate = cleanSetting(runShizukuShell("settings get system min_refresh_rate"));
+                rateSwitched = true;
+            }
+            runShizukuShell("settings put system peak_refresh_rate " + hz + ".0");
+            runShizukuShell("settings put system min_refresh_rate " + hz + ".0");
+        }).start();
+    }
+
+    private void restoreRefreshRate() {
+        if (!rateSwitched) return;
+        rateSwitched = false;
+        if (prevPeakRate != null) runShizukuShell("settings put system peak_refresh_rate " + prevPeakRate);
+        else runShizukuShell("settings delete system peak_refresh_rate");
+        if (prevMinRate != null) runShizukuShell("settings put system min_refresh_rate " + prevMinRate);
+        else runShizukuShell("settings delete system min_refresh_rate");
+    }
+
+    private void refreshRateButtons() {
+        for (int i = 0; i < 3; i++) {
+            if (btnRateOpt[i] != null) styleModeButton(btnRateOpt[i], fpsTargetHz == RATE_STEPS[i]);
+        }
+    }
+
+    private void onRateButtonClick(int hz) {
+        if (fpsTargetHz == hz) { // แตะซ้ำ = ยกเลิกล็อก
+            fpsTargetHz = 0;
+            new Thread(this::restoreRefreshRate).start();
+        } else {
+            fpsTargetHz = hz;
+            applyRefreshRate(hz);
+        }
+        try {
+            getSharedPreferences("MynovoCore", MODE_PRIVATE).edit()
+                    .putInt("fps_target_hz", fpsTargetHz).apply();
+        } catch (Exception ignored) {}
+        refreshRateButtons();
+    }
+
     private void restoreNavBlocking() {
+        restoreRefreshRate();
         if (!navSwitched) return;
         navSwitched = false;
         String v = prevNavGesture;
@@ -451,6 +501,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
             toggleBtnsKeyId = cp.getInt("toggle_btns_key", -1);
             lastExtDisplayId = cp.getInt("last_ext_display", -1);
             kbGrabEnabled = cp.getBoolean("kb_grab_enabled", true); // [KB]
+            fpsTargetHz = cp.getInt("fps_target_hz", 0);
         } catch (Exception ignored) {}
     }
 
@@ -473,6 +524,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
             loadSettings();
 
             enableGestureNav();
+            if (fpsTargetHz > 0) applyRefreshRate(fpsTargetHz);
             new Thread(this::enableKeyBlockService).start();
             blockMetaKey = true;
             startForegroundServiceForAndroid16();
@@ -3114,6 +3166,22 @@ public class FloatingService extends Service implements MouseController.MouseEve
                     LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(44)));
             layout.addView(btnFpsToggleRef);
 
+            // เลือก FPS (ล็อกรีเฟรชเรตหน้าจอ) 60 / 90 / 120
+            layout.addView(createSettingsLabel("เลือก FPS (ล็อกรีเฟรชเรตหน้าจอ)"));
+            LinearLayout rateRow = new LinearLayout(this);
+            rateRow.setOrientation(LinearLayout.HORIZONTAL);
+            rateRow.setGravity(Gravity.CENTER);
+            for (int i = 0; i < 3; i++) {
+                final int hz = RATE_STEPS[i];
+                btnRateOpt[i] = createSubMenuOption(hz + "", "#2E3447", v -> onRateButtonClick(hz));
+                LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(0, dpToPx(44), 1f);
+                rp.setMargins(dpToPx(4), 0, dpToPx(4), 0);
+                btnRateOpt[i].setLayoutParams(rp);
+                rateRow.addView(btnRateOpt[i]);
+            }
+            layout.addView(rateRow);
+            refreshRateButtons();
+
             Button btnClose = new Button(this);
             btnClose.setText("CLOSE");
             btnClose.setTextColor(Color.parseColor("#282B3E"));
@@ -4279,7 +4347,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
         buttonHzMap.clear();
         buttonFlickMap.clear();
         try { clearAllRapidData(); } catch (Exception ignored) {}
-        rapidFire Runnables.clear();
+        rapidFireRunnables.clear();
         activeTouchPointers.clear();
         dPadController = null;
         isMouseMode = false;
@@ -4306,4 +4374,4 @@ public class FloatingService extends Service implements MouseController.MouseEve
     }
 }
 
-                
+              
