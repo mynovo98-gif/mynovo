@@ -4279,7 +4279,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
         buttonHzMap.clear();
         buttonFlickMap.clear();
         try { clearAllRapidData(); } catch (Exception ignored) {}
-        rapidFireRunnables.clear();
+        rapidFire Runnables.clear();
         activeTouchPointers.clear();
         dPadController = null;
         isMouseMode = false;

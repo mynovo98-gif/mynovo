@@ -126,9 +126,18 @@ public class RealFpsMonitor {
         }
     }
 
+    // เพดาน FPS ที่ให้แสดง (เช่น 60/90/120) ค่าที่วัดได้จริงต่ำกว่านี้ก็แสดงตามจริง
+    private volatile int maxFps = 120;
+
+    public void setMaxFps(int max) {
+        maxFps = Math.max(1, Math.min(240, max));
+    }
+
     private void postFps(int fps, String source) {
+        if (fps > maxFps) fps = maxFps;
+        final int shown = fps;
         if (uiHandler != null && listener != null) {
-            uiHandler.post(() -> listener.onFps(fps, source));
+            uiHandler.post(() -> listener.onFps(shown, source));
         }
     }
 
