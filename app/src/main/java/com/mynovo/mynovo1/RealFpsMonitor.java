@@ -324,10 +324,11 @@ public class RealFpsMonitor {
             if (!tsEnabled) {
                 String en = runShell("dumpsys SurfaceFlinger --timestats -enable");
                 if (en == null) { whyTs = "ts-sh"; return null; }
+                runShell("dumpsys SurfaceFlinger --timestats -clear");   // ล้างสถิติเก่า ไม่ให้ layer เก่ากินโควตา
                 tsEnabled = true;
             }
 
-            String out = runShell("dumpsys SurfaceFlinger --timestats -dump -maxlayers 200"
+            String out = runShell("dumpsys SurfaceFlinger --timestats -dump -maxlayers 2000"
                     + " | grep -E 'layerName|totalFrames'");
             long now = System.nanoTime();
             if (out == null) { whyTs = "ts-sh"; return null; }
