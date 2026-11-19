@@ -82,10 +82,15 @@ public class FloatingService extends Service implements MouseController.MouseEve
     private volatile boolean kbGrabRequested = false;
     private volatile int kbGrabCount = 0;
     private boolean settingsTextEditing = false;
-    private Button btnKbGrabRef = null;
+    private Button btnKbGrabRef = null; // [FPS] ไม่ใช้แสดงในเมนูแล้ว แต่เก็บไว้กันโค้ดอื่นพัง
     private long kbDownTime = 0;
     // [แก้ lag] จำกัดความถี่การลองเชื่อม InputServer ใหม่
     private long lastKbReconnectAt = 0;
+
+    // ===== [FPS] เปิด/ปิดการแสดง FPS ลอยหน้าจอ =====
+    private FpsOverlay fpsOverlay;
+    private RealFpsMonitor realFpsMonitor;
+    private Button btnFpsToggleRef = null;
 
     private volatile int lastExtDisplayId = -1;
     private volatile int lastObservedReal = -1;
@@ -480,6 +485,14 @@ public class FloatingService extends Service implements MouseController.MouseEve
             createCloudWindow();
 
             mouseController = new MouseController(this, windowManager, maxScreenWidth, maxScreenHeight, cursorSize, mouseSensitivity, this);
+
+            // [FPS] สร้าง overlay FPS และกู้สถานะเปิด/ปิดที่เคยตั้งไว้
+            fpsOverlay = new FpsOverlay(displayContext, windowManager);
+            try {
+                boolean wantFps = getSharedPreferences("MynovoCore", MODE_PRIVATE)
+                        .getBoolean("fps_overlay_enabled", false);
+                if (wantFps) startFpsFeature();
+            } catch (Exception ignored) {}
 
             monitorThread.start();
             monitorHandler = new Handler(monitorThread.getLooper());
@@ -1558,6 +1571,48 @@ public class FloatingService extends Service implements MouseController.MouseEve
         }
         updateKbGrab();
         refreshKbGrabButton();
+    }
+
+    // ===== [FPS] เปิด/ปิดการแสดง FPS ลอยหน้าจอ =====
+
+    private String fpsToggleButtonText() {
+        return "📊 แสดง FPS: " + (fpsOverlay != null && fpsOverlay.isShowing() ? "เปิด" : "ปิด");
+    }
+
+    private void refreshFpsToggleButton() {
+        if (btnFpsToggleRef != null) btnFpsToggleRef.setText(fpsToggleButtonText());
+    }
+
+    private void onFpsToggleButtonClick() {
+        if (fpsOverlay == null) return;
+        if (fpsOverlay.isShowing()) {
+            stopFpsFeature();
+        } else {
+            startFpsFeature();
+        }
+        refreshFpsToggleButton();
+    }
+
+    private void startFpsFeature() {
+        if (fpsOverlay == null) return;
+        fpsOverlay.show();
+        if (realFpsMonitor != null) realFpsMonitor.stop();
+        realFpsMonitor = new RealFpsMonitor(targetPackage, handler,
+                (fps, source) -> { if (fpsOverlay != null) fpsOverlay.updateValue(fps, source); });
+        realFpsMonitor.start();
+        try {
+            getSharedPreferences("MynovoCore", MODE_PRIVATE).edit()
+                    .putBoolean("fps_overlay_enabled", true).apply();
+        } catch (Exception ignored) {}
+    }
+
+    private void stopFpsFeature() {
+        if (realFpsMonitor != null) { realFpsMonitor.stop(); realFpsMonitor = null; }
+        if (fpsOverlay != null) fpsOverlay.hide();
+        try {
+            getSharedPreferences("MynovoCore", MODE_PRIVATE).edit()
+                    .putBoolean("fps_overlay_enabled", false).apply();
+        } catch (Exception ignored) {}
     }
 
     private void updateEditModeUI() {
@@ -3051,13 +3106,13 @@ public class FloatingService extends Service implements MouseController.MouseEve
             toggleRow.addView(btnClearKey);
             layout.addView(toggleRow);
 
-            // [KB] จับคีย์บอร์ดแบบ exclusive (ต้องรัน activate.sh ไว้)
-            layout.addView(createSettingsLabel("จับคีย์บอร์ดแบบ exclusive (Ctrl+Esc = ปล่อยคืนระบบ)"));
-            btnKbGrabRef = createSubMenuOption(kbGrabButtonText(), "#2E3447",
-                    v -> onKbGrabButtonClick());
-            btnKbGrabRef.setLayoutParams(new LinearLayout.LayoutParams(
+            // [FPS] เปิด/ปิดการแสดง FPS ลอยหน้าจอ (แทนที่ปุ่มจับคีย์บอร์ดแบบ exclusive เดิม)
+            layout.addView(createSettingsLabel("แสดง FPS"));
+            btnFpsToggleRef = createSubMenuOption(fpsToggleButtonText(), "#2E3447",
+                    v -> onFpsToggleButtonClick());
+            btnFpsToggleRef.setLayoutParams(new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(44)));
-            layout.addView(btnKbGrabRef);
+            layout.addView(btnFpsToggleRef);
 
             Button btnClose = new Button(this);
             btnClose.setText("CLOSE");
@@ -4169,6 +4224,12 @@ public class FloatingService extends Service implements MouseController.MouseEve
             ShellServerClient.requestKbGrab(false);
         } catch (Throwable ignored) {}
 
+        // [FPS] หยุด monitor และซ่อน overlay
+        try {
+            if (realFpsMonitor != null) { realFpsMonitor.stop(); realFpsMonitor = null; }
+            if (fpsOverlay != null) { fpsOverlay.hide(); fpsOverlay = null; }
+        } catch (Throwable ignored) {}
+
         try {
             final DisplayProbeActivity probe = DisplayProbeActivity.instance;
             if (probe != null) probe.runOnUiThread(probe::finish);
@@ -4244,3 +4305,5 @@ public class FloatingService extends Service implements MouseController.MouseEve
         super.onDestroy();
     }
 }
+
+                
