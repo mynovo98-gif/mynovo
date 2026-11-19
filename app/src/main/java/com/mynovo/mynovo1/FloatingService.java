@@ -118,6 +118,11 @@ public class FloatingService extends Service implements MouseController.MouseEve
     private View buttonSettingsView;
     private WindowManager.LayoutParams buttonSettingsParams;
 
+    // ===== [พรีเซ็ต 3 ช่อง + แชร์โค้ด] =====
+    private int presetSlot = 0;                       // 0,1,2 = พรีเซ็ต 1,2,3
+    private final Button[] btnSlot = new Button[3];
+    private EditText etShareCode;
+
     private WindowManager.LayoutParams floatingParams;
     private WindowManager.LayoutParams menuParams;
     private WindowManager.LayoutParams addMenuParams;
@@ -372,8 +377,10 @@ public class FloatingService extends Service implements MouseController.MouseEve
                 && targetDisplay.getDisplayId() != android.view.Display.DEFAULT_DISPLAY;
     }
 
+    // พรีเซ็ต 1 ใช้คีย์เดิม (ปุ่มเก่าไม่หาย) พรีเซ็ต 2,3 ต่อท้าย _s1 _s2
     private String presetKey(boolean external) {
-        return targetPackage + (external ? "_preset_dex" : "_preset");
+        return targetPackage + (external ? "_preset_dex" : "_preset")
+                + (presetSlot > 0 ? "_s" + presetSlot : "");
     }
 
     private String settingsPrefsName() {
@@ -502,6 +509,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
             lastExtDisplayId = cp.getInt("last_ext_display", -1);
             kbGrabEnabled = cp.getBoolean("kb_grab_enabled", true); // [KB]
             fpsTargetHz = cp.getInt("fps_target_hz", 0);
+            presetSlot = Math.max(0, Math.min(2, cp.getInt("preset_slot", 0)));
         } catch (Exception ignored) {}
     }
 
@@ -2438,11 +2446,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
                 }
 
                 int baseKey = event.getScanCode() != 0 ? 1000 + event.getScanCode() : keyCode;
-                if (tapDebounced(baseKey * 31 + System.identityHashCode(b))) { handled = true; continue; }
-
-                int[] loc = new int[2];
-                b.getLocationOnScreen(loc);
-                int ptr = TAP_PTR_BASE + (tapPtrCounter++ % TAP_PTR_POOL);
                 TouchSimulator.simulateClick(ptr, loc[0] + b.getWidth() / 2, loc[1] + b.getHeight() / 2);
                 handled = true;
             }
@@ -2573,17 +2576,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
         final TextView tv = createSettingsLabel(name + STEPS[curIdx]);
         layout.addView(tv);
 
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-
-        final SeekBar bar = new SeekBar(this);
-        bar.setMax(STEPS.length - 1);
-        bar.setProgress(curIdx);
-        bar.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override
-            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
                 int hz = STEPS[progress];
                 tv.setText(name + hz);
                 buttonHzMap.put(container, hz);
@@ -3265,17 +3257,20 @@ public class FloatingService extends Service implements MouseController.MouseEve
         return tv;
     }
 
+    // =====================================================================
+    //  Cloud Preset: พรีเซ็ต 3 ช่อง + แชร์ปุ่มด้วยโค้ด
+    private static final int SHARE_MAX_BUTTONS = 60;
+
     private void createCloudWindow() {
         try {
-            LinearLayout layout = new LinearLayout(this);
-            layout.setOrientation(LinearLayout.VERTICAL);
-            layout.setPadding(dpToPx(24), dpToPx(20), dpToPx(24), dpToPx(20));
-
+            LinearLayout card = new LinearLayout(this);
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setPadding(dpToPx(16), dpToPx(14), dpToPx(16), dpToPx(10));
             GradientDrawable bg = new GradientDrawable();
             bg.setColor(Color.parseColor("#151823"));
-            bg.setCornerRadius(dpToPx(24));
+            bg.setCornerRadius(dpToPx(20));
             bg.setStroke(dpToPx(1), Color.parseColor("#2E3447"));
-            layout.setBackground(bg);
+            card.setBackground(bg);
 
             TextView tvTitle = new TextView(this);
             tvTitle.setText("☁️ Cloud Preset");
@@ -3283,76 +3278,329 @@ public class FloatingService extends Service implements MouseController.MouseEve
             tvTitle.setTextSize(16f);
             tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
             tvTitle.setGravity(Gravity.CENTER);
-            tvTitle.setPadding(0, 0, 0, dpToPx(16));
-            layout.addView(tvTitle);
+            tvTitle.setPadding(0, 0, 0, dpToPx(6));
+            card.addView(tvTitle);
 
-            LinearLayout cloudActionLayout = new LinearLayout(this);
-            cloudActionLayout.setOrientation(LinearLayout.HORIZONTAL);
-            cloudActionLayout.setGravity(Gravity.CENTER);
+            android.widget.ScrollView sv = makeCappedScrollView(dpToPx(170));
+            LinearLayout body = new LinearLayout(this);
+            body.setOrientation(LinearLayout.VERTICAL);
+            sv.addView(body, new android.widget.ScrollView.LayoutParams(
+                    android.widget.ScrollView.LayoutParams.MATCH_PARENT,
+                    android.widget.ScrollView.LayoutParams.WRAP_CONTENT));
+            card.addView(sv, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
-            cloudActionLayout.addView(createSubMenuOption("💾 บันทึก", "#50FA7B", v -> {
+            // ---- เลือกพรีเซ็ต 3 ช่อง ----
+            body.addView(cloudLabel("เลือกพรีเซ็ต"));
+            LinearLayout slotRow = cloudRow();
+            for (int i = 0; i < 3; i++) {
+                final int slot = i;
+                btnSlot[i] = cloudButton("พรีเซ็ต " + (i + 1), "#8BE9FD", v -> switchPresetSlot(slot));
+                slotRow.addView(btnSlot[i]);
+            }
+            body.addView(slotRow);
+            refreshSlotButtons();
+
+            body.addView(cloudDivider());
+
+            // ---- บันทึก / โหลด ----
+            body.addView(cloudLabel("จัดการปุ่ม"));
+            LinearLayout saveRow = cloudRow();
+            saveRow.addView(cloudButton("💾 บันทึก", "#50FA7B", v -> {
                 savePresetToCloud();
-                Toast.makeText(this, "✅ บันทึกพรีเซ็ตสำเร็จ!", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "✅ บันทึกลงพรีเซ็ต " + (presetSlot + 1) + " แล้ว",
+                        Toast.LENGTH_SHORT).show();
+                setCloudFocusable(false);
                 closeSubWindows();
                 updateEditModeUI();
             }));
-
-            cloudActionLayout.addView(createSubMenuOption("📂 โหลด", "#BD93F9", v -> {
+            saveRow.addView(cloudButton("📂 โหลด", "#BD93F9", v -> {
                 loadPresetFromCloud();
-                Toast.makeText(this, "📂 โหลดพรีเซ็ตสำเร็จ!", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "📂 โหลดพรีเซ็ต " + (presetSlot + 1) + " แล้ว",
+                        Toast.LENGTH_SHORT).show();
+                setCloudFocusable(false);
                 closeSubWindows();
                 updateEditModeUI();
             }));
+            body.addView(saveRow);
 
-            layout.addView(cloudActionLayout);
+            body.addView(cloudDivider());
 
-            LinearLayout resetActionLayout = new LinearLayout(this);
-            resetActionLayout.setOrientation(LinearLayout.HORIZONTAL);
-            resetActionLayout.setGravity(Gravity.CENTER);
-            LinearLayout.LayoutParams resetRowParams = new LinearLayout.LayoutParams(
+            // ---- แชร์ปุ่มด้วยโค้ด ----
+            body.addView(cloudLabel("แชร์ปุ่มด้วยโค้ด"));
+            LinearLayout shareRow = cloudRow();
+            shareRow.addView(cloudButton("📤 คัดลอกโค้ด", "#F1FA8C", v -> onCopyShareCode()));
+            shareRow.addView(cloudButton("📥 นำเข้าโค้ด", "#FFB86C", v -> onImportShareCode()));
+            body.addView(shareRow);
+
+            etShareCode = new EditText(this);
+            etShareCode.setHint("วางโค้ดที่นี่ (แตะช่อง แล้วกดวาง)");
+            etShareCode.setHintTextColor(Color.parseColor("#5C6280"));
+            etShareCode.setTextColor(Color.WHITE);
+            etShareCode.setTextSize(11f);
+            etShareCode.setMaxLines(3);
+            etShareCode.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+            etShareCode.setImeOptions(EditorInfo.IME_ACTION_DONE);
+            etShareCode.setPadding(dpToPx(10), dpToPx(8), dpToPx(10), dpToPx(8));
+            GradientDrawable etBg = new GradientDrawable();
+            etBg.setColor(Color.parseColor("#0F111A"));
+            etBg.setCornerRadius(dpToPx(8));
+            etBg.setStroke(dpToPx(1), Color.parseColor("#2E3447"));
+            etShareCode.setBackground(etBg);
+            LinearLayout.LayoutParams etLp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            resetRowParams.topMargin = dpToPx(12);
-            resetActionLayout.setLayoutParams(resetRowParams);
+            etLp.setMargins(dpToPx(4), dpToPx(6), dpToPx(4), dpToPx(4));
+            etShareCode.setLayoutParams(etLp);
+            etShareCode.setOnEditorActionListener((tv, actionId, ev) -> {
+                etShareCode.clearFocus();
+                setCloudFocusable(false);
+                return true;
+            });
+            etShareCode.setOnFocusChangeListener((v, has) -> { if (!has) setCloudFocusable(false); });
+            etShareCode.setOnTouchListener((v, ev) -> {
+                if (ev.getAction() == MotionEvent.ACTION_DOWN) {
+                    setCloudFocusable(true);
+                    etShareCode.post(etShareCode::requestFocus);
+                }
+                return false;
+            });
+            body.addView(etShareCode);
 
-            resetActionLayout.addView(createSubMenuOption("🗑️ รีเซ็ตปุ่ม", "#FF5555", v -> {
+            // ---- แถบล่าง: รีเซ็ต / ปิด (ติดอยู่ล่างเสมอ ไม่เลื่อนไปกับเนื้อหา) ----
+            card.addView(cloudDivider());
+            LinearLayout footer = cloudRow();
+            footer.addView(cloudButton("🗑️ รีเซ็ตปุ่ม", "#FF5555", v -> {
+                setCloudFocusable(false);
                 showWarningDialog(
-                    "🗑️ รีเซ็ตปุ่มทั้งหมด",
-                    "ปุ่มทั้งหมดบนหน้าจอของเกมนี้จะถูกลบ และล้างพรีเซ็ตที่บันทึกไว้",
-                    () -> {
-                        resetAllMappingButtons();
-                        Toast.makeText(this, "🗑️ รีเซ็ตปุ่มเรียบร้อย!", Toast.LENGTH_SHORT).show();
-                        if (cloudView != null) cloudView.setVisibility(View.GONE);
-                        if (menuView != null) menuView.setVisibility(View.VISIBLE);
-                        updateEditModeUI();
-                    }
-                );
+                        "🗑️ รีเซ็ตปุ่มพรีเซ็ต " + (presetSlot + 1),
+                        "ปุ่มทั้งหมดบนหน้าจอของเกมนี้ในพรีเซ็ต " + (presetSlot + 1)
+                                + " จะถูกลบ (พรีเซ็ตอื่นไม่ถูกแตะ)",
+                        () -> {
+                            resetAllMappingButtons();
+                            Toast.makeText(this, "🗑️ รีเซ็ตปุ่มเรียบร้อย!", Toast.LENGTH_SHORT).show();
+                            if (cloudView != null) cloudView.setVisibility(View.GONE);
+                            if (menuView != null) menuView.setVisibility(View.VISIBLE);
+                            updateEditModeUI();
+                        });
             }));
-            layout.addView(resetActionLayout);
-
-            TextView tvBack = new TextView(this);
-            tvBack.setText("➖ ปิด");
-            tvBack.setTextColor(Color.parseColor("#FF5555"));
-            tvBack.setTextSize(14f);
-            tvBack.setGravity(Gravity.CENTER);
-            tvBack.setPadding(0, dpToPx(12), 0, 0);
-            tvBack.setOnClickListener(v -> {
+            footer.addView(cloudButton("✕ ปิด", "#A0A5C0", v -> {
                 if (isWaitingForKey) cancelKeyWait();
+                setCloudFocusable(false);
                 cloudView.setVisibility(View.GONE);
                 menuView.setVisibility(View.VISIBLE);
                 updateEditModeUI();
-            });
-            layout.addView(tvBack);
+            }));
+            card.addView(footer);
 
             cloudParams = new WindowManager.LayoutParams(
-                    dpToPx(340), WindowManager.LayoutParams.WRAP_CONTENT, overlayType(),
+                    dpToPx(360), WindowManager.LayoutParams.WRAP_CONTENT, overlayType(),
                     WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT);
-            cloudParams.gravity = Gravity.TOP | Gravity.START;
-            cloudParams.x = dpToPx(15); cloudParams.y = dpToPx(80);
+            cloudParams.gravity = Gravity.CENTER;
 
-            cloudView = layout;
+            cloudView = card;
             cloudView.setVisibility(View.GONE);
             windowManager.addView(cloudView, cloudParams);
         } catch (Exception e) {}
+    }
+
+    // ---------- UI helpers ----------
+
+    private TextView cloudLabel(String text) {
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setTextColor(Color.parseColor("#8C92A4"));
+        tv.setTextSize(12f);
+        tv.setPadding(dpToPx(4), dpToPx(6), 0, dpToPx(4));
+        return tv;
+    }
+
+    private LinearLayout cloudRow() {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER);
+        return row;
+    }
+
+    private View cloudDivider() {
+        View d = new View(this);
+        d.setBackgroundColor(Color.parseColor("#262B3D"));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, Math.max(1, dpToPx(1)));
+        lp.setMargins(0, dpToPx(8), 0, dpToPx(4));
+        d.setLayoutParams(lp);
+        return d;
+    }
+
+    private Button cloudButton(String text, String colorHex, View.OnClickListener l) {
+        Button b = new Button(this);
+        b.setText(text);
+        b.setAllCaps(false);
+        b.setTextSize(13f);
+        b.setMinHeight(0);
+        b.setMinimumHeight(0);
+        b.setMinWidth(0);
+        b.setMinimumWidth(0);
+        b.setPadding(dpToPx(6), 0, dpToPx(6), 0);
+        b.setTag(colorHex);
+        styleCloudButton(b, false);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dpToPx(40), 1f);
+        lp.setMargins(dpToPx(4), dpToPx(2), dpToPx(4), dpToPx(2));
+        b.setLayoutParams(lp);
+        b.setOnClickListener(l);
+        return b;
+    }
+
+        } else {
+            g.setColor(Color.parseColor("#1E2235"));
+            g.setStroke(Math.max(1, dpToPx(1)), Color.parseColor(hex));
+            b.setTextColor(Color.parseColor(hex));
+        }
+        b.setBackground(g);
+    }
+
+    private void refreshSlotButtons() {
+        for (int i = 0; i < 3; i++) {
+            if (btnSlot[i] != null) styleCloudButton(btnSlot[i], i == presetSlot);
+        }
+    }
+
+    private void setCloudFocusable(boolean on) {
+        if (settingsTextEditing == on) return;
+        // ตอนพิมพ์/วางโค้ด ต้องปล่อยคีย์บอร์ดคืนระบบ (เหมือนช่องตั้งค่าตัวเลข)
+        settingsTextEditing = on;
+        updateKbGrab();
+        try {
+            if (cloudView == null || cloudParams == null || cloudView.getParent() == null) return;
+            if (on) {
+                cloudParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+                cloudParams.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN;
+            } else {
+                cloudParams.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+            }
+            windowManager.updateViewLayout(cloudView, cloudParams);
+    // ---------- สลับพรีเซ็ต ----------
+
+    private void switchPresetSlot(int slot) {
+        if (slot == presetSlot || slot < 0 || slot > 2) return;
+        if (!batchLoading) savePresetToCloud();      // เซฟของช่องเดิมก่อนสลับ
+        presetSlot = slot;
+        try {
+            getSharedPreferences("MynovoCore", MODE_PRIVATE).edit()
+                    .putInt("preset_slot", presetSlot).apply();
+        } catch (Exception ignored) {}
+        refreshSlotButtons();
+        loadPresetFromCloud();
+        Toast.makeText(this, "☁️ ใช้พรีเซ็ต " + (presetSlot + 1), Toast.LENGTH_SHORT).show();
+    }
+
+    // ---------- ระบบโค้ดแชร์ปุ่ม ----------
+
+    private void onCopyShareCode() {
+        String code = encodeShareCode();
+        if (code == null) {
+            Toast.makeText(this, "ยังไม่มีปุ่มให้แชร์ในพรีเซ็ตนี้", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        try {
+            android.content.ClipboardManager cm =
+                    (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (cm != null) cm.setPrimaryClip(
+                    android.content.ClipData.newPlainText("MynovoPreset", code));
+        } catch (Exception ignored) {}
+        if (etShareCode != null) etShareCode.setText(code);
+        Toast.makeText(this, "📤 คัดลอกโค้ดแล้ว (ส่งให้เพื่อนได้เลย)", Toast.LENGTH_SHORT).show();
+    }
+
+    private void onImportShareCode() {
+        String text = etShareCode != null ? etShareCode.getText().toString().trim() : "";
+        if (text.isEmpty()) text = readClipboardText();
+        if (text.isEmpty()) {
+            Toast.makeText(this, "วางโค้ดในช่องก่อน (แตะช่อง แล้วกดวาง)", Toast.LENGTH_LONG).show();
+            return;
+        }
+        final JSONArray parsed = parseShareCode(text);
+        if (parsed == null) {
+            Toast.makeText(this, "❌ โค้ดไม่ถูกต้อง", Toast.LENGTH_LONG).show();
+            return;
+        }
+        setCloudFocusable(false);
+        final int slotNow = presetSlot + 1;
+        showWarningDialog(
+                "📥 นำเข้าปุ่ม",
+                "พบ " + parsed.length() + " ปุ่มในโค้ด\nปุ่มเดิมในพรีเซ็ต " + slotNow
+                        + " จะถูกแทนที่ (พรีเซ็ตอื่นไม่ถูกแตะ)",
+                () -> {
+                    try {
+                        SharedPreferences prefs = getSharedPreferences(mappingPrefsName(), MODE_PRIVATE);
+                        String key = presetKey(onExternalDisplay());
+                        prefs.edit()
+                                .putString(key, parsed.toString())
+                                .putString(key + "_size", (int) maxScreenWidth + "," + (int) maxScreenHeight)
+                                .apply();
+                        loadPresetFromCloud();
+                        if (etShareCode != null) etShareCode.setText("");
+                        Toast.makeText(this, "✅ นำเข้าลงพรีเซ็ต " + slotNow + " สำเร็จ",
+                                Toast.LENGTH_SHORT).show();
+                        if (cloudView != null) cloudView.setVisibility(View.GONE);
+                        if (menuView != null) menuView.setVisibility(View.VISIBLE);
+                        updateEditModeUI();
+                    } catch (Exception e) {
+                        Toast.makeText(this, "❌ นำเข้าไม่สำเร็จ", Toast.LENGTH_SHORT).show();
+                    }
+                });
+    }
+
+    private String readClipboardText() {
+        try {
+            android.content.ClipboardManager cm =
+                    (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            android.content.ClipData d = cm != null ? cm.getPrimaryClip() : null;
+            if (d != null && d.getItemCount() > 0) {
+                CharSequence t = d.getItemAt(0).coerceToText(this);
+                if (t != null) return t.toString().trim();
+            }
+        } catch (Exception ignored) {}
+        return "";
+    }
+
+    // สร้างโค้ด: JSON -> GZIP -> Base64 (ขึ้นต้นด้วย MNV1:)
+    private String encodeShareCode() {
+        try {
+            savePresetToCloud(); // ให้ prefs เป็นข้อมูลล่าสุด
+            SharedPreferences prefs = getSharedPreferences(mappingPrefsName(), MODE_PRIVATE);
+            String arr = prefs.getString(presetKey(onExternalDisplay()), "");
+            if (arr == null || arr.isEmpty() || arr.equals("[]")) return null;
+
+            JSONObject o = new JSONObject();
+            o.put("v", 1);
+            o.put("w", (int) maxScreenWidth);
+            o.put("h", (int) maxScreenHeight);
+            o.put("b", new JSONArray(arr));
+
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            java.util.zip.GZIPOutputStream gz = new java.util.zip.GZIPOutputStream(bos);
+            gz.write(o.toString().getBytes("UTF-8"));
+            gz.close();
+            return SHARE_PREFIX + android.util.Base64.encodeToString(
+                    bos.toByteArray(), android.util.Base64.NO_WRAP | android.util.Base64.URL_SAFE);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    // ถอดโค้ด + ตรวจความปลอดภัย (โค้ดมาจากคนอื่น) + ปรับตำแหน่งตามขนาดจอเรา
+    private JSONArray parseShareCode(String code) {
+        try {
+            code = code.replaceAll("\\s+", "");
+            if (!code.startsWith(SHARE_PREFIX)) return null;
+            byte[] data = android.util.Base64.decode(
+                    code.substring(SHARE_PREFIX.length()), android.util.Base64.URL_SAFE);
+            java.util.zip.GZIPInputStream gin = new java.util.zip.GZIPInputStream(
+                    new java.io.ByteArrayInputStream(data));
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            return null;
+        }
     }
 
     private Button createSubMenuOption(String text, String colorHex, View.OnClickListener listener) {
@@ -3378,18 +3626,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
         if (iconSettingsView != null) iconSettingsView.setVisibility(View.GONE);
         if (cloudView != null) cloudView.setVisibility(View.GONE);
         isMenuShown = false;
-    }
-
-    private void toggleMenu() {
-        if (isMenuShown) {
-            menuView.setVisibility(View.GONE);
-            closeSubWindows();
-            isMenuShown = false;
-            if (floatingView != null) floatingView.setVisibility(View.VISIBLE);
-        } else {
-            menuView.setVisibility(View.VISIBLE);
-            isMenuShown = true;
-            if (floatingView != null) floatingView.setVisibility(View.GONE);
         }
         updateEditModeUI();
     }
@@ -3453,35 +3689,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
                 dpadImgView.setTag("DPAD_IMG");
                 mapBtnContainer.addView(dpadImgView);
 
-                dPadController = new DPadController(mapBtnContainer, handler, new DPadController.Host() {
-                    @Override public int getDpadSize() { return dpadSize; }
-                    @Override public boolean isDestroyed() { return destroyed; }
-                });
-            }
-
-            TextView mapBtn = new TextView(this);
-            mapBtn.setTextColor(Color.WHITE);
-            mapBtn.setTypeface(null, android.graphics.Typeface.BOLD);
-            mapBtn.setGravity(Gravity.CENTER);
-            mapBtn.setTextSize(12f);
-            mapBtn.setMaxLines(1);
-            mapBtn.setPadding(dpToPx(1), 0, dpToPx(1), 0);
-            mapBtn.setShadowLayer(4f, 0f, 0f, Color.BLACK);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                mapBtn.setAutoSizeTextTypeUniformWithConfiguration(8, 14, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
-            }
-
-            if (type.equals("DPAD")) {
-                mapBtn.setText("");
-            } else {
-                String label;
-                if (type.equals("HIDE_MOUSE")) {
-                    int fpsEyeRes = getDrawableId("btn_fps_eye", 0);
-                    if (fpsEyeRes != 0) {
-                        mapBtn.setBackgroundResource(fpsEyeRes);
-                        label = "";
-                    } else {
-                        label = "👁️";
                         mapBtn.setBackground(makeButtonBg());
                     }
                 }
@@ -3543,33 +3750,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
                         if (dPadController != null) dPadController.release();
                         dPadController = null;
                     }
-                    removeRapidData(mapBtnContainer);
-                    windowManager.removeView(mapBtnContainer);
-                    mappingButtons.remove(mapBtnContainer);
-                    buttonKeyMap.remove(mapBtnContainer);
-                    buttonTextViewMap.remove(mapBtnContainer);
-                    buttonSizeDpMap.remove(mapBtnContainer);
-                    buttonAlphaMap.remove(mapBtnContainer);
-                    buttonSensXMap.remove(mapBtnContainer);
-                    buttonSensYMap.remove(mapBtnContainer);
-                    buttonHzMap.remove(mapBtnContainer);
-                    buttonFlickMap.remove(mapBtnContainer);
-                    savePresetToCloud();
-                } catch (Exception ignored) {}
-            });
-            mapBtnContainer.addView(btnClose);
-
-            mapBtn.setOnTouchListener(new View.OnTouchListener() {
-                private int initialX, initialY;
-                private float initialTouchX, initialTouchY;
-                private boolean isMoved = false;
-                private boolean handledAsDouble = false;
-                private long lastTapTime = 0;
-
-                @Override
-                public boolean onTouch(View v, MotionEvent event) {
-                    if (!isEditModeActive()) return false;
-
                     switch (event.getAction()) {
                         case MotionEvent.ACTION_DOWN: {
                             initialX = btnParams.x; initialY = btnParams.y;
@@ -3602,71 +3782,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
 
                         case MotionEvent.ACTION_UP:
                         case MotionEvent.ACTION_CANCEL: {
-                            if (handledAsDouble) { handledAsDouble = false; return true; }
-                            if (isMoved) {
-                                lastTapTime = 0;
-                                savePresetToCloud();
-                            } else {
-                                lastTapTime = android.os.SystemClock.uptimeMillis();
-                                if (!"DPAD".equals(mapBtnContainer.getTag())) startKeyWait(mapBtnContainer);
-                            }
-                            return true;
-                        }
-                    }
-                    return false;
-                }
-            });
-
-            windowManager.addView(mapBtnContainer, btnParams);
-            bringCursorToFront();
-            mappingButtons.add(mapBtnContainer);
-            if (!isTargetInForeground) mapBtnContainer.setVisibility(View.GONE);
-
-            if ("FIRE".equals(type) && savedKey == -1) {
-                savedKey = makeKeyId(60001, 0);
-            }
-
-            if (savedKey != -1) {
-                buttonKeyMap.put(mapBtnContainer, savedKey);
-                restoreLabel(mapBtnContainer);
-            }
-            if (!batchLoading) updateEditModeUI();
-
-            if (askKey || useStagger) savePresetToCloud();
-        } catch (Exception e) {}
-    }
-
-    private void applyButtonSize(View container, int sizeDp) {
-        try {
-            int main = dpToPx(sizeDp);
-            int total = main + dpToPx(10) * 2;
-            WindowManager.LayoutParams lp = (WindowManager.LayoutParams) container.getLayoutParams();
-            if (lp != null) {
-                lp.x += (lp.width - total) / 2;
-                lp.y += (lp.height - total) / 2;
-                lp.width = total;
-                lp.height = total;
-                windowManager.updateViewLayout(container, lp);
-            }
-            TextView tv = buttonTextViewMap.get(container);
-            if (tv != null) {
-                android.view.ViewGroup.LayoutParams p = tv.getLayoutParams();
-                p.width = main;
-                p.height = main;
-                tv.setLayoutParams(p);
-            }
-            buttonSizeDpMap.put(container, sizeDp);
-        } catch (Exception ignored) {}
-    }
-
-    private void applyGlobalButtonSize(int dp) {
-        globalBtnSizeDp = dp;
-        for (View b : new ArrayList<>(mappingButtons)) {
-            if (b == null || "DPAD".equals(b.getTag())) continue;
-            applyButtonSize(b, dp);
-        }
-    }
-
     private void applyButtonAlpha(View container, float a) {
         try {
             container.setAlpha(a);
@@ -3693,16 +3808,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
         };
         sv.setFillViewport(false);
         sv.setOverScrollMode(View.OVER_SCROLL_NEVER);
-        return sv;
-    }
-
-    private String buttonTypeName(String type) {
-        if ("DPAD".equals(type)) return "จอยสติ๊ก";
-        if ("HIDE_MOUSE".equals(type)) return "มุมมอง";
-        if ("RAPID_FIRE".equals(type)) return "แตะซ้ำ";
-        if ("MOUSE_LOCK".equals(type)) return "ล็อกเมาส์";
-        if ("SWIPE".equals(type)) return "ปัด";
-        if ("ZOOM".equals(type)) return "ซูม";
         if ("FIRE".equals(type)) return "ยิง";
         return "แตะ";
     }
@@ -3746,52 +3851,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
             TextView tvTitle = new TextView(this);
             tvTitle.setText("ตั้งค่าปุ่ม (Button Settings)");
             tvTitle.setTextColor(Color.WHITE);
-            tvTitle.setTextSize(18f);
-            tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
-            tvTitle.setGravity(Gravity.CENTER);
-            tvTitle.setPadding(0, 0, 0, dpToPx(4));
-            outer.addView(tvTitle);
-
-            Integer keyId = buttonKeyMap.get(container);
-            String keyText = isDpad ? "W A S D"
-                    : (keyId != null ? labelOfId(keyId) : "ยังไม่ได้กำหนด");
-            TextView tvSub = new TextView(this);
-            tvSub.setText(buttonTypeName(type) + "  •  ปุ่ม: " + keyText);
-            tvSub.setTextColor(Color.parseColor("#8BE9FD"));
-            tvSub.setTextSize(13f);
-            tvSub.setGravity(Gravity.CENTER);
-            tvSub.setPadding(0, 0, 0, dpToPx(6));
-            outer.addView(tvSub);
-
-            android.widget.ScrollView sv = makeCappedScrollView(dpToPx(190));
-            final LinearLayout layout = new LinearLayout(this);
-            layout.setOrientation(LinearLayout.VERTICAL);
-            layout.setPadding(dpToPx(6), 0, dpToPx(6), 0);
-            sv.addView(layout, new android.widget.ScrollView.LayoutParams(
-                    android.widget.ScrollView.LayoutParams.MATCH_PARENT,
-                    android.widget.ScrollView.LayoutParams.WRAP_CONTENT));
-            outer.addView(sv, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-
-            if ("HIDE_MOUSE".equals(type)) {
-                addSensRow(layout, container, true);
-                addSensRow(layout, container, false);
-                addHzRow(layout, container);
-                addFlickSettings(layout, container);
-            }
-
-            if ("RAPID_FIRE".equals(type)) {
-                layout.addView(createSettingsLabel("โหมดแตะรัว"));
-                LinearLayout rapidModeRow = new LinearLayout(this);
-                rapidModeRow.setOrientation(LinearLayout.HORIZONTAL);
-                rapidModeRow.setGravity(Gravity.CENTER);
-                final Button btnRapidHold = createSubMenuOption("กดค้างเพื่อรัว", "#2E3447", null);
-                final Button btnRapidToggle = createSubMenuOption("กดเริ่ม/กดหยุด", "#2E3447", null);
-                rapidModeRow.addView(btnRapidHold);
-                rapidModeRow.addView(btnRapidToggle);
-                layout.addView(rapidModeRow);
-                final Runnable refreshRapidMode = () -> {
-                    boolean tg = isRapidToggle(container);
                     styleModeButton(btnRapidHold, !tg);
                     styleModeButton(btnRapidToggle, tg);
                 };
@@ -3910,10 +3969,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
                 mappingButtons.clear();
                 buttonKeyMap.clear();
                 buttonTextViewMap.clear();
-                buttonSizeDpMap.clear();
-                buttonAlphaMap.clear();
-                buttonSensXMap.clear();
-                buttonSensYMap.clear();
                 buttonHzMap.clear();
                 buttonFlickMap.clear();
                 clearAllRapidData();
@@ -3974,16 +4029,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
 
     private void startAppMonitor() {
         if (isChecking || monitorHandler == null) return;
-        isChecking = true;
-        monitorHandler.post(checkAppRunnable);
-        handler.removeCallbacks(focusGuardRunnable);
-        handler.post(focusGuardRunnable);
-    }
-
-    private Runnable checkAppRunnable = new Runnable() {
-        @Override
-        public void run() {
-            if (destroyed) return;
             try {
                 String cur0 = getForegroundAppRobust();
                 if (probeActive && !targetPackage.isEmpty() && getPackageName().equals(cur0)) {
@@ -4009,37 +4054,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
                         ownAppCount = 0;
                         awaySince = 0;
                     } else if (targetSeen) {
-                        long nowMs = android.os.SystemClock.uptimeMillis();
-                        if (awaySince == 0) awaySince = nowMs;
-                        boolean inOwnApp = getPackageName().equals(currentApp);
-                        ownAppCount = inOwnApp ? ownAppCount + 1 : 0;
-                        boolean stopNow = false;
-                        if (inOwnApp && ownAppCount >= 2) {
-                            stopNow = true;
-                        } else if (!inOwnApp && nowMs - awaySince >= AWAY_STOP_MS) {
-                            killOnDestroy = true;
-                            stopNow = true;
-                        }
-                        if (stopNow) {
-                            isChecking = false;
-                            handler.post(() -> { if (!destroyed) stopSelf(); });
-                            return;
-                        }
-                    }
-                }
-
-                if (nowForeground != isTargetInForeground) {
-                    handler.post(() -> {
-                        if (!destroyed) applyForegroundChange(nowForeground);
-                    });
-                }
-            } catch (Exception e) {}
-            if (isChecking && !destroyed && monitorHandler != null) monitorHandler.postDelayed(this, 250);
-        }
-    };
-
-    private void applyForegroundChange(boolean nowForeground) {
-        releaseAllTapHolds();
         boolean prevForeground = isTargetInForeground;
         isTargetInForeground = nowForeground;
         blockMetaKey = nowForeground;
@@ -4065,13 +4079,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
             if (dPadController != null) dPadController.release();
             stopAllRapidTaps();
             TouchSimulator.releaseTouch();
-            mouseLeftToken = 0;
-            for (Runnable r : rapidFireRunnables.values()) handler.removeCallbacks(r);
-            rapidFireRunnables.clear();
-            activeTouchPointers.clear();
-
-            if (isTypingMode) setTypingMode(false);
-
             if (mouseController != null) {
                 mouseController.pause();
                 isMouseMode = false;
@@ -4098,52 +4105,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
                 if (kbGrabRequested && !ShellServerClient.isConnected()) {
                     long nowMs = android.os.SystemClock.uptimeMillis();
                     if (nowMs - lastKbReconnectAt >= 3000) {
-                        lastKbReconnectAt = nowMs;
-                        ShellServerClient.ensureConnectedAsync();
-                        refreshKbGrabButton();
-                    }
-                }
-            } catch (Exception ignored) {}
-            if (isChecking && !destroyed) handler.postDelayed(this, 400);
-        }
-    };
-
-    private java.lang.reflect.Method shizukuNewProcess = null;
-    private long lastShizukuCheck = 0;
-    private String fgSource = "usage";
-
-    // [แก้ไข] เกมรันอยู่จอไหนจริง -> เป็นตัวตัดสินสุดท้าย (ไม่ล็อกตาม GAME_DISPLAY อีก)
-    // ต้องเห็นตรงกัน 2 รอบติดกันก่อนถึงจะสลับจอ เพื่อกันกะพริบ
-    private void applyObservedGameDisplay(int observed) {
-        lastObservedReal = observed;
-        int real = mapDisplay(observed);
-        int desired = gameDisplayId > 0 ? gameDisplayId : 0;
-        if (real == desired) {
-            pendingExtId = -1;
-            pendingExtCount = 0;
-            return;
-        }
-        if (pendingExtId == real) pendingExtCount++;
-        else { pendingExtId = real; pendingExtCount = 1; }
-
-        if (pendingExtCount >= 2) {
-            pendingExtId = -1;
-            pendingExtCount = 0;
-            if (real > 0) ensureDisplayAccessible(real);
-            gameDisplayId = (real > 0) ? real : -1;
-            displayConfirmed = true;
-        }
-    }
-
-    private String getTopAppViaShizuku() {
-        try {
-            if (!Shizuku.pingBinder()) return null;
-            if (shizukuNewProcess == null) {
-                shizukuNewProcess = Shizuku.class.getDeclaredMethod("newProcess", String[].class, String[].class, String.class);
-                shizukuNewProcess.setAccessible(true);
-            }
-            Process proc = (Process) shizukuNewProcess.invoke(null, new Object[]{
-                    new String[]{"sh", "-c", "dumpsys activity activities | grep -E 'Display #|ResumedActivity'"}, null, null});
             java.util.regex.Pattern pat = java.util.regex.Pattern.compile("u\\d+\\s+([A-Za-z0-9_.]+)/");
             java.util.regex.Pattern dispPat = java.util.regex.Pattern.compile("Display #(\\d+)");
             String top = null, fallback = null;
@@ -4171,89 +4132,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
                         if (curDisplay == android.view.Display.DEFAULT_DISPLAY) onDefault = true;
                         else otherId = curDisplay;
                     }
-                }
-                if (line.contains("topResumedActivity")) { if (top == null) top = m.group(1); }
-                else if (fallback == null) fallback = m.group(1);
-            }
-            try { reader.close(); } catch (Exception ignored) {}
-            try { proc.waitFor(); } catch (Exception ignored) {}
-
-            if (targetResumed) {
-                // [แก้ lag] ผลจาก activities ชัดเจนและตรงกับจอปัจจุบันอยู่แล้ว -> ไม่ต้องรัน
-                // "dumpsys window displays" ซ้ำ (หนักมาก) ใช้เฉพาะตอนกำกวมหรือจอเปลี่ยน
-                int quick = -1;
-                if (onDefault && otherId <= 0) quick = 0;
-                else if (!onDefault && otherId > 0) quick = otherId;
-                int desired = gameDisplayId > 0 ? gameDisplayId : 0;
-
-                int real;
-                if (displayConfirmed && quick >= 0 && quick == desired) {
-                    real = quick;
-                } else {
-                    real = queryDisplayViaWindow(targetPackage);
-                    if (real < 0) real = quick;
-                }
-                if (real >= 0) applyObservedGameDisplay(real);
-                return targetPackage;
-            }
-            return top != null ? top : fallback;
-        } catch (Throwable t) {
-            return null;
-        }
-    }
-
-    private volatile String shizukuTopApp = null;
-    private volatile long shizukuAt = 0;
-    private volatile boolean shizukuBusy = false;
-    private long usageChangedAt = 0;
-    private String prevUsage = "";
-
-    private String getForegroundAppRobust() {
-        String usage = getForegroundApp();
-        long now = android.os.SystemClock.uptimeMillis();
-        if (!usage.equals(prevUsage)) { prevUsage = usage; usageChangedAt = now; }
-
-        // [แก้ lag] เดิมสั่ง dumpsys ผ่าน Shizuku ทุก 1 วินาทีตลอดเวลา (หนักมาก ทำให้เกม/ระบบกระตุก)
-        // ตอนนี้: ถ้า UsageStats บอกว่าเกมอยู่หน้าจอนิ่ง ๆ แล้ว ให้เช็กห่างขึ้นเป็น 2.5 วินาที
-        // ถ้ามีการเปลี่ยนแอปเมื่อไม่นานนี้ หรือไม่ใช่เกม ให้เช็กถี่ 1 วินาทีเหมือนเดิม
-        boolean stableOnTarget = !targetPackage.isEmpty()
-                && targetPackage.equals(usage)
-                && now - usageChangedAt > 3000
-                && displayConfirmed;
-        long shizukuInterval = stableOnTarget ? 2500 : 1000;
-
-        if (!shizukuBusy && now - lastShizukuCheck >= shizukuInterval) {
-            lastShizukuCheck = now;
-            shizukuBusy = true;
-            new Thread(() -> {
-                try {
-                    String r = getTopAppViaShizuku();
-                    if (r != null) { shizukuTopApp = r; shizukuAt = android.os.SystemClock.uptimeMillis(); }
-                } finally { shizukuBusy = false; }
-            }).start();
-        }
-        String sz = shizukuTopApp;
-        // [แก้ lag] ขยายอายุผล Shizuku ให้สอดคล้องกับช่วงเช็กที่ห่างขึ้น
-        if (sz != null && shizukuAt > usageChangedAt && now - shizukuAt < 6000) {
-            fgSource = "shizuku";
-            return sz;
-        }
-        fgSource = "usage";
-        return usage;
-    }
-
-    private String lastForegroundApp = "None";
-    private long lastUsageQueryTime = 0;
-    private final java.util.LinkedHashMap<String, String> openActivities = new java.util.LinkedHashMap<>();
-
-    private String getForegroundApp() {
-        try {
-            UsageStatsManager usm = (UsageStatsManager) getSystemService(Context.USAGE_STATS_SERVICE);
-            long now = System.currentTimeMillis();
-            long from = (lastUsageQueryTime == 0) ? now - 1000L * 3600 : lastUsageQueryTime - 1000L;
-            UsageEvents usageEvents = usm.queryEvents(from, now);
-            UsageEvents.Event event = new UsageEvents.Event();
-            while (usageEvents.hasNextEvent()) {
                 usageEvents.getNextEvent(event);
                 int type = event.getEventType();
                 String pkg = event.getPackageName();
@@ -4294,12 +4172,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
 
         // [FPS] หยุด monitor และซ่อน overlay
         try {
-            if (realFpsMonitor != null) { realFpsMonitor.stop(); realFpsMonitor = null; }
-            if (fpsOverlay != null) { fpsOverlay.hide(); fpsOverlay = null; }
-        } catch (Throwable ignored) {}
-
-        try {
-            final DisplayProbeActivity probe = DisplayProbeActivity.instance;
             if (probe != null) probe.runOnUiThread(probe::finish);
         } catch (Exception ignored) {}
 
@@ -4329,15 +4201,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
         } catch (Exception ignored) {}
 
         try { closeWarningDialog(); } catch (Exception ignored) {}
-        try { closeButtonSettings(); } catch (Exception ignored) {}
-
-        try {
-            if (mouseController != null) {
-                mouseController.destroy();
-                mouseController = null;
-            }
-        } catch (Exception ignored) {}
-
         try { stopAllRapidTaps(); } catch (Exception ignored) {}
 
         for (View btn : mappingButtons) { try { windowManager.removeView(btn); } catch (Exception ignored) {} }
@@ -4373,5 +4236,3 @@ public class FloatingService extends Service implements MouseController.MouseEve
         super.onDestroy();
     }
 }
-
-              
