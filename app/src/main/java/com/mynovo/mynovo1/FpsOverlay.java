@@ -98,8 +98,13 @@ public class FpsOverlay {
         if (tv == null) return;
         if ("surface".equals(source) && fps >= 0) {
             tv.setText("FPS " + fps);
-        } else {
-            tv.setText("FPS --");
+            return;
         }
+        // [DEBUG ชั่วคราว] แสดงสาเหตุที่วัดไม่ได้ เพื่อหาว่าติดตรงไหน (ลบออกได้เมื่อวัดได้แล้ว)
+        String s = source == null ? "" : source;
+        int c = s.indexOf(':');
+        String reason = c >= 0 ? s.substring(c + 1) : "";
+        if (s.startsWith("gfxinfo")) tv.setText("FPS -- gfx" + fps + " " + reason);
+        else tv.setText("FPS -- " + reason);
     }
 }
