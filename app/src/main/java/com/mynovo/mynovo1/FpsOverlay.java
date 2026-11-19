@@ -6,105 +6,100 @@ import android.graphics.PixelFormat;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
+import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.WindowManager;
 import android.widget.TextView;
 
 /**
- * แสดงตัวเลข FPS ลอยนิ่งมุมซ้ายบนของจอ แบบเดียวกับที่ BlueStacks แสดง
- * ตำแหน่งตายตัว - ไม่มี touch listener ให้ลากย้ายได้
+ * กล่อง FPS เล็ก ๆ พื้นดำ ตัวอักษรขาว เช่น "FPS 90" ล็อกไว้มุมซ้ายล่างของจอ
+ * - แตะทะลุได้ (ไม่รับทัช/โฟกัส) จึงไม่รบกวนเกมและ TouchSimulator
+ * - แสดงตัวเลขเฉพาะเมื่อ source == "surface" (วัดจากเฟรมจริง) ไม่เช่นนั้นแสดง "FPS --"
  */
 public class FpsOverlay {
 
-    private final Context context;
-    private final WindowManager windowManager;
+    private final Context ctx;
+    private final WindowManager wm;
+    private TextView tv;
+    private WindowManager.LayoutParams lp;
+    private boolean showing = false;
 
-    private TextView fpsText;
-    private WindowManager.LayoutParams params;
-
-    public FpsOverlay(Context context, WindowManager windowManager) {
-        this.context = context;
-        this.windowManager = windowManager;
+    public FpsOverlay(Context ctx, WindowManager wm) {
+        this.ctx = ctx;
+        this.wm = wm;
     }
 
     public boolean isShowing() {
-        return fpsText != null;
+        return showing;
+    }
+
+    private int dp(float v) {
+        return Math.round(v * ctx.getResources().getDisplayMetrics().density);
     }
 
     public void show() {
-        if (fpsText != null) return;
+        if (showing || wm == null) return;
         try {
-            fpsText = new TextView(context);
-            fpsText.setText(".. FPS");
-            fpsText.setTextColor(Color.parseColor("#00E676"));
-            fpsText.setTextSize(11f);
-            fpsText.setTypeface(null, Typeface.BOLD);
-            fpsText.setPadding(dp(8), dp(3), dp(8), dp(3));
+            tv = new TextView(ctx);
+            tv.setText("FPS --");
+            tv.setTextColor(Color.WHITE);
+            tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            tv.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+            tv.setIncludeFontPadding(false);
+            tv.setPadding(dp(8), dp(4), dp(8), dp(4));
 
             GradientDrawable bg = new GradientDrawable();
-            bg.setColor(Color.parseColor("#99000000"));
-            bg.setCornerRadius(dp(8));
-            fpsText.setBackground(bg);
+            bg.setColor(0xCC000000);
+            bg.setCornerRadius(dp(4));
+            tv.setBackground(bg);
 
-            // ไม่รับการแตะใดๆ ทั้งสิ้น ไม่สามารถลากย้ายตำแหน่งได้
-            fpsText.setClickable(false);
-            fpsText.setFocusable(false);
-
-            int type = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-                    ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                    : WindowManager.LayoutParams.TYPE_PHONE;
-
-            params = new WindowManager.LayoutParams(
+            lp = new WindowManager.LayoutParams(
                     WindowManager.LayoutParams.WRAP_CONTENT,
                     WindowManager.LayoutParams.WRAP_CONTENT,
-                    type,
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                            ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                            : WindowManager.LayoutParams.TYPE_PHONE,
                     WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                            | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE   // แตะทะลุผ่านได้ ไม่บังคลิก และลากย้ายไม่ได้
+                            | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                             | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
                             | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-                    PixelFormat.TRANSLUCENT
-            );
-            // ตำแหน่งตายตัวมุมซ้ายบน (เหมือน BlueStacks) - ไม่มีช่องให้ตั้งค่าตำแหน่งอื่น
-            params.gravity = Gravity.TOP | Gravity.START;
-            params.x = dp(8);
-            params.y = dp(8);
+                    PixelFormat.TRANSLUCENT);
+            // ล็อกมุมซ้ายล่าง
+            lp.gravity = Gravity.BOTTOM | Gravity.START;
+            lp.x = dp(12);
+            lp.y = dp(8);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                lp.layoutInDisplayCutoutMode =
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
+            }
 
-            windowManager.addView(fpsText, params);
-        } catch (Exception ignored) {}
+            wm.addView(tv, lp);
+            showing = true;
+        } catch (Exception e) {
+            showing = false;
+            tv = null;
+        }
     }
 
     public void hide() {
-        if (fpsText != null) {
-            try { windowManager.removeView(fpsText); } catch (Exception ignored) {}
-            fpsText = null;
-        }
+        try {
+            if (tv != null && tv.getParent() != null && wm != null) wm.removeView(tv);
+        } catch (Exception ignored) {}
+        tv = null;
+        showing = false;
     }
 
     public void toggle() {
-        if (isShowing()) hide(); else show();
+        if (showing) hide(); else show();
     }
 
-    /**
-     * อัปเดตค่า FPS ที่แสดง
-     * source: "surface" = วัดจริงจาก SurfaceFlinger (แม่นสุด)
-     *         "gfxinfo"  = fallback จากตัวนับสะสมของแอป
-     *         "vsync"/"none" = ประมาณการ/วัดไม่ได้
-     */
+    // เรียกจากเธรดหลักเท่านั้น (RealFpsMonitor ส่งผ่าน handler ของ service อยู่แล้ว)
     public void updateValue(int fps, String source) {
-        if (fpsText == null) return;
-        if ("none".equals(source) || fps < 0) {
-            fpsText.setText("N/A");
-            fpsText.setTextColor(Color.parseColor("#FF5555"));
-            return;
+        if (tv == null) return;
+        if ("surface".equals(source) && fps >= 0) {
+            tv.setText("FPS " + fps);
+        } else {
+            tv.setText("FPS --");
         }
-        String tag = "surface".equals(source) ? "" : "gfxinfo".equals(source) ? " ~" : " ≈";
-        fpsText.setText(fps + tag + " FPS");
-        fpsText.setTextColor(Color.parseColor(
-                fps >= 50 ? "#00E676" : fps >= 30 ? "#FFEB3B" : "#FF5555"));
-    }
-
-    private int dp(int v) {
-        float density = context.getResources().getDisplayMetrics().density;
-        return Math.round(v * density);
     }
 }
