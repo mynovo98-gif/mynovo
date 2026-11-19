@@ -43,8 +43,17 @@ public class RealFpsMonitor {
     // --- debug ---
     private String lastShellError = null;
     private String lastLogMsg = null;
-    private volatile String why = "";   // [DEBUG] สาเหตุที่วัดจากเฟรมจริงไม่ได้ (โชว์บน overlay ชั่วคราว)
+    // [DEBUG] สาเหตุที่วัดจากเฟรมจริงไม่ได้ (โชว์บน overlay ชั่วคราว) แยกตามวิธี
+    private volatile String why = "";      // ข้อความรวม = whyLat|whyTs
+    private volatile String whyLat = "";   // สาเหตุของวิธี --latency
+    private volatile String whyTs = "";    // สาเหตุของวิธี --timestats
     private int lastListLines = 0;
+
+    // --- สำหรับวิธี SurfaceFlinger timestats (ใช้เมื่อ --latency ไม่มีข้อมูลเฟรม) ---
+    private boolean tsEnabled = false;
+    private java.util.Map<String, Long> tsPrev = new java.util.HashMap<>();
+    private long tsPrevNanos = 0;
+    private long latencyDisabledUntil = 0;   // --latency ใช้ไม่ได้ -> พักไว้ ไม่ต้องลองถี่ ๆ (กันเครื่องหน่วง)
 
     public RealFpsMonitor(String pkg, Handler uiHandler, Listener listener) {
         this.pkg = pkg;
@@ -59,6 +68,13 @@ public class RealFpsMonitor {
         lastPollNanos = 0;
         cachedLayerName = null;
         lastLayerLookup = 0;
+        tsEnabled = false;
+        tsPrev = new java.util.HashMap<>();
+        tsPrevNanos = 0;
+        latencyDisabledUntil = 0;
+        whyLat = "";
+        whyTs = "";
+        why = "";
         thread = new Thread(this::loop, "RealFpsMonitor");
         thread.setDaemon(true);
         thread.start();
@@ -76,6 +92,8 @@ public class RealFpsMonitor {
             try {
                 // 1) วิธีแม่นสุด: SurfaceFlinger layer latency
                 FpsResult r = trySurfaceFlingerLatency();
+                if (r == null) r = tryTimeStats();
+                why = whyLat + "|" + whyTs;
                 if (r != null) {
                     postFps(r.fps, "surface");
                 } else {
@@ -126,12 +144,13 @@ public class RealFpsMonitor {
     private FpsResult trySurfaceFlingerLatency() {
         try {
             if (pkg == null || pkg.isEmpty()) {
-                why = "pkg-empty";
+                whyLat = "pkg-empty";
                 logOnce("pkg is empty");
                 return null;
             }
 
             long uptime = SystemClock.uptimeMillis();
+            if (uptime < latencyDisabledUntil) return null;
             if (cachedLayerName == null || uptime - lastLayerLookup > 5000) {
                 String picked = pickBestLayer();
                 lastLayerLookup = uptime;
@@ -145,12 +164,13 @@ public class RealFpsMonitor {
             List<Long> ts = readLatency(cachedLayerName);
             if (ts == null || ts.isEmpty()) {
                 // layer นี้ไม่มีข้อมูลเฟรม (หายไป/เป็น layer ผิดตัว) -> หาใหม่รอบหน้า
-                why = "empty-ts";
+                whyLat = "empty-ts";
                 cachedLayerName = null;
                 lastLayerLookup = 0;
                 return null;
             }
 
+            whyLat = "ok";
             FpsResult r = computeFps(ts);
             if (r.fps == 0) {
                 // เกมไม่ได้วาด หรือ layer นี้ไม่ใช่ตัวหลัก -> ให้หาใหม่รอบหน้าเผื่อเจอตัวที่ถูก
@@ -204,7 +224,7 @@ public class RealFpsMonitor {
     private String pickBestLayer() {
         List<String> candidates = listCandidateLayers();
         if (candidates.isEmpty()) {
-            if (lastShellError == null) why = "no-layer:" + lastListLines;
+            if (lastShellError == null) whyLat = "no-layer:" + lastListLines;
             logOnce("no SurfaceFlinger layer contains pkg=" + pkg);
             return null;
         }
@@ -229,9 +249,14 @@ public class RealFpsMonitor {
             }
         }
         if (best == null) {
-            why = "no-data:" + candidates.size();
+            whyLat = "no-data:" + candidates.size();
+            latencyDisabledUntil = SystemClock.uptimeMillis() + 30000;
             logOnce("found " + candidates.size() + " layers but none has frame data, first="
                     + candidates.get(0));
+            // [DEBUG] เก็บข้อมูลดิบของ layer แรกไว้ดูใน logcat
+            String raw = runShell("dumpsys SurfaceFlinger --latency '"
+                    + candidates.get(0).replace("'", "'\\''") + "' | head -5");
+            Log.w(TAG, "latency raw=[" + raw + "] first=" + candidates.get(0));
         }
         return best;
     }
@@ -242,7 +267,7 @@ public class RealFpsMonitor {
         String out = runShell("dumpsys SurfaceFlinger --list");
         if (out == null) {
             String e = String.valueOf(lastShellError);
-            why = "sh-fail:" + (e.length() > 30 ? e.substring(0, 30) : e);
+            whyLat = "sh-fail:" + (e.length() > 30 ? e.substring(0, 30) : e);
             return surfaceViews;
         }
         lastListLines = out.split("\n").length;
@@ -250,12 +275,7 @@ public class RealFpsMonitor {
         for (String line : out.split("\n")) {
             String t = line.trim();
             if (t.isEmpty() || !t.contains(pkg)) continue;
-            if (t.startsWith("Bounds for") || t.startsWith("Background for")
-                    || t.contains("InputMethod") || t.contains("NavigationBar")
-                    || t.contains("StatusBar") || t.contains("Toast")
-                    || t.startsWith("Task=")) {
-                continue;
-            }
+            if (isIgnoredLayer(t)) continue;
             if (t.contains("SurfaceView")) surfaceViews.add(t);
             else others.add(t);
         }
@@ -293,6 +313,85 @@ public class RealFpsMonitor {
         } catch (NumberFormatException e) {
             return -1;
         }
+    }
+
+    // ===== วิธีที่ 1.5: SurfaceFlinger --timestats (นับเฟรมสะสมต่อ layer) =====
+    // ใช้ได้บน Android รุ่นใหม่ที่ --latency ไม่คืนข้อมูล: อ่าน totalFrames ของ layer เกมซ้ำ ๆ แล้วหาส่วนต่าง/เวลา
+    private FpsResult tryTimeStats() {
+        try {
+            if (pkg == null || pkg.isEmpty()) { whyTs = "pkg-empty"; return null; }
+
+            if (!tsEnabled) {
+                String en = runShell("dumpsys SurfaceFlinger --timestats -enable");
+                if (en == null) { whyTs = "ts-sh"; return null; }
+                tsEnabled = true;
+            }
+
+            String out = runShell("dumpsys SurfaceFlinger --timestats -dump -maxlayers 200"
+                    + " | grep -E 'layerName|totalFrames'");
+            long now = System.nanoTime();
+            if (out == null) { whyTs = "ts-sh"; return null; }
+
+            java.util.Map<String, Long> cur = new java.util.HashMap<>();
+            int all = 0;
+            String name = null;
+            for (String line : out.split("\n")) {
+                String t = line.trim();
+                int eq = t.indexOf('=');
+                if (eq < 0) continue;
+                if (t.startsWith("layerName")) {
+                    name = t.substring(eq + 1).trim();
+                    all++;
+                } else if (t.startsWith("totalFrames") && name != null) {
+                    try {
+                        long v = Long.parseLong(t.substring(eq + 1).trim());
+                        if (name.contains(pkg) && !isIgnoredLayer(name)) cur.put(name, v);
+                    } catch (NumberFormatException ignored) {}
+                    name = null;
+                }
+            }
+
+            // [DEBUG] ดูใน logcat ว่า timestats เห็น layer ของเกมไหม
+            Log.d(TAG, "timestats layers=" + all + " matched=" + cur);
+
+            FpsResult r = null;
+            if (cur.isEmpty()) {
+                whyTs = (all == 0) ? "ts-empty" : "ts-nolayer:" + all;
+            } else if (tsPrevNanos == 0) {
+                whyTs = "ts-base";
+            } else {
+                double sec = (now - tsPrevNanos) / 1_000_000_000.0;
+                long bestDelta = -1;
+                for (java.util.Map.Entry<String, Long> e : cur.entrySet()) {
+                    Long p = tsPrev.get(e.getKey());
+                    if (p == null) continue;
+                    long d = e.getValue() - p;
+                    if (d < 0) continue;          // ตัวนับถูกรีเซ็ต
+                    if (d > bestDelta) bestDelta = d;
+                }
+                if (bestDelta >= 0 && sec > 0.2) {
+                    r = new FpsResult();
+                    r.fps = (int) Math.min(240, Math.round(bestDelta / sec));
+                    whyTs = "ok";
+                } else {
+                    whyTs = "ts-base";
+                }
+            }
+            tsPrev = cur;
+            tsPrevNanos = now;
+            return r;
+        } catch (Throwable t) {
+            whyTs = "ts-err";
+            Log.w(TAG, "timestats failed: " + t);
+            return null;
+        }
+    }
+
+    private static boolean isIgnoredLayer(String t) {
+        return t.startsWith("Bounds for") || t.startsWith("Background for")
+                || t.contains("InputMethod") || t.contains("NavigationBar")
+                || t.contains("StatusBar") || t.contains("Toast")
+                || t.startsWith("Task=");
     }
 
     // ===== วิธีที่ 2: gfxinfo total frames (fallback) =====
