@@ -99,84 +99,64 @@ public class MouseController {
 
     // เกมให้ความเร็วกล้องครึ่งจอซ้ายเร็วกว่าครึ่งขวา เลยชดเชยให้เท่ากัน (ไม่กั้นนิ้ว)
     // LEFT_HALF_GAIN: 1.0 = ปิดการชดเชย (ความเร็วคงที่ทั้งจอ) / ถ้าซ้ายเร็วกว่าขวาให้ลดลง (เช่น 0.5)
-    // [แก้ไขรอบนี้] ระบบคงที่ (แกน X ลากทะลุจอ) ใช้ leftHalfFactor() คูณความเร็วเฉพาะตอนนิ้วเสมือนอยู่ฝั่งซ้ายของจอ
-    //              ถ้าฝั่งซ้ายยังเร็วกว่าขวา -> ลด LEFT_HALF_GAIN (เช่น 0.2)
-    //              ถ้าฝั่งซ้ายช้ากว่าขวาแล้ว -> เพิ่ม LEFT_HALF_GAIN (เช่น 0.5)
-    //              LEFT_HALF_X = เส้นแบ่งซ้าย/ขวา, LEFT_HALF_BAND = ความกว้างช่วงเปลี่ยนค่อยๆ (กันกระโดดตรงเส้นแบ่ง)
-    // [แก้ไขรอบนี้] ฝั่งซ้ายยังเร็วกว่าขวาอยู่ -> ลด LEFT_HALF_GAIN จาก 0.075 เหลือ 0.04 (ลดลงอีกราวครึ่งหนึ่ง)
-    //              ถ้าซ้ายยังเร็วกว่าขวา ให้ลดอีก (เช่น 0.02) / ถ้าช้ากว่าขวาแล้ว ให้เพิ่ม (เช่น 0.055)
+    // LEFT_HALF_X = เส้นแบ่งซ้าย/ขวา, LEFT_HALF_BAND = ความกว้างช่วงเปลี่ยนค่อยๆ (กันกระโดดตรงเส้นแบ่ง)
     private static final float LEFT_HALF_X = 0.525f;
     private static final float LEFT_HALF_GAIN = 0.8f;
     private static final float LEFT_HALF_BAND =  1.0f;
 
-    // [เพิ่มรอบนี้] ตัวลดความเร็วเพิ่มเติมฝั่งซ้าย (ใช้ร่วมกับ leftHalfFactor)
-    // สาเหตุ: LEFT_HALF_BAND = 1.0 กว้างมาก (1 เท่าของจอ) ทำให้ตัวลดค่อยๆ ไล่ระดับทั้งจอ ที่ขอบซ้ายสุดได้แค่ ~0.25
-    //         ปรับ LEFT_HALF_GAIN จึงแทบไม่มีผล ตัวนี้เป็นตัวลดแยก เปลี่ยนค่อนข้างเร็วรอบเส้นแบ่งซ้าย/ขวา
-    // ประวัติ: 2.5 เท่า->0.4 / 3 เท่า->0.13 / ช้าอีกหน่อย->0.10 / ยังเร็วอยู่->0.06 / ช้าอีกหน่อย->0.04 / ยังเร็วเกือบ2เท่า->0.02
-    // [แก้ไขรอบนี้] ขอให้ฝั่งซ้ายช้ามากๆ ไว้ก่อน แล้วค่อยๆ ไล่เพิ่มทีละนิด เลยตั้งให้ต่ำมาก (เกือบนิ่ง) เป็นจุดเริ่ม
-    // วิธีไล่เพิ่ม: ลองเล่นแล้วถ้าซ้ายช้าเกินไป ค่อยๆ เพิ่มทีละนิด เช่น 0.005 -> 0.008 -> 0.012 -> 0.02 ...
-    // เพิ่มทีละขั้นเล็กๆ แล้วลองเทสใหม่ทุกครั้ง จนกว่าซ้าย-ขวาจะหมุนรอบเท่ากันพอดี (อย่าเพิ่งกระโดดขึ้นเยอะในทีเดียว)
-    private static final float LEFT_EXTRA_GAIN = 0.7f;
+    // [แก้ไขแก้หน่วง] ตัวลดความเร็วเพิ่มเติมฝั่งซ้าย (ใช้ร่วมกับ leftHalfFactor)
+    // ตั้งเป็น 1.0 = ปิดตัวลดนี้ทั้งหมด (ทดสอบว่าหายหน่วงหรือไม่)
+    // ถ้าหายหน่วงแล้วฝั่งซ้ายเร็วกว่าขวา ค่อยๆ ลดทีละนิด เช่น 0.9 -> 0.8 -> 0.7
+    private static final float LEFT_EXTRA_GAIN = 1.0f;
     // เส้นแบ่งซ้าย/ขวา (สัดส่วนของความกว้างจอ)
     private static final float LEFT_EXTRA_X = 0.5f;
     // ความกว้างช่วงเปลี่ยนนุ่มๆ รอบเส้นแบ่ง (สัดส่วนของความกว้างจอ)
     private static final float LEFT_EXTRA_BAND = 0.05f;
 
-    // [เพิ่ม] อาการ: ลากช้าๆ ฝั่งซ้าย-ขวาใกล้เคียงกันแล้ว แต่ "สะบัดเมาส์เร็วๆ/หันไวๆ" ฝั่งซ้ายยังพุ่งเร็วเกินฝั่งขวามาก
-    // (เกมให้ความเร็วพุ่งขึ้นแบบไม่เป็นเส้นตรงตอนสะบัดเร็วฝั่งซ้าย มากกว่าฝั่งขวา)
-    // [แก้ไขรอบนี้] เคยลองตัดการอิงความเร็วออกไปใช้ gain คงที่แล้ว แต่ไม่พอ เพราะเกมเร่งความเร็วแบบไม่เป็นเส้นตรง
-    // ตอนสะบัดเร็ว ต่อให้คูณด้วยอัตราส่วนคงที่ก็ยังเร็วเกินอยู่ดี เลยกลับมาใช้ตัวหรี่ที่อิงความเร็วอีกครั้ง
-    // แต่กลับทิศทางให้ถูก: ยิ่งสะบัดเร็ว ยิ่งหรี่แรงขึ้น (ไม่ใช่หรี่น้อยลงแบบเดิมที่ทำให้พุ่งเกินควบคุม)
     // ช่วงความเร็วดิบ (px/ms ก่อนคูณความไว) ที่เริ่มนับว่า "เริ่มสะบัดเร็ว" ถึง "สะบัดเร็วสุด"
-    // ถ้าสะบัดเร็วแล้วยังรู้สึกว่าหรี่มาช้าไป (เริ่มหรี่ตอนเร็วเกินไปแล้ว) ให้ลด MIN/MAX ลง (เช่น 0.4/0.6)
     private static final float LEFT_FAST_SPEED_MIN = 0.8f;
     private static final float LEFT_FAST_SPEED_MAX = 0.9f;
-    // gain ของฝั่งซ้ายตอนสะบัดเร็วสุด (ต่ำกว่า LEFT_EXTRA_GAIN ปกติมาก ยิ่งน้อยยิ่งหรี่แรงตอนสะบัดเร็ว)
-    // ถ้าสะบัดเร็วแล้วยังเร็วไปอยู่ ให้ลดค่านี้ลงอีก (เช่น 0.005) / ถ้าสะบัดเร็วแล้วรู้สึกหน่วงเกิน ให้เพิ่มขึ้น
-    private static final float LEFT_EXTRA_GAIN_FAST = 0.66f;
+    // [แก้ไขแก้หน่วง] gain ของฝั่งซ้ายตอนสะบัดเร็วสุด ตั้งเป็น 1.0 = ปิดการหรี่ตอนสะบัด
+    // ถ้าสะบัดเร็วแล้วฝั่งซ้ายพุ่งเกิน ค่อยๆ ลดลง (เช่น 0.9 -> 0.8)
+    private static final float LEFT_EXTRA_GAIN_FAST = 1.0f;
 
     // [เพิ่ม] ตัวคูณความเร็วตอน "หันซ้าย" (ตามทิศที่เมาส์ขยับ ไม่เกี่ยวกับตำแหน่งนิ้วเสมือน)
     // 1.0 = เท่าเดิม, 0.9 = ช้าลง 10%, 0.8 = ช้าลง 20%, 0.7 = ช้าลง 30%
-    // ถ้าหันซ้ายยังเร็วกว่าขวาให้ลดลง / ถ้าช้าไปให้เพิ่มขึ้น (ลดทีละ 0.05)
     private static final float TURN_LEFT_GAIN = 1.0f;
 
-    // [แก้ไข] สวิตช์ตัวชดเชยตอนนิ้วเสมือนลากหลุดขอบจอ
-    // สาเหตุอาการ "ปรับช้าแล้วกลับเร็ว": ตัวชดเชยนี้ทำให้ความเร็วขึ้นกับตำแหน่งนิ้ว
-    //   ความไวสูง -> นิ้วหลุดขอบจอบ่อย -> โดนลดความเร็ว (สูงสุดเหลือ 0.15 เท่า)
-    //   ความไวต่ำ -> นิ้วอยู่ในจอตลอด -> ไม่โดนลด จึงเร็วกว่าที่ควร (ปรับลดแล้วแทบไม่ช้าลง)
-    // false = ปิดตัวชดเชย ความเร็ว = ระยะเมาส์ x ความไว เป็นเส้นตรงจริงๆ
+    // [แก้ไขแก้หน่วง] สวิตช์ตัวชดเชยตอนนิ้วเสมือนลากหลุดขอบจอ
+    // false = ปิดตัวชดเชย ความเร็ว = ระยะเมาส์ x ความไว เป็นเส้นตรงจริงๆ (ไม่มีตัวลดตอนนิ้วนอกจอ)
     // true  = เปิดตัวชดเชย (ถ้านอกจอแล้วเกมเร็วขึ้นจริงๆ ให้เปิดแล้วปรับ OFFSCREEN_GAIN_X/MIN_X)
-    // [แก้ไขรอบนี้] เปิดเป็น true เพราะอาการ "ยกเมาส์แล้วหันซ้ำ กล้องพุ่งไวขึ้น" เกิดจากนิ้วไหลออกนอกจอ
-    //              (ระบบคงที่ที่ X ลากทะลุจอ ไม่รีเซ็ตตอนเมาส์หยุด) แล้วเกมให้ความเร็วเร็วขึ้นนอกจอ
-    private static final boolean OFFSCREEN_COMPENSATE = true;
+    private static final boolean OFFSCREEN_COMPENSATE = false;
 
     // ตอนนิ้วเสมือนลากหลุดขอบจอ เกมให้ความเร็วเร็วขึ้น เลยชดเชยให้เท่าตอนอยู่ในจอ (ใช้ทั้งแกน X และ Y)
     // OFFSCREEN_GAIN: 1.0 = ปิดการชดเชย (ความเร็วคงที่ทั้งแกน X และ Y)
-    // ถ้านอกจอยังเร็วกว่าในจอให้ลดลงเล็กน้อย (เช่น 0.8)
     private static final float OFFSCREEN_GAIN_X = 0.35f;
     // ตัวคูณต่ำสุดของแกน X นอกจอ (กันช้าลงเรื่อยๆ ตอนสะบัดไกล) เพิ่ม = นอกจอเร็วขึ้น
     private static final float OFFSCREEN_MIN_X = 0.45f;
     // แกน Y กลับไปใช้ค่าเดิม (1.0 = ไม่ชดเชย)
     private static final float OFFSCREEN_GAIN_Y = 1.0f;
     // ระยะที่ค่อยๆ เปลี่ยนความเร็วเมื่อเลยขอบออกไป (สัดส่วนของขนาดจอ) จะได้ไม่กระโดดตรงขอบ
-    // ขยายจาก 0.005 เป็น 0.03 ให้ความเร็วเปลี่ยนนุ่มขึ้นตรงขอบจอ นิ้วที่แกว่งอยู่รอบขอบจอจะไม่สั่น
     private static final float OFFSCREEN_BAND = 0.8f;
     // BAND ของแกน Y (ค่าเดิม)
     private static final float OFFSCREEN_BAND_Y = 0.04f;
     private static final boolean OFFSCREEN_STACK_LEFT = false;
 
-    // [เพิ่ม] กันกล้องพุ่งตอน "ยกเมาส์แล้ววางใหม่" (เฉพาะระบบคงที่)
-    // ถ้าห่างจาก MOVE ก่อนหน้านานกว่าค่านี้ ถือว่าเพิ่งพ้นช่วงเงียบ (มือยกเมาส์ขึ้น ไม่ใช่สบัดแรงปกติ)
-    // event แรกหลังช่วงเงียบจะถูกบีบตามเพดานความเร็ว ส่วน event ถัดไปที่ต่อเนื่องจะไม่ถูกแตะเลย
-    // (ไม่ใช่ตัวหน่วงความเร็วต่อเนื่อง จึงไม่ทำให้ระบบคงที่กลายเป็นมีความเร่ง)
-    // ถ้ายังพุ่งตอนยกเมาส์อยู่บ้าง ให้ลดค่านี้ลง (เช่น 40), ถ้าหันกล้องเร็วๆ ปกติแล้วรู้สึกสะดุด/โดนหน่วงผิดจังหวะ ให้เพิ่มขึ้น (เช่น 100)
-    private static final float POST_GAP_MS = 60f;
-    // เพดานความเร็วดิบ (พิกเซลดิบ/ms ก่อนคูณความไว) ที่ยอมรับได้ "ทันที" หลังช่วงเงียบ
-    // ยังพุ่งตอนยกเมาส์อยู่ -> ลดค่านี้ลง (เช่น 1.5) / รู้สึกเหมือนกล้องหน่วงตอนเริ่มหันใหม่หลังหยุดสั้นๆ -> เพิ่มขึ้น (เช่น 4-5)
-    private static final float POST_GAP_MAX_V = 2.5f;
-    // [เพิ่ม] ล็อก dt ที่ใช้คำนวณเพดานหลังช่วงเงียบ (ms) เดิมเพดานโตตามความยาวช่วงเงียบ (ยกเมาส์ 300ms = เพดาน 750px)
-    // ตอนนี้เพดาน = POST_GAP_MAX_V x ค่านี้ ไม่ว่ายกเมาส์นานแค่ไหน
+    // [แก้ไขแก้หน่วง] กันกล้องพุ่งตอน "ยกเมาส์แล้ววางใหม่" (เฉพาะระบบคงที่)
+    // ถ้าห่างจาก MOVE ก่อนหน้านานกว่าค่านี้ ถือว่าเพิ่งพ้นช่วงเงียบ
+    // เพิ่มจาก 60 เป็น 150 เพื่อไม่ให้การหยุดมือสั้นๆ แล้วสะบัดต่อโดนทิ้ง event
+    // ถ้ายังพุ่งตอนยกเมาส์อยู่บ้าง ให้ลดค่านี้ลง (เช่น 100)
+    private static final float POST_GAP_MS = 150f;
+    // [แก้ไขแก้หน่วง] เพดานความเร็วดิบ (พิกเซลดิบ/ms) ที่ยอมรับได้ "ทันที" หลังช่วงเงียบ
+    // เพิ่มจาก 2.5 เป็น 5.0 ให้ก้อนแรกหลังหยุดมือไม่โดนทิ้งง่ายเกินไป
+    // ยังพุ่งตอนยกเมาส์อยู่ -> ลดค่านี้ลง (เช่น 3.5)
+    private static final float POST_GAP_MAX_V = 5.0f;
+    // ล็อก dt ที่ใช้คำนวณเพดานหลังช่วงเงียบ (ms) เพดาน = POST_GAP_MAX_V x ค่านี้ ไม่ว่ายกเมาส์นานแค่ไหน
     private static final float POST_GAP_CAP_DT_MS = 16f;
+
+    // [แก้ไขแก้หน่วง] ความถี่ส่งตำแหน่งนิ้วเสมือนเริ่มต้น (Hz) ก่อนที่หน้าตั้งค่าจะเรียก setViewHz()
+    // 0 = ซิงค์เฟรมจอ (อาจดีเลย์ได้ ~16ms บนจอ 60Hz) / 250 = ส่งทันทีที่พ้น interval ตอบสนองไวกว่า
+    private static final int DEFAULT_VIEW_HZ = 250;
 
     // ตัวคูณความเร็วตามระยะที่นิ้วเสมือนเลยขอบจอ แกน X (ลดต่อเนื่อง ไม่มีเพดาน)
     // (v = พิกัดบนแกนนั้น, max = ขนาดจอแกนนั้น)
@@ -205,10 +185,8 @@ public class MouseController {
         return LEFT_HALF_GAIN + (1f - LEFT_HALF_GAIN) * t;
     }
 
-    // [แก้ไขรอบนี้ - เฉพาะแกน X] ตัวลดความเร็วเพิ่มเติมฝั่งซ้าย: ซ้ายของเส้นแบ่ง = gain (ขึ้นกับความเร็วสะบัด), ขวา = 1.0
+    // [เฉพาะแกน X] ตัวลดความเร็วเพิ่มเติมฝั่งซ้าย: ซ้ายของเส้นแบ่ง = gain (ขึ้นกับความเร็วสะบัด), ขวา = 1.0
     // เปลี่ยนนุ่มๆ (smoothstep) ในช่วง LEFT_EXTRA_BAND รอบเส้นแบ่ง ไม่กระโดด
-    // rawSpeedPxMs = ความเร็วเมาส์ดิบของเฟรมนี้ (px/ms ก่อนคูณความไว) ยิ่งสะบัดเร็ว gain ยิ่งต่ำ (หรี่แรงขึ้น)
-    // ไล่จาก LEFT_EXTRA_GAIN ตอนลากช้า ลงไปถึง LEFT_EXTRA_GAIN_FAST ตอนสะบัดเร็วสุด (ซึ่งตอนนี้ต่ำกว่า)
     private float leftExtraFactor(float x, float rawSpeedPxMs) {
         float mid = LEFT_EXTRA_X * maxScreenWidth;
         float band = Math.max(1f, LEFT_EXTRA_BAND * maxScreenWidth);
@@ -224,7 +202,7 @@ public class MouseController {
         return gain + (1f - gain) * t;
     }
 
-    // ตัวคูณแกน X: ใช้เฉพาะตัวชดเชยตอนหลุดขอบจอ (ตัดตัวคูณซีกซ้ายออก ความเร็วในจอคงที่)
+    // ตัวคูณแกน X: ใช้เฉพาะตัวชดเชยตอนหลุดขอบจอ
     // ถ้า OFFSCREEN_COMPENSATE = false จะคืน 1 เสมอ (ความเร็วเป็นเส้นตรงตามค่าความไว)
     private float factorX(float x) {
         if (!OFFSCREEN_COMPENSATE) return 1f;
@@ -261,17 +239,16 @@ public class MouseController {
     private boolean pressing = false;
     // คลิกขวากำลังถูกกดอยู่ (กัน onRightClick ถูกเรียกซ้ำจาก DOWN + BUTTON_PRESS ของการคลิกครั้งเดียว)
     private boolean rightDown = false;
-    // [เพิ่ม] สถานะปุ่มขวาของ event ก่อนหน้า ใช้จับการ "กดขวา" จากการเปลี่ยนของ buttonState
-    // กันกรณีกดขวาตอนซ้ายค้างแล้วระบบไม่ส่งมาเป็น DOWN/BUTTON_PRESS
+    // สถานะปุ่มขวาของ event ก่อนหน้า ใช้จับการ "กดขวา" จากการเปลี่ยนของ buttonState
     private boolean prevSecondary = false;
-    // [เพิ่ม] สถานะปุ่มซ้ายของ event ก่อนหน้า (ไว้จับซ้ายที่กดตอนขวาค้างอยู่ กรณีระบบไม่ส่ง BUTTON_PRESS)
+    // สถานะปุ่มซ้ายของ event ก่อนหน้า (ไว้จับซ้ายที่กดตอนขวาค้างอยู่ กรณีระบบไม่ส่ง BUTTON_PRESS)
     private boolean prevPrimary = false;
 
-    // [เพิ่ม] นับจำนวนครั้งติดกันที่ TouchSimulator.isPointerDown(2) รายงานว่า "ไม่ได้กดอยู่" ทั้งที่ token ยังไม่เป็น 0
-    // กันการ flicker 1 เฟรม (รายงานผิดชั่วขณะ) ทำให้โดนยก-วางนิ้วใหม่ (รีเซ็ท/กระตุก) ทั้งที่จริงๆ นิ้วยังกดอยู่
+    // นับจำนวนครั้งติดกันที่ TouchSimulator.isPointerDown(2) รายงานว่า "ไม่ได้กดอยู่" ทั้งที่ token ยังไม่เป็น 0
+    // กันการ flicker 1 เฟรม ทำให้โดนยก-วางนิ้วใหม่ (รีเซ็ท/กระตุก) ทั้งที่จริงๆ นิ้วยังกดอยู่
     private int lostPointerStreak = 0;
 
-    // เก็บเป็น double กันค่าสะสมถูกปัดทิ้งเมื่อนิ้วเสมือนลอยไกลมาก (float ละเอียดลดลงตามขนาดตัวเลข)
+    // เก็บเป็น double กันค่าสะสมถูกปัดทิ้งเมื่อนิ้วเสมือนลอยไกลมาก
     private double viewX = 0.0;
     private double viewY = 0.0;
 
@@ -279,9 +256,9 @@ public class MouseController {
     private boolean injectScheduled = false;
 
     // ความถี่ส่งตำแหน่งนิ้วเสมือนของโหมดมุมมอง (Hz) ตั้งจากหน้าตั้งค่าปุ่มล็อกเมาส์
-    // 0 = ซิงค์กับเฟรมจอ (Choreographer ส่ง 1 ครั้งต่อ vsync ตำแหน่งล่าสุดเสมอ ลื่นสุดบนจอ 60/90/120Hz)
-    //     มากกว่า 0 = จำกัดความถี่ตามที่ตั้ง (ช่วง 30 - 1000) คำนวณเป็น nanosecond ไม่ปัดเป็น ms เต็มแล้ว
-    private int viewInjectHz = 0;
+    // 0 = ซิงค์กับเฟรมจอ (Choreographer)
+    // มากกว่า 0 = จำกัดความถี่ตามที่ตั้ง (ช่วง 30 - 1000) คำนวณเป็น nanosecond
+    private int viewInjectHz = DEFAULT_VIEW_HZ;
     private long lastInjectNs = 0;
     private final android.os.Handler injectHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable injectRunnable = this::doViewInject;
@@ -309,14 +286,11 @@ public class MouseController {
     }
 
     // ยก-วางนิ้วเสมือนใหม่ที่พิกัด (nx, ny) UP ที่ตำแหน่งเดิม (บีบให้อยู่ในจอ) แล้ว DOWN ที่ตำแหน่งใหม่
-    // DOWN ใหม่ต้องไม่อยู่ติดขอบบน/ล่าง ไม่งั้นระบบมองเป็นการปัดจากขอบ (ดึงแถบแจ้งเตือน/ท่าทางโฮม)
-    // ตอนนี้นิ้วเก่ายกขึ้นแล้วและนิ้วใหม่ยังไม่ขยับ กล้องจึงไม่กระตุกจากการบีบ Y
     private void recenterTo(float nx, float ny) {
         recenterTo(nx, ny, false);
     }
 
     // rawUp = true: UP ที่พิกัดจริงของนิ้ว (ไม่บีบเข้าจอ) ใช้กับระบบคงที่ตอนแกน Y ลอยนอกจอ
-    //         กันกล้องแกน Y กระตุกตอนยกนิ้ว (ถ้าบีบ Y เข้าจอ นิ้วจะกระโดดจากนอกจอมาขอบจอก่อนยก)
     private void recenterTo(float nx, float ny, boolean rawUp) {
         if (mouseMoveToken != 0) {
             float ux, uy;
@@ -346,7 +320,7 @@ public class MouseController {
         }
     }
 
-    // เหมือนข้างบน แต่ไม่บีบแกน Y (ปล่อย Y ตามจริง รวมตอนอยู่นอกจอ) ใช้ในระบบคงที่ที่ Y ลากทะลุจอได้
+    // เหมือนข้างบน แต่ไม่บีบแกน Y (ปล่อย Y ตามจริง รวมตอนอยู่นอกจอ)
     private void sendViewMoveRawY() {
         if (mouseMoveToken != 0) {
             TouchSimulator.simulateMoveF(mouseMoveToken, 2,
@@ -356,28 +330,21 @@ public class MouseController {
     }
 
     // เวลา MOVE ล่าสุดของโหมดมุมมอง + ธงว่ามี idle timer นัดไว้แล้วหรือยัง
-    // เดิมทุก MOVE เรียก removeCallbacks + postDelayed (เมาส์ถี่ = ร้อยๆ ครั้ง/วิ กิน main thread)
-    // ตอนนี้นัดครั้งเดียว แล้วให้ตัว runnable เช็คเวลาเองว่าหยุดนานพอหรือยัง
     private long lastViewMoveUptime = 0;
     private boolean idlePending = false;
 
-    // [แก้ไข] ปิดระบบ "รีเซ็ทตอนเมาส์หยุด" ทั้งหมดตามที่ขอ (ทั้งระบบบิตและระบบคงที่)
-    // เดิมเมธอดนี้ตั้งตัวจับเวลาไว้คอยเรียก idleRecenterRunnable หลังเมาส์หยุดขยับ
-    // (ซึ่งอาจไปสั่งยก-วางนิ้วใหม่ หรือแม้แต่ keep-alive ping ที่เคยเพิ่มไว้ก่อนหน้า) ตอนนี้ไม่ทำอะไรเลย
+    // [แก้ไข] ปิดระบบ "รีเซ็ทตอนเมาส์หยุด" ทั้งหมด (ทั้งระบบบิตและระบบคงที่)
     // นิ้วเสมือนจะค้างอยู่ตำแหน่งสุดท้ายตลอดไป จนกว่าจะมี MOVE ใหม่เข้ามาจริงๆ เท่านั้น
-    // (idleRecenterRunnable ด้านบนเลยกลายเป็นโค้ดที่ไม่ถูกเรียกอีกต่อไป แต่เก็บไว้เฉยๆ ไม่กระทบอะไร)
     private void armIdleRecenter() {
         // ตั้งใจเว้นว่างไว้ - ไม่ตั้งตัวจับเวลาใดๆ อีกต่อไป
     }
 
-    // เมาส์หยุดขยับ -> พานิ้วเสมือนกลับจุดเริ่ม
-    // ระบบบิต: เฉพาะแกน X (Y คงเดิม) / ระบบคงที่: ดูสวิตช์ VIEW_X_FREE_IN_ZONE, VIEW_Y_FREE_IN_ZONE และ IDLE_RECENTER_CONSTANT_X
+    // เมาส์หยุดขยับ -> พานิ้วเสมือนกลับจุดเริ่ม (ปัจจุบันไม่ถูกเรียกแล้ว เก็บไว้เฉยๆ)
     private final Runnable idleRecenterRunnable = new Runnable() {
         @Override
         public void run() {
             idlePending = false;
             if (destroyed || isPaused || !isMouseMode || mouseMoveToken == 0) return;
-            // ยังขยับอยู่ (timer ที่นัดไว้ถึงก่อนที่เมาส์จะหยุดจริง) -> นัดใหม่ตามเวลาที่เหลือ
             long since = android.os.SystemClock.uptimeMillis() - lastViewMoveUptime;
             if (since < VIEW_IDLE_RECENTER_MS) {
                 idlePending = true;
@@ -385,12 +352,7 @@ public class MouseController {
                 return;
             }
 
-            // [แก้ไข] ระบบคงที่ + ลากทะลุจอทั้งสองแกน: เดิม "return" เฉยๆ ตรงนี้ (ไม่ส่งอะไรเลยตอนเมาส์หยุด)
-            // แต่ถ้าปล่อยนิ้วเสมือนค้างนิ่งนานเกินไปโดยไม่มี event ส่งไปอีกเลย ระบบฉีดทัช (TouchSimulator) บางระบบ
-            // อาจมีกลไกตัดทัชที่ค้างนิ่งนานๆ ไปเอง พอขยับเมาส์ต่อเลยเห็นว่า token หลุด ต้อง DOWN ใหม่
-            // = เกิดอาการ "รีเซ็ทเอง" พอดีตอนหยุดแล้วขยับต่อ
-            // ตอนนี้ส่ง "keep-alive" คือ MOVE ตำแหน่งเดิมเป๊ะซ้ำเป็นระยะ (ไม่เปลี่ยนค่า viewX/viewY เลย จึงไม่ทำให้กล้องขยับ)
-            // ส่งได้แม้กำลังกดยิงค้างอยู่ เพราะตำแหน่งไม่เปลี่ยนเลย ไม่กระทบการยิง
+            // ระบบคงที่ + ลากทะลุจอทั้งสองแกน: ส่ง keep-alive (MOVE ตำแหน่งเดิมเป๊ะ) เป็นระยะ
             if (!viewFlickAccel && VIEW_X_FREE_IN_ZONE && VIEW_Y_FREE_IN_ZONE) {
                 TouchSimulator.simulateMoveF(mouseMoveToken, 2, (float) viewX, (float) viewY);
                 idlePending = true;
@@ -398,24 +360,18 @@ public class MouseController {
                 return;
             }
 
-            // ห้ามรีเซ็ตตอนกดยิง/กดคลิกค้างอยู่ (ตอนยิงแล้วหยุดเมาส์แป๊บเดียวแล้วลากต่อ จะเกิดอาการล็อค)
-            // (ระบบคงที่ตอนยิงค้าง นิ้วถูกคุมในโซนอยู่แล้วตอนขยับ จึงไม่ลอยออกนอกโซน)
+            // ห้ามรีเซ็ตตอนกดยิง/กดคลิกค้างอยู่
             if (pressing) return;
             float sx = hasCustomTarget ? targetBtnX : maxScreenWidth * 0.75f;
 
             // ระบบคงที่
             if (!viewFlickAccel) {
-                // [หมายเหตุ] กรณี X+Y ลากทะลุจอทั้งคู่ถูกจัดการ (keep-alive) ไปแล้วด้านบน จะไม่มาถึงบรรทัดนี้
-
-                // ถ้า X ลากทะลุได้ จะไม่พา X กลับกลางโซนเด็ดขาด ไม่ว่า IDLE_RECENTER_CONSTANT_X จะเป็นอะไร
                 final boolean idleRecenterX = IDLE_RECENTER_CONSTANT_X && !VIEW_X_FREE_IN_ZONE;
 
                 float zsx = Math.max(maxScreenWidth * ZONE_X_MIN,
                         Math.min(maxScreenWidth * ZONE_X_MAX, sx));
 
                 if (VIEW_Y_FREE_IN_ZONE) {
-                    // แกน Y ไม่รีเซ็ตเลย (นิ้วค้างตำแหน่งเดิม ไม่ยก-วางใหม่)
-                    // เปิด IDLE_RECENTER_CONSTANT_X แล้วจะพาเฉพาะแกน X กลับกลางโซน (Y คงเดิม)
                     if (idleRecenterX
                             && Math.abs(viewX - zsx) > maxScreenWidth * 0.02f) {
                         recenterTo(zsx, (float) viewY, true);
@@ -433,8 +389,6 @@ public class MouseController {
                         recenterTo(zsx, zsy);
                     }
                 } else {
-                    // ไม่แตะแกน X (ค้างที่เดิม) รีเซ็ตเฉพาะแกน Y เหมือนเดิม
-                    // ถ้า X ลอยนอกจอ DOWN ใหม่ต้องอยู่ในจอ จึงบีบ X เข้าจอเฉพาะตอนวางนิ้วใหม่
                     if (Math.abs(viewY - zsy) > maxScreenHeight * 0.02f) {
                         final float dx0 = VIEW_X_FREE_IN_ZONE
                                 ? (float) Math.max(0.0, Math.min(maxScreenWidth - 1, viewX))
@@ -451,8 +405,7 @@ public class MouseController {
         }
     };
 
-    // ขอ pointer capture ให้ติดเร็วตอนสลับโหมด: ขอทันที ถ้ายังไม่ติดลองซ้ำทุก 50ms (สูงสุด ~400ms)
-    // แทนการรอ loop ตรวจโฟกัสทุก 400ms
+    // ขอ pointer capture ให้ติดเร็วตอนสลับโหมด: ขอทันที ถ้ายังไม่ติดลองซ้ำทุก 16ms (สูงสุด 20 ครั้ง)
     private int captureTries = 0;
     private final Runnable captureRunnable = new Runnable() {
         @Override
@@ -495,7 +448,6 @@ public class MouseController {
 
     // ===== ระบบสบัดเมาส์: คงที่ / บิต =====
     // true = ระบบบิต (สบัดแรง = เร็วขึ้น เฉพาะแกน X) / false = ระบบคงที่ (เมาส์เชิงเส้นปกติ + โซนความเร็วคงที่ ทั้ง X และ Y)
-    // ค่าเริ่มต้น true + bitGain 0 = ไม่เร่งเพิ่ม (พฤติกรรมเดิม)
     private volatile boolean viewFlickAccel = true;
 
     // [เลิกใช้] ระบบคงที่ไม่มีเพดานล็อคแล้ว เก็บ setter ไว้กันพรีเซ็ตเก่าพัง
@@ -510,13 +462,9 @@ public class MouseController {
 
     private long lastMoveNs = 0;
 
-    // [เพิ่ม] ความเร็วสะบัดดิบ (rawSpeedPxMs) ของเฟรมเดียวมี jitter ตามธรรมชาติของฮาร์ดแวร์ ถึงมือจะลากเร็วคงที่
-    // ค่าดิบก็ยังกระเพื่อมขึ้นลงเฟรมต่อเฟรม พอดันไปอยู่แถวช่วง LEFT_FAST_SPEED_MIN/MAX พอดี จะทำให้ gain ของ
-    // leftExtraFactor "สวิง" ไปมา (เดี๋ยวช้าเดี๋ยวเร็ว) ทั้งที่มือลากด้วยความเร็วเท่าเดิม
-    // ตอนนี้ปรับให้เรียบด้วย EMA (exponential moving average) ก่อนส่งเข้า leftExtraFactor กันอาการสวิง
+    // ปรับความเร็วสะบัดดิบให้เรียบด้วย EMA ก่อนส่งเข้า leftExtraFactor กันอาการสวิง
     private float smoothedLeftSpeedPxMs = 0f;
-    // น้ำหนักของค่าใหม่ในแต่ละเฟรม (0-1): ยิ่งน้อย ยิ่งเรียบ/ตอบสนองช้าลง, ยิ่งมาก ยิ่งไวแต่ยังสวิงได้ถ้าไวเกิน
-    // ถ้ายังสวิงอยู่ ให้ลดค่านี้ลง (เช่น 0.15) / ถ้ารู้สึกหน่วงตอนเร่งความเร็วจริงๆ ให้เพิ่มขึ้น (เช่น 0.4)
+    // น้ำหนักของค่าใหม่ในแต่ละเฟรม (0-1): ยิ่งน้อยยิ่งเรียบ/ตอบสนองช้าลง
     private static final float LEFT_SPEED_SMOOTHING_ALPHA = 0.25f;
 
     public void setViewFlickAccel(boolean on) { viewFlickAccel = on; }
@@ -565,18 +513,16 @@ public class MouseController {
         this.hasCustomTarget = true;
     }
 
-    // ความชันของค่าความไว (ตั้งจากหน้าตั้งค่า): 1.0 = เส้นตรง (ลดค่าครึ่งหนึ่ง = ช้าลงครึ่งหนึ่งจริงๆ)
-    // ถ้าอยากให้ปรับไวขึ้นอีก (ช่วงสูงเกินจุดพอดีเปลี่ยนน้อยลง) ค่อยลดกลับเป็น 0.8
+    // ความชันของค่าความไว (ตั้งจากหน้าตั้งค่า): 1.0 = เส้นตรง
     private static final float VIEW_SENS_CURVE = 1.0f;
-    // ค่าความไวที่ตอนนี้รู้สึกพอดี แยกแกน (ตรงค่านี้ความเร็วเท่าเดิมเป๊ะ) ใส่ตามที่ตั้งในหน้าตั้งค่า
+    // ค่าความไวที่ตอนนี้รู้สึกพอดี แยกแกน (ตรงค่านี้ความเร็วเท่าเดิมเป๊ะ)
     private static final float VIEW_SENS_PIVOT_X = 0.02f;
     private static final float VIEW_SENS_PIVOT_Y = 0.04f;
 
     // ตัวคูณความเร็วโหมดมุมมอง แยกแกน X / Y
-    // 1.0 = เท่าเดิม, 0.5 = ช้าลงครึ่งหนึ่ง, 0.25 = ช้าลง 4 เท่า
-    // [แก้ไขรอบนี้] เกมหมุนเร็วไปทั้งจอ (ไม่ใช่แค่ฝั่งซ้าย) เลยลดสเกลรวมจาก 0.5 เหลือ 0.35 (ช้าลงอีก ~30%)
-    // ถ้ายังเร็วไปให้ลดอีก (เช่น 0.25) / ถ้าช้าไปให้เพิ่มขึ้น (เช่น 0.45)
-    private static final float VIEW_SPEED_SCALE_X = 0.30f;
+    // [แก้ไขแก้หน่วง] X เพิ่มจาก 0.30 เป็น 0.45 (ความไวต่ำเกินไปทำให้รู้สึกอืด)
+    // ถ้าเร็วไปให้ลด (เช่น 0.38) / ถ้ายังช้าให้เพิ่ม (เช่น 0.5)
+    private static final float VIEW_SPEED_SCALE_X = 0.45f;
     private static final float VIEW_SPEED_SCALE_Y = 0.35f;
 
     private float softenViewSens(float s, float pivot, float scale) {
@@ -655,7 +601,6 @@ public class MouseController {
         mouseLockParams.y = 0;
         applyNoInsets(mouseLockParams);
         // Android 12+ (API 31) บล็อกทัชที่ทะลุ overlay เมื่อ "ความทึบรวมกัน" เกิน 0.8
-        // หน้าต่างนี้เต็มจอและซ้อนกับปุ่มทุกตัว จึงตั้งให้ใสมาก
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             mouseLockParams.alpha = MOUSE_LOCK_ALPHA;
         }
@@ -667,7 +612,6 @@ public class MouseController {
 
         cursorLayer = new FrameLayout(context);
         // ขนาดหน้าต่างเคอร์เซอร์ = ขนาดจอจริงเป๊ะๆ (ไม่ใช้ MATCH_PARENT)
-        // เดิมบางเครื่องหน้าต่างถูกตัดไม่ให้คลุมแถบปุ่มโฮม/ย้อนกลับ เคอร์เซอร์ที่ไปอยู่ตรงนั้นเลยโดนตัดหายไป
         cursorLayerParams = new WindowManager.LayoutParams(
                 Math.round(maxScreenWidth), Math.round(maxScreenHeight),
                 getOverlayType(),
@@ -700,8 +644,6 @@ public class MouseController {
     }
 
     // ไม่ให้ระบบหักพื้นที่แถบสถานะ/แถบปุ่มโฮม-ย้อนกลับออกจากหน้าต่าง (Android 11+)
-    // ค่าเริ่มต้นของระบบคือเว้นพื้นที่ systemBars ไว้ ทำให้หน้าต่างเคอร์เซอร์ไม่คลุมแถบปุ่มนำทาง
-    // เคอร์เซอร์ที่เลื่อนไปอยู่บนปุ่มโฮม/ย้อนกลับจึงถูกตัดหาย
     private void applyNoInsets(WindowManager.LayoutParams p) {
         if (Build.VERSION.SDK_INT >= 30) {
             try {
@@ -734,12 +676,7 @@ public class MouseController {
             float h = dm.heightPixels;
             if (w <= 0 || h <= 0) return;
 
-            // [แก้ไข] เดิมเช็คเท่ากันเป๊ะ (w == maxScreenWidth && h == maxScreenHeight)
-            // เมธอดนี้ถูกเรียกบ่อย (resume/setMouseMode/checkAndRegainFocus ซึ่งมักถูก poll จากภายนอก)
-            // ถ้า getRealMetrics คลาดเคลื่อนแม้ 1px (ปัดเศษ/จังหวะวัดคาบเกี่ยวตอนเปลี่ยนสถานะหน้าต่าง)
-            // โค้ดจะเข้าใจผิดว่าจอ "เปลี่ยนขนาดจริง" แล้วยกนิ้วเมาส์ทิ้งทันที (simulateUp + token = 0)
-            // นี่คืออาการ "นิ้วรีเซ็ท/ยกเอง" ที่เจอในระบบคงที่ทั้งที่ไม่ได้หมุนจอ/ไม่ได้ย้ายหน้าต่างจริง
-            // ตอนนี้ยอมรับความต่างเล็กน้อย (<2px ต่อแกน) ว่าเป็น noise ไม่ใช่การเปลี่ยนขนาดจอจริง
+            // ยอมรับความต่างเล็กน้อย (<2px ต่อแกน) ว่าเป็น noise ไม่ใช่การเปลี่ยนขนาดจอจริง
             if (Math.abs(w - maxScreenWidth) < 2f && Math.abs(h - maxScreenHeight) < 2f) return;
 
             float sx = (maxScreenWidth > 0) ? w / maxScreenWidth : 1f;
@@ -877,7 +814,7 @@ public class MouseController {
     }
 
     // ส่งตำแหน่งนิ้วเสมือนของโหมดมุมมอง
-    // Hz = 0: ส่ง 1 ครั้งต่อเฟรมจอ (Choreographer) เป็นตำแหน่งล่าสุดเสมอ ไม่ส่งถี่เกินที่เกมอ่านได้
+    // Hz = 0: ส่ง 1 ครั้งต่อเฟรมจอ (Choreographer)
     // Hz > 0: ส่งทันทีถ้าพ้น interval แล้ว (leading) ถ้ายังไม่พ้นให้นัดส่งตำแหน่งล่าสุดตอนครบ interval (trailing)
     private void scheduleViewInject() {
         if (viewInjectHz <= 0) {
@@ -920,8 +857,7 @@ public class MouseController {
     }
 
     private void handlePointerEvent(MotionEvent e) {
-        // [เพิ่ม] ตรวจปุ่มขวาจากการเปลี่ยนของ buttonState ในทุก event
-        // กันกรณีกดขวาตอนซ้ายค้างแล้วระบบไม่ส่งมาเป็น DOWN/BUTTON_PRESS (คลิกซ้าย-ขวาต่อเนื่องแล้วขวาไม่ติด)
+        // ตรวจปุ่มขวาจากการเปลี่ยนของ buttonState ในทุก event
         boolean secNow = (e.getButtonState() & MotionEvent.BUTTON_SECONDARY) != 0;
         if (secNow && !prevSecondary && !rightDown) {
             rightDown = true;
@@ -930,7 +866,7 @@ public class MouseController {
         if (!secNow) rightDown = false;
         prevSecondary = secNow;
 
-        // [เพิ่ม] จับปุ่มซ้ายจากการเปลี่ยนของ buttonState (กดซ้ายตอนขวายังค้างอยู่ แล้วระบบส่งมาเป็น MOVE ไม่ใช่ DOWN/BUTTON_PRESS)
+        // จับปุ่มซ้ายจากการเปลี่ยนของ buttonState (กดซ้ายตอนขวายังค้างอยู่)
         boolean priNow = (e.getButtonState() & MotionEvent.BUTTON_PRIMARY) != 0;
         int act0 = e.getActionMasked();
         if (isMouseMode && act0 != MotionEvent.ACTION_DOWN && act0 != MotionEvent.ACTION_BUTTON_PRESS
@@ -945,7 +881,7 @@ public class MouseController {
         }
         prevPrimary = priNow;
 
-        // ปล่อยสถานะคลิกขวาเมื่อปุ่มขวาไม่ได้ถูกกดแล้ว (ใช้ buttonState ของ event ที่ตามมา)
+        // ปล่อยสถานะคลิกขวาเมื่อปุ่มขวาไม่ได้ถูกกดแล้ว
         int act = e.getActionMasked();
         if (rightDown && act != MotionEvent.ACTION_DOWN && act != MotionEvent.ACTION_BUTTON_PRESS
                 && (e.getButtonState() & MotionEvent.BUTTON_SECONDARY) == 0) {
@@ -962,19 +898,14 @@ public class MouseController {
                 }
 
                 float speed = (float) Math.hypot(sumDx, sumDy);
-                // โหมดมุมมอง (ล็อคเมาส์): ใช้ความเร็วคงที่ ไม่มีความเร่ง กันช้าๆ เร็วๆ ไม่เท่ากัน
+                // โหมดมุมมอง (ล็อคเมาส์): ใช้ความเร็วคงที่ ไม่มีความเร่ง
                 // โหมดเคอร์เซอร์ปกติ: ยังมีความเร่งเหมือนเดิม
                 float gain = isMouseMode
                         ? mouseSensitivity
                         : mouseSensitivity * (0.5f + Math.min(speed, 1f) * 0.0625f);
 
                 if (isMouseMode) {
-                    // ถ้านิ้วเมาส์ (ID 2) ถูกล้างไปแล้ว ให้ DOWN ใหม่อัตโนมัติ
-                    // [แก้ไข] เดิมเชื่อ !TouchSimulator.isPointerDown(2) ทันทีตั้งแต่เฟรมแรก
-                    // ถ้า TouchSimulator รายงานผิดพลาดชั่วขณะ (flicker 1 เฟรม ทั้งที่นิ้วยังกดอยู่จริง)
-                    // จะโดนสั่ง DOWN ใหม่ทันที = นิ้วรีเซ็ท/กระตุกโดยไม่มีเหตุผล
-                    // ตอนนี้ต้อง "รายงานว่าไม่ได้กด" ติดกัน 2 ครั้งก่อน ถึงจะถือว่าหลุดจริง
-                    // (ถ้า token เป็น 0 จริงๆ ต้อง DOWN ใหม่ทันที ไม่ต้องรอ debounce)
+                    // ถ้านิ้วเมาส์ (ID 2) ถูกล้างไปแล้ว ให้ DOWN ใหม่อัตโนมัติ (debounce 2 ครั้งกัน flicker)
                     boolean tokenGone = mouseMoveToken == 0;
                     boolean reportedUp = !tokenGone && !TouchSimulator.isPointerDown(2);
                     if (reportedUp) {
@@ -986,9 +917,6 @@ public class MouseController {
                         lostPointerStreak = 0;
                         if (!viewFlickAccel && VIEW_X_FREE_IN_ZONE) {
                             // ระบบคงที่: วางนิ้วกลับที่ตำแหน่ง X ปัจจุบัน (บีบเข้าจอเฉพาะตอน DOWN)
-                            // ไม่เด้งกลับไปปุ่มล็อคเมาส์
-                            // [แก้ไข] แกน Y: เดิมรีเซ็ทไปกึ่งกลาง/เป้าหมายทุกครั้งที่หลุด ทำให้มุมกล้องแกน Y หายไปเฉยๆ
-                            // ทั้งที่เปิด VIEW_Y_FREE_IN_ZONE ไว้แล้ว ตอนนี้ถ้าเปิดค่านี้จะคงตำแหน่ง Y เดิมไว้ด้วย
                             viewX = Math.max(0.0, Math.min(maxScreenWidth - 1, viewX));
                             viewY = VIEW_Y_FREE_IN_ZONE
                                     ? Math.max(0.0, Math.min(maxScreenHeight - 1, viewY))
@@ -1000,26 +928,20 @@ public class MouseController {
                         mouseMoveToken = TouchSimulator.simulateDown(2, Math.round((float) viewX), Math.round((float) viewY));
                     }
 
-                    // คำนวณ dt เสมอ (ไม่ใช่แค่ตอน viewFlickAccel) เพื่อใช้ตรวจจับ "ช่วงเงียบ"
-                    // (มือยกเมาส์ขึ้น) ของระบบคงที่ด้วย ไม่ตัด dt ที่ 32ms แบบเดิมตรงนี้ เพราะต้องรู้ช่วงเงียบที่ยาวได้จริง
+                    // คำนวณ dt เสมอ เพื่อใช้ตรวจจับ "ช่วงเงียบ" (มือยกเมาส์ขึ้น) ของระบบคงที่ด้วย
                     long nowNs = System.nanoTime();
                     float rawDt = lastMoveNs == 0 ? 8f : (nowNs - lastMoveNs) / 1_000_000f;
                     lastMoveNs = nowNs;
                     float dtMsFull = Math.max(1f, Math.min(1000f, rawDt));
 
-                    // กันเหวี่ยงแรงเกินจนพิกัดกระโดดไกลในเฟรมเดียว (อาการ "ล็อค"/สะบัดกลับตอนหันไว)
-                    // ระบบคงที่: แกน X ไม่ตัดระยะเลย (ตัดแล้วสบัดแรงๆ ความเร็วจะไม่คงที่)
-                    // แกน Y และระบบบิตใช้ค่าเดิม 1500
+                    // กันเหวี่ยงแรงเกินจนพิกัดกระโดดไกลในเฟรมเดียว
+                    // ระบบคงที่: แกน X ไม่ตัดระยะเลย / แกน Y และระบบบิตใช้ 1500
                     final float MAX_FRAME_DELTA = 1500f;
                     final float MAX_FRAME_DELTA_X = viewFlickAccel ? MAX_FRAME_DELTA : 1_000_000f;
                     float dx = Math.max(-MAX_FRAME_DELTA_X, Math.min(MAX_FRAME_DELTA_X, sumDx));
                     float dy = Math.max(-MAX_FRAME_DELTA, Math.min(MAX_FRAME_DELTA, sumDy));
 
-                    // ระบบคงที่เท่านั้น: event แรกหลัง "ช่วงเงียบ" (ยกเมาส์แล้ววางใหม่ ตัวรับเมาส์หลุดพื้นผิวชั่วครู่
-                    // แล้ว OS รวม event ที่ค้างคิวมาส่งเป็นก้อนใหญ่ก้อนเดียว)
-                    // [แก้ไขรอบนี้] 1) ล็อก dt ของเพดานไว้ที่ POST_GAP_CAP_DT_MS (เพดานไม่โตตามความยาวช่วงเงียบ)
-                    //              2) ถ้าก้อนแรกใหญ่เกินเพดาน ทิ้งทั้งก้อน (ไม่ใช่การขยับจริง) แทนการบีบ
-                    //              event ถัดไปที่ขยับติดกันปกติ (dt เล็ก) จะไม่โดนแตะเลย
+                    // ระบบคงที่เท่านั้น: event แรกหลัง "ช่วงเงียบ" ถ้าก้อนใหญ่เกินเพดานให้ทิ้งทั้งก้อน
                     if (!viewFlickAccel && dtMsFull > POST_GAP_MS) {
                         float capPx = POST_GAP_MAX_V * Math.min(dtMsFull, POST_GAP_CAP_DT_MS);
                         if (Math.abs(dx) > capPx || Math.abs(dy) > capPx) {
@@ -1029,7 +951,6 @@ public class MouseController {
                     }
 
                     // ระบบสบัดเมาส์: เฉพาะ "ระบบบิต" เท่านั้น
-                    // ระบบคงที่ = เมาส์เชิงเส้นปกติ ไม่มีตัวจำกัด/ตัวเร่ง (ระยะเมาส์ x ความไว)
                     if (viewFlickAccel) {
                         float dtMs = Math.max(1f, Math.min(32f, dtMsFull));
 
@@ -1042,11 +963,11 @@ public class MouseController {
                         }
                     }
 
-                    // ระบบคงที่ใช้โซนความเร็วคงที่เสมอ (นิ้วเสมือนอยู่ในโซนฝั่งขวาที่เกมให้ความเร็วเท่ากัน)
+                    // ระบบคงที่ใช้โซนความเร็วคงที่เสมอ
                     // ระบบบิตใช้โซนก็ต่อเมื่อเปิด VIEW_CONSTANT_ZONE (ปกติปิด = พฤติกรรมเดิม)
                     final boolean useZone = VIEW_CONSTANT_ZONE || !viewFlickAccel;
 
-                    // ขอให้ระบบส่ง event เมาส์มาทันที ไม่รอรวมตามเฟรม (ก้าวเล็กลง ภาพลื่นขึ้น ไม่สะดุดเป็นช่วงๆ)
+                    // ขอให้ระบบส่ง event เมาส์มาทันที ไม่รอรวมตามเฟรม
                     try {
                         mouseLockView.requestUnbufferedDispatch(e);
                     } catch (Exception ignored) {}
@@ -1058,34 +979,23 @@ public class MouseController {
                         // แกน Y
                         viewY += dy * gain * viewSensY;
                         if (VIEW_Y_FREE_IN_ZONE) {
-                            // ลากทะลุขอบจอได้ ไม่ยก-วางนิ้วใหม่ (แค่กันเลขลอยไกลเกินจริง ไม่ยกนิ้ว)
+                            // ลากทะลุขอบจอได้ ไม่ยก-วางนิ้วใหม่ (แค่กันเลขลอยไกลเกินจริง)
                             final double yLim = maxScreenHeight * VIEW_Y_LIMIT_SCREENS;
                             if (viewY < -yLim) viewY = -yLim;
                             else if (viewY > maxScreenHeight + yLim) viewY = maxScreenHeight + yLim;
                         }
 
                         // แกน X ลากทะลุขอบจอได้ ไม่ขึ้นกับ VIEW_Y_FREE_IN_ZONE
-                        // กดค้างนิ้วเดียว ไม่ชนขอบโซน ไม่ยก-วางนิ้วใหม่ ไม่รีเซ็ต (ข้ามโค้ดโซน/ลูปวางนิ้วใหม่ด้านล่างทั้งหมด)
                         if (VIEW_X_FREE_IN_ZONE) {
-                            // [แก้ไขรอบนี้ - แก้อาการหน่วงตอนหันกล้อง]
-                            // เดิมคูณ factorX ทุกครั้งที่นิ้วอยู่นอกจอ รวมถึงตอนหมุนกลับเข้าจอ ทำให้ยิ่งหมุนทิศเดียวนานๆ
-                            // นิ้วไหลออกนอกจอไกล ความเร็วลดเหลือ 0.15 เท่า (รู้สึกหน่วง) และหมุนกลับก็ยังช้าอยู่
-                            // ตอนนี้ชดเชยเฉพาะตอนหมุน "ออกนอกจอ" (นิ้วอยู่นอกจอและเคลื่อนที่ออกห่างขอบ)
-                            // ตอนหมุนกลับเข้าจอใช้ความเร็วปกติ (ไม่ชดเชย) ส่วนการยก-วางนิ้วใหม่ไม่ได้แก้
+                            // ชดเชยเฉพาะตอนหมุน "ออกนอกจอ" (ตอนหมุนกลับเข้าจอใช้ความเร็วปกติ)
                             final boolean outward = (viewX < 0 && mvX < 0)
                                     || (viewX > maxScreenWidth && mvX > 0);
 
-                            // [แก้ไขรอบนี้ - ความเร็วฝั่งซ้ายของจอ]
-                            // เกมให้ความเร็วตอนนิ้วเสมือนอยู่ฝั่งซ้ายของจอเร็วกว่าฝั่งขวา จึงคูณ leftHalfFactor
-                            // (ค่อยๆ ลดเป็น LEFT_HALF_GAIN ทางซ้าย / เท่าเดิม 1.0 ฝั่งขวา) ฝั่งขวาไม่ถูกแตะ
-                            // [แก้ไขรอบนี้ - เฉพาะแกน X] leftExtraFactor กลับมารับความเร็วสะบัดอีกครั้ง
-                            // เพื่อหรี่แรงขึ้นตอนสะบัดเร็ว (ตัวเกมเร่งความเร็วไม่เป็นเส้นตรงตอนสะบัดเร็วฝั่งซ้าย)
-                            // [แก้ไขรอบนี้] ปรับความเร็วดิบให้เรียบด้วย EMA ก่อน กันอาการ "สวิง" (เดี๋ยวช้าเดี๋ยวเร็ว)
-                            // ทั้งที่มือลากด้วยความเร็วคงที่ (เกิดจาก jitter ของ event แต่ละเฟรม)
+                            // ปรับความเร็วดิบให้เรียบด้วย EMA ก่อน กันอาการ "สวิง"
                             final float rawSpeedPxMs = Math.abs(dx) / dtMsFull;
                             smoothedLeftSpeedPxMs += (rawSpeedPxMs - smoothedLeftSpeedPxMs) * LEFT_SPEED_SMOOTHING_ALPHA;
                             final float leftF = leftHalfFactor((float) viewX) * leftExtraFactor((float) viewX, smoothedLeftSpeedPxMs);
-                            // [เพิ่ม] ตัวคูณตามทิศหันซ้าย (mvX < 0 = เมาส์ไปทางซ้าย) ปรับที่ TURN_LEFT_GAIN
+                            // ตัวคูณตามทิศหันซ้าย (mvX < 0 = เมาส์ไปทางซ้าย)
                             final float dirF = mvX < 0 ? TURN_LEFT_GAIN : 1f;
                             viewX += (outward ? mvX * factorX((float) viewX) : mvX) * leftF * dirF;
                             final double xLim = maxScreenWidth * VIEW_X_LIMIT_SCREENS;
@@ -1093,7 +1003,6 @@ public class MouseController {
                             else if (viewX > maxScreenWidth + xLim) viewX = maxScreenWidth + xLim;
 
                             // ถ้า Y ตั้งเป็นแบบเดิม (VIEW_Y_FREE_IN_ZONE = false) ให้ Y หลุดโซนแล้วยก-วางใหม่เหมือนเดิม
-                            // (X ไม่ถูกรีเซ็ต แค่บีบเข้าจอตอนวางนิ้วใหม่ เพราะ DOWN นอกจอไม่ติด)
                             if (!VIEW_Y_FREE_IN_ZONE) {
                                 final float yTop = maxScreenHeight * ZONE_Y_MIN;
                                 final float yBot = maxScreenHeight * ZONE_Y_MAX;
@@ -1138,7 +1047,6 @@ public class MouseController {
                             viewX = edge;
 
                             if (VIEW_Y_FREE_IN_ZONE) {
-                                // Y คงตามจริง (ไม่บีบ ไม่รีเซ็ต) เว้นแต่ตอนวางนิ้วใหม่ต้องอยู่ในจอ
                                 sendViewMoveRawY();
                                 recenterTo(toRight ? restartRightX : restartLeftX, (float) viewY, true);
                             } else {
@@ -1154,15 +1062,14 @@ public class MouseController {
                             viewX = Math.max(zx0, Math.min(zx1, target));
                         }
 
-                        // แกน Y หลุดโซนโดยที่ X ไม่ชนขอบ: ยก-วางใหม่เหมือนเดิม (เฉพาะ VIEW_Y_FREE_IN_ZONE = false)
+                        // แกน Y หลุดโซนโดยที่ X ไม่ชนขอบ: ยก-วางใหม่เหมือนเดิม
                         if (yOut) {
                             sendViewMoveClamped();
                             recenterTo((float) viewX, newY);
                         }
 
-                        // ส่งตำแหน่งล่าสุดต่อทันทีทุกกรณี (รวมหลังวางนิ้วใหม่) กล้องจะไม่หยุดรอ event ถัดไป
+                        // ส่งตำแหน่งล่าสุดต่อทันทีทุกกรณี (รวมหลังวางนิ้วใหม่)
                         scheduleViewInject();
-                        // ตั้งเวลารีเซ็ตตอนเมาส์หยุด
                         armIdleRecenter();
                         break;
                     }
@@ -1172,7 +1079,6 @@ public class MouseController {
                     // แกน Y ชดเชยตอนหลุดขอบจอ (สูตรเดิม)
                     viewY += dy * gain * viewSensY * offscreenFactorY((float) viewY, maxScreenHeight, OFFSCREEN_GAIN_Y);
 
-                    // ตั้งเวลาพานิ้วกลับจุดเริ่ม (เฉพาะ X) ตอนเมาส์หยุดขยับ
                     armIdleRecenter();
 
                     final float startX = hasCustomTarget ? targetBtnX : maxScreenWidth * 0.75f;
@@ -1180,7 +1086,6 @@ public class MouseController {
 
                     boolean needRecenter;
                     if (VIEW_ALLOW_OFFSCREEN) {
-                        // ปล่อยให้นิ้วเสมือนลากเลยขอบจอไปได้ ไม่รีเซ็ตทั้งแกน X และ Y (ไม่ยกนิ้ว ไม่วางใหม่เลย)
                         needRecenter = false;
                     } else {
                         viewX = Math.max(10f, Math.min(maxScreenWidth - 10f, viewX));
@@ -1231,10 +1136,7 @@ public class MouseController {
             case MotionEvent.ACTION_BUTTON_PRESS:
             case MotionEvent.ACTION_DOWN:
                 // คลิกขวา: ACTION_DOWN ของเมาส์จะมี buttonState ขวา (actionButton เป็น 0) ส่วน BUTTON_PRESS มี actionButton ขวา
-                // ต้องแยกออกมาเป็นคลิกขวาทั้งสองแบบ ไม่งั้น DOWN จะถูกนับเป็นคลิกซ้าย (ไปกดนิ้ว/ไปตั้งเป็น MS_L)
-                // และใช้ rightDown กันเรียก onRightClick ซ้ำ 2 ครั้งในการคลิกครั้งเดียว
-                // [แก้ไข] ถ้า actionButton ระบุปุ่มมาชัดเจน (เช่น ซ้าย) ให้ตัดสินจาก actionButton เท่านั้น
-                // เดิมดู buttonState ด้วย ทำให้กดซ้ายตอนขวาค้างอยู่ถูกนับเป็นคลิกขวาแล้วทิ้ง (ซ้ายไม่ติด)
+                // ถ้า actionButton ระบุปุ่มมาชัดเจน (เช่น ซ้าย) ให้ตัดสินจาก actionButton เท่านั้น
                 final int ab = e.getActionButton();
                 if (ab == MotionEvent.BUTTON_SECONDARY
                         || (ab == 0 && (e.getButtonState() & MotionEvent.BUTTON_SECONDARY) != 0)) {
@@ -1297,7 +1199,7 @@ public class MouseController {
             if (cursorLayer != null) cursorLayer.setVisibility(View.VISIBLE);
         }
 
-        // แก้ช้า: เรียก updateViewLayout (binder call) เฉพาะเมื่อ flag ยังไม่ถูกตั้งจริงๆ
+        // เรียก updateViewLayout (binder call) เฉพาะเมื่อ flag ยังไม่ถูกตั้งจริงๆ
         if (mouseLockParams != null && windowManager != null
                 && (mouseLockParams.flags & WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE) == 0) {
             mouseLockParams.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
@@ -1310,9 +1212,9 @@ public class MouseController {
             if (!wasMouseMode) {
                 // เริ่มโหมดมุมมองใหม่ รีเซ็ตตัวจับเวลาของระบบบิต
                 lastMoveNs = 0;
-                // [เพิ่ม] รีเซ็ตความเร็วที่ปรับเรียบแล้วของฝั่งซ้าย กันค่าเก่าจากการใช้งานรอบก่อนค้างมา
+                // รีเซ็ตความเร็วที่ปรับเรียบแล้วของฝั่งซ้าย กันค่าเก่าค้างมา
                 smoothedLeftSpeedPxMs = 0f;
-                // [เพิ่ม] รีเซ็ตตัวนับ flicker ของการเช็ค isPointerDown ทุกครั้งที่เริ่มโหมดมุมมองใหม่
+                // รีเซ็ตตัวนับ flicker ของการเช็ค isPointerDown
                 lostPointerStreak = 0;
 
                 if (mouseMoveToken != 0) {
@@ -1325,7 +1227,7 @@ public class MouseController {
                 mouseMoveToken = TouchSimulator.simulateDown(2, Math.round((float) viewX), Math.round((float) viewY));
             }
 
-            // แก้ช้า: แค่ซ่อนเคอร์เซอร์ ไม่ลบ view ทิ้ง (ครั้งหน้าไม่ต้องสร้าง/โหลดรูปใหม่)
+            // แค่ซ่อนเคอร์เซอร์ ไม่ลบ view ทิ้ง (ครั้งหน้าไม่ต้องสร้าง/โหลดรูปใหม่)
             if (customCursorView != null) customCursorView.setVisibility(View.GONE);
 
             if (!typingMode) requestCaptureFast();
@@ -1374,7 +1276,6 @@ public class MouseController {
     }
 
     // โหมดพิมพ์: ปล่อย pointer capture + ให้ overlay ไม่รับโฟกัส เกมจะได้รับแป้นตรงๆ
-    // เคอร์เซอร์ของระบบ (เมาส์จริง) จะกลับมาเอง
     public void setTypingMode(boolean typing) {
         if (destroyed || typingMode == typing || mouseLockView == null) return;
         typingMode = typing;
