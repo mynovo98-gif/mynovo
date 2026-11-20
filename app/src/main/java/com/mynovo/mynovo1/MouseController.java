@@ -65,6 +65,14 @@ public class MouseController {
     // ถ้ากล้องไม่ขยับตอนนิ้วอยู่นอกจอไกลๆ ให้ลดค่านี้ (เช่น 3) / ถ้าชนเพดานบ่อยให้เพิ่ม
     private static final float VIEW_X_LIMIT_SCREENS = 5f;
 
+    // [เพิ่ม] ซีกซ้ายของจอช้ากว่าซีกขวา (ระบบคงที่ แกน X) ตามตำแหน่งนิ้วเสมือน
+    // 0.85 = ซีกซ้ายช้ากว่า ~15% / ยังเร็วไปให้ลด (0.80) / ช้าไปให้เพิ่ม (0.90)
+    private static final float CONST_LEFT_HALF_GAIN = 0.85f;
+    // เส้นแบ่งซ้าย/ขวา (สัดส่วนความกว้างจอ)
+    private static final float CONST_LEFT_HALF_X = 0.5f;
+    // ความกว้างช่วงเปลี่ยนนุ่มๆ รอบเส้นแบ่ง (สัดส่วนความกว้างจอ) เพิ่ม = เปลี่ยนค่อยเป็นค่อยไป
+    private static final float CONST_LEFT_HALF_BAND = 0.08f;
+
     // [เพิ่ม] ช่วงปลอดภัยของแกน X ตอน "วางนิ้วใหม่" (DOWN) ของโหมดคงที่ (สัดส่วนของความกว้างจอ)
     // เหตุผล: เดิมวางนิ้วใหม่ที่ปลายโซนสุดๆ (~37% / ~95%) ซึ่งอาจทับปุ่มจอย/ปุ่มอื่น หรือชิดขอบจอจนระบบมองเป็นปัดจากขอบ
     //         เกมจึงรับเป็นการ "ทัชตรงอื่น" ตอนนี้ DOWN จะอยู่ในช่วงนี้เสมอ ส่วนระยะลาก (MOVE) ยังกว้างตามโซนเดิม
@@ -207,6 +215,18 @@ public class MouseController {
     private float factorX(float x) {
         if (!OFFSCREEN_COMPENSATE) return 1f;
         return offscreenFactor(x, maxScreenWidth, OFFSCREEN_GAIN_X);
+    }
+
+    // [เพิ่ม] ตัวคูณซีกซ้าย (ระบบคงที่ แกน X): ซ้ายสุด = CONST_LEFT_HALF_GAIN, ขวา = 1.0
+    // เปลี่ยนนุ่มๆ รอบเส้นแบ่งด้วย smoothstep ไม่กระชาก
+    // นิ้วที่ลอยออกนอกจอซ้าย (x < 0) ถือเป็นซีกซ้ายเต็มที่ (ได้ CONST_LEFT_HALF_GAIN)
+    private float constLeftHalfFactorX(float x) {
+        float mid = CONST_LEFT_HALF_X * maxScreenWidth;
+        float band = Math.max(1f, CONST_LEFT_HALF_BAND * maxScreenWidth);
+        float t = (x - (mid - band)) / (2f * band);
+        t = Math.max(0f, Math.min(1f, t));
+        t = t * t * (3f - 2f * t); // smoothstep
+        return CONST_LEFT_HALF_GAIN + (1f - CONST_LEFT_HALF_GAIN) * t;
     }
 
     private final Context context;
@@ -1004,9 +1024,9 @@ public class MouseController {
 
                         // แกน X ลากทะลุขอบจอได้ ไม่ขึ้นกับ VIEW_Y_FREE_IN_ZONE
                         if (VIEW_X_FREE_IN_ZONE) {
-                            // [แก้ไข] เส้นตรงล้วนๆ เหมือนอีมูเลเตอร์: ความเร็ว = ระยะเมาส์ x ความไว
-                            // ไม่มีตัวคูณตามตำแหน่ง / ทิศ / ความเร็วสะบัด
-                            viewX += mvX;
+                            // [แก้ไข] ซีกซ้ายของจอช้ากว่าซีกขวา ตามตำแหน่งนิ้วเสมือน (smoothstep รอบเส้นแบ่ง)
+                            // ซีกขวา = เส้นตรงล้วนๆ (ความเร็ว = ระยะเมาส์ x ความไว) / ซีกซ้าย x CONST_LEFT_HALF_GAIN
+                            viewX += mvX * constLeftHalfFactorX((float) viewX);
                             final double xLim = maxScreenWidth * VIEW_X_LIMIT_SCREENS;
                             if (viewX < -xLim) viewX = -xLim;
                             else if (viewX > maxScreenWidth + xLim) viewX = maxScreenWidth + xLim;
