@@ -154,6 +154,17 @@ public class MouseController {
     // ล็อก dt ที่ใช้คำนวณเพดานหลังช่วงเงียบ (ms) เพดาน = POST_GAP_MAX_V x ค่านี้ ไม่ว่ายกเมาส์นานแค่ไหน
     private static final float POST_GAP_CAP_DT_MS = 16f;
 
+    // [เพิ่มใหม่] เพดานความเร็วดิบของ "ระบบคงที่" (พิกเซลดิบของเมาส์/ms ก่อนคูณความไว) เฉพาะแกน X
+    // สบัดเมาส์แรงแค่ไหน ความเร็วหมุนก็ไม่เกินค่านี้ (ระยะส่วนที่เกินเพดานจะถูกตัดทิ้ง ไม่เก็บไว้ทำต่อ)
+    // ความเร็วปกติที่ต่ำกว่าเพดานไม่ถูกแตะเลย / ระบบบิตไม่ถูกแตะ / 0 = ปิดเพดาน
+    // ยังรู้สึกเร็วขึ้นตอนสบัด -> ลดค่านี้ (เช่น 0.8 -> 0.6) / หมุนปกติรู้สึกช้าลง -> เพิ่มค่านี้ (เช่น 1.3)
+    private static final float CONST_MAX_RAW_SPEED_X = 1.0f;
+    // เพดานแบบเดียวกันของแกน Y (0 = ปิด ไม่แตะแกน Y ตามที่ขอ)
+    private static final float CONST_MAX_RAW_SPEED_Y = 0f;
+    // ช่วง dt (ms) ที่ใช้คำนวณเพดานต่อ event: ต่ำสุด/สูงสุด (กัน event ที่มาติดกันหรือมาช้าทำให้เพดานเพี้ยน)
+    private static final float CONST_CAP_DT_MIN_MS = 2f;
+    private static final float CONST_CAP_DT_MAX_MS = 16f;
+
     // [แก้ไขแก้หน่วง] ความถี่ส่งตำแหน่งนิ้วเสมือนเริ่มต้น (Hz) ก่อนที่หน้าตั้งค่าจะเรียก setViewHz()
     // 0 = ซิงค์เฟรมจอ (อาจดีเลย์ได้ ~16ms บนจอ 60Hz) / 250 = ส่งทันทีที่พ้น interval ตอบสนองไวกว่า
     private static final int DEFAULT_VIEW_HZ = 250;
@@ -947,6 +958,20 @@ public class MouseController {
                         if (Math.abs(dx) > capPx || Math.abs(dy) > capPx) {
                             dx = 0f;
                             dy = 0f;
+                        }
+                    }
+
+                    // [เพิ่มใหม่] ระบบคงที่เท่านั้น: เพดานความเร็วดิบ สบัดเมาส์แรงแค่ไหนก็ไม่หมุนเร็วเกินเพดาน
+                    // (รวมก้อนแรกหลังยกเมาส์วางใหม่ด้วย) ความเร็วที่ต่ำกว่าเพดานไม่ถูกแตะ
+                    if (!viewFlickAccel) {
+                        final float capDt = Math.max(CONST_CAP_DT_MIN_MS, Math.min(dtMsFull, CONST_CAP_DT_MAX_MS));
+                        if (CONST_MAX_RAW_SPEED_X > 0f) {
+                            final float capRawX = CONST_MAX_RAW_SPEED_X * capDt;
+                            dx = Math.max(-capRawX, Math.min(capRawX, dx));
+                        }
+                        if (CONST_MAX_RAW_SPEED_Y > 0f) {
+                            final float capRawY = CONST_MAX_RAW_SPEED_Y * capDt;
+                            dy = Math.max(-capRawY, Math.min(capRawY, dy));
                         }
                     }
 
