@@ -40,8 +40,8 @@ public class MouseController {
     // ขอบเขตโซน (สัดส่วนของจอ) = ระยะที่นิ้วเสมือน "ลาก" ได้ในโหมดคงที่
     // ถ้าฝั่งซ้ายของโซนกล้องหมุนเร็วกว่าฝั่งขวา ให้เพิ่ม ZONE_X_MIN (เช่น 0.5)
     // [หมายเหตุ] ถ้า VIEW_X_FREE_IN_ZONE = true ค่า ZONE_X_* ไม่ถูกใช้แล้ว (ไม่ว่าแกน Y จะตั้งเป็นอะไร)
-    private static final float ZONE_X_MIN = 0.16f;
-    private static final float ZONE_X_MAX = 0.95f;
+    private static final float ZONE_X_MIN = 0.12f;
+    private static final float ZONE_X_MAX = 0.88f;
     // [หมายเหตุ] ZONE_Y_*, ZONE_RESTART ใช้เฉพาะตอน VIEW_Y_FREE_IN_ZONE = false (พฤติกรรมเดิมของแกน Y)
     private static final float ZONE_Y_MIN = 0.12f;
     private static final float ZONE_Y_MAX = 0.88f;
@@ -153,6 +153,17 @@ public class MouseController {
     private static final float POST_GAP_MAX_V = 5.0f;
     // ล็อก dt ที่ใช้คำนวณเพดานหลังช่วงเงียบ (ms) เพดาน = POST_GAP_MAX_V x ค่านี้ ไม่ว่ายกเมาส์นานแค่ไหน
     private static final float POST_GAP_CAP_DT_MS = 16f;
+
+    // [เพิ่มใหม่] เพดานความเร็วดิบของ "ระบบคงที่" (พิกเซลดิบของเมาส์/ms ก่อนคูณความไว) เฉพาะแกน X
+    // สบัดเมาส์แรงแค่ไหน ความเร็วหมุนก็ไม่เกินค่านี้ (ระยะส่วนที่เกินเพดานจะถูกตัดทิ้ง ไม่เก็บไว้ทำต่อ)
+    // ความเร็วปกติที่ต่ำกว่าเพดานไม่ถูกแตะเลย / ระบบบิตไม่ถูกแตะ / 0 = ปิดเพดาน
+    // ยังรู้สึกเร็วขึ้นตอนสบัด -> ลดค่านี้ (เช่น 0.8 -> 0.6) / หมุนปกติรู้สึกช้าลง -> เพิ่มค่านี้ (เช่น 1.3)
+    private static final float CONST_MAX_RAW_SPEED_X = 1.0f;
+    // เพดานแบบเดียวกันของแกน Y (0 = ปิด ไม่แตะแกน Y ตามที่ขอ)
+    private static final float CONST_MAX_RAW_SPEED_Y = 0f;
+    // ช่วง dt (ms) ที่ใช้คำนวณเพดานต่อ event: ต่ำสุด/สูงสุด (กัน event ที่มาติดกันหรือมาช้าทำให้เพดานเพี้ยน)
+    private static final float CONST_CAP_DT_MIN_MS = 2f;
+    private static final float CONST_CAP_DT_MAX_MS = 16f;
 
     // [แก้ไขแก้หน่วง] ความถี่ส่งตำแหน่งนิ้วเสมือนเริ่มต้น (Hz) ก่อนที่หน้าตั้งค่าจะเรียก setViewHz()
     // 0 = ซิงค์เฟรมจอ (อาจดีเลย์ได้ ~16ms บนจอ 60Hz) / 250 = ส่งทันทีที่พ้น interval ตอบสนองไวกว่า
@@ -947,6 +958,20 @@ public class MouseController {
                         if (Math.abs(dx) > capPx || Math.abs(dy) > capPx) {
                             dx = 0f;
                             dy = 0f;
+                        }
+                    }
+
+                    // [เพิ่มใหม่] ระบบคงที่เท่านั้น: เพดานความเร็วดิบ สบัดเมาส์แรงแค่ไหนก็ไม่หมุนเร็วเกินเพดาน
+                    // (รวมก้อนแรกหลังยกเมาส์วางใหม่ด้วย) ความเร็วที่ต่ำกว่าเพดานไม่ถูกแตะ
+                    if (!viewFlickAccel) {
+                        final float capDt = Math.max(CONST_CAP_DT_MIN_MS, Math.min(dtMsFull, CONST_CAP_DT_MAX_MS));
+                        if (CONST_MAX_RAW_SPEED_X > 0f) {
+                            final float capRawX = CONST_MAX_RAW_SPEED_X * capDt;
+                            dx = Math.max(-capRawX, Math.min(capRawX, dx));
+                        }
+                        if (CONST_MAX_RAW_SPEED_Y > 0f) {
+                            final float capRawY = CONST_MAX_RAW_SPEED_Y * capDt;
+                            dy = Math.max(-capRawY, Math.min(capRawY, dy));
                         }
                     }
 
