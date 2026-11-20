@@ -138,9 +138,10 @@ public class MouseController {
     // กันกล้องพุ่งตอน "ยกเมาส์แล้ววางใหม่" (เฉพาะระบบคงที่)
     // ถ้าห่างจาก MOVE ก่อนหน้านานกว่าค่านี้ ถือว่าเพิ่งพ้นช่วงเงียบ
     private static final float POST_GAP_MS = 150f;
-    // [แก้ไข] เดิม 5.0 -> 1000 = ไม่ทิ้ง event ก้อนแรกหลังหยุดมือเลย (เหมือนอีมูเลเตอร์)
-    // ถ้ายังพุ่งตอนยกเมาส์วางใหม่ ให้ลดค่านี้ (เช่น 5.0)
-    private static final float POST_GAP_MAX_V = 1000f;
+    // [แก้ไข] เพดานความเร็วของ event ก้อนแรกหลังช่วงเงียบ (px/ms) ก้อนที่เกินจะถูก "บีบ" ให้เท่าเพดาน (ไม่ทิ้งทั้งก้อน)
+    // 0.8 x 16ms = ~13px ใกล้เคียง event ปกติ -> ยกเมาส์วางใหม่แล้วความเร็วเท่าเดิม ไม่พุ่ง
+    // ถ้ายังเร็วอยู่ให้ลดเป็น 0.5 / ถ้าก้อนแรกหน่วงเกินไปให้เพิ่มเป็น 1.2
+    private static final float POST_GAP_MAX_V = 0.8f;
     // ล็อก dt ที่ใช้คำนวณเพดานหลังช่วงเงียบ (ms)
     private static final float POST_GAP_CAP_DT_MS = 16f;
 
@@ -519,8 +520,9 @@ public class MouseController {
     private static final float VIEW_SENS_PIVOT_Y = 0.04f;
 
     // ตัวคูณความเร็วโหมดมุมมอง แยกแกน X / Y
-    // ถ้าเร็วไปให้ลด X (เช่น 0.38) / ถ้ายังช้าให้เพิ่ม (เช่น 0.5)
-    private static final float VIEW_SPEED_SCALE_X = 0.45f;
+    // [แก้ไข] X ลดจาก 0.45 เป็น 0.40 (ช้าลง ~11%)
+    // ถ้ายังเร็วไปให้ลด X ทีละ 0.03-0.05 (เช่น 0.36) / ถ้าช้าไปให้เพิ่ม (เช่น 0.42)
+    private static final float VIEW_SPEED_SCALE_X = 0.40f;
     private static final float VIEW_SPEED_SCALE_Y = 0.35f;
 
     private float softenViewSens(float s, float pivot, float scale) {
@@ -943,14 +945,13 @@ public class MouseController {
                     float dx = Math.max(-MAX_FRAME_DELTA_X, Math.min(MAX_FRAME_DELTA_X, sumDx));
                     float dy = Math.max(-MAX_FRAME_DELTA, Math.min(MAX_FRAME_DELTA, sumDy));
 
-                    // ระบบคงที่เท่านั้น: event แรกหลัง "ช่วงเงียบ" ถ้าก้อนใหญ่เกินเพดานให้ทิ้งทั้งก้อน
-                    // (POST_GAP_MAX_V = 1000 -> แทบไม่ทิ้งอะไรแล้ว)
+                    // ระบบคงที่เท่านั้น: event แรกหลัง "ช่วงเงียบ" (ยกเมาส์แล้ววางใหม่)
+                    // [แก้ไข] ถ้าก้อนใหญ่เกินเพดาน ให้ "บีบ" ให้เท่าเพดาน (ไม่ทิ้งทั้งก้อนเหมือนเดิม)
+                    // ความเร็วหลังวางเมาส์ใหม่จึงใกล้เคียงตอนขยับปกติ ไม่พุ่ง
                     if (!viewFlickAccel && dtMsFull > POST_GAP_MS) {
                         float capPx = POST_GAP_MAX_V * Math.min(dtMsFull, POST_GAP_CAP_DT_MS);
-                        if (Math.abs(dx) > capPx || Math.abs(dy) > capPx) {
-                            dx = 0f;
-                            dy = 0f;
-                        }
+                        dx = Math.max(-capPx, Math.min(capPx, dx));
+                        dy = Math.max(-capPx, Math.min(capPx, dy));
                     }
 
                     // ระบบคงที่เท่านั้น: เพดานความเร็วดิบ (ตอนนี้ปิดอยู่ทั้ง X และ Y = 0)
