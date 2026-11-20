@@ -118,7 +118,7 @@ public class MouseController {
     private static final float LEFT_FAST_SPEED_MAX = 0.9f;
     // [แก้ไขแก้หน่วง] gain ของฝั่งซ้ายตอนสะบัดเร็วสุด ตั้งเป็น 1.0 = ปิดการหรี่ตอนสะบัด
     // ถ้าสะบัดเร็วแล้วฝั่งซ้ายพุ่งเกิน ค่อยๆ ลดลง (เช่น 0.9 -> 0.8)
-    private static final float LEFT_EXTRA_GAIN_FAST = 1.0f;
+    private static final float LEFT_EXTRA_GAIN_FAST = 0.6f;
 
     // [เพิ่ม] ตัวคูณความเร็วตอน "หันซ้าย" (ตามทิศที่เมาส์ขยับ ไม่เกี่ยวกับตำแหน่งนิ้วเสมือน)
     // 1.0 = เท่าเดิม, 0.9 = ช้าลง 10%, 0.8 = ช้าลง 20%, 0.7 = ช้าลง 30%
@@ -131,9 +131,9 @@ public class MouseController {
 
     // ตอนนิ้วเสมือนลากหลุดขอบจอ เกมให้ความเร็วเร็วขึ้น เลยชดเชยให้เท่าตอนอยู่ในจอ (ใช้ทั้งแกน X และ Y)
     // OFFSCREEN_GAIN: 1.0 = ปิดการชดเชย (ความเร็วคงที่ทั้งแกน X และ Y)
-    private static final float OFFSCREEN_GAIN_X = 0.35f;
+    private static final float OFFSCREEN_GAIN_X = 0.45f;
     // ตัวคูณต่ำสุดของแกน X นอกจอ (กันช้าลงเรื่อยๆ ตอนสะบัดไกล) เพิ่ม = นอกจอเร็วขึ้น
-    private static final float OFFSCREEN_MIN_X = 0.35f;
+    private static final float OFFSCREEN_MIN_X = 0.45f;
     // แกน Y กลับไปใช้ค่าเดิม (1.0 = ไม่ชดเชย)
     private static final float OFFSCREEN_GAIN_Y = 1.0f;
     // ระยะที่ค่อยๆ เปลี่ยนความเร็วเมื่อเลยขอบออกไป (สัดส่วนของขนาดจอ) จะได้ไม่กระโดดตรงขอบ
@@ -527,7 +527,7 @@ public class MouseController {
     // ความชันของค่าความไว (ตั้งจากหน้าตั้งค่า): 1.0 = เส้นตรง
     private static final float VIEW_SENS_CURVE = 1.0f;
     // ค่าความไวที่ตอนนี้รู้สึกพอดี แยกแกน (ตรงค่านี้ความเร็วเท่าเดิมเป๊ะ)
-    private static final float VIEW_SENS_PIVOT_X = 0.02f;
+    private static final float VIEW_SENS_PIVOT_X = 0.04f;
     private static final float VIEW_SENS_PIVOT_Y = 0.04f;
 
     // ตัวคูณความเร็วโหมดมุมมอง แยกแกน X / Y
