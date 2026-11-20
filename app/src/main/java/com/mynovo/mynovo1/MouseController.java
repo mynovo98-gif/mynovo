@@ -101,7 +101,7 @@ public class MouseController {
     // LEFT_HALF_GAIN: 1.0 = ปิดการชดเชย (ความเร็วคงที่ทั้งจอ) / ถ้าซ้ายเร็วกว่าขวาให้ลดลง (เช่น 0.5)
     // LEFT_HALF_X = เส้นแบ่งซ้าย/ขวา, LEFT_HALF_BAND = ความกว้างช่วงเปลี่ยนค่อยๆ (กันกระโดดตรงเส้นแบ่ง)
     private static final float LEFT_HALF_X = 0.525f;
-    private static final float LEFT_HALF_GAIN = 0.8f;
+    private static final float LEFT_HALF_GAIN = 0.9f;
     private static final float LEFT_HALF_BAND =  1.0f;
 
     // [แก้ไขแก้หน่วง] ตัวลดความเร็วเพิ่มเติมฝั่งซ้าย (ใช้ร่วมกับ leftHalfFactor)
@@ -118,7 +118,7 @@ public class MouseController {
     private static final float LEFT_FAST_SPEED_MAX = 0.9f;
     // [แก้ไขแก้หน่วง] gain ของฝั่งซ้ายตอนสะบัดเร็วสุด ตั้งเป็น 1.0 = ปิดการหรี่ตอนสะบัด
     // ถ้าสะบัดเร็วแล้วฝั่งซ้ายพุ่งเกิน ค่อยๆ ลดลง (เช่น 0.9 -> 0.8)
-    private static final float LEFT_EXTRA_GAIN_FAST = 0.6f;
+    private static final float LEFT_EXTRA_GAIN_FAST = 0.85f;
 
     // [เพิ่ม] ตัวคูณความเร็วตอน "หันซ้าย" (ตามทิศที่เมาส์ขยับ ไม่เกี่ยวกับตำแหน่งนิ้วเสมือน)
     // 1.0 = เท่าเดิม, 0.9 = ช้าลง 10%, 0.8 = ช้าลง 20%, 0.7 = ช้าลง 30%
@@ -158,7 +158,7 @@ public class MouseController {
     // สบัดเมาส์แรงแค่ไหน ความเร็วหมุนก็ไม่เกินค่านี้ (ระยะส่วนที่เกินเพดานจะถูกตัดทิ้ง ไม่เก็บไว้ทำต่อ)
     // ความเร็วปกติที่ต่ำกว่าเพดานไม่ถูกแตะเลย / ระบบบิตไม่ถูกแตะ / 0 = ปิดเพดาน
     // ยังรู้สึกเร็วขึ้นตอนสบัด -> ลดค่านี้ (เช่น 0.8 -> 0.6) / หมุนปกติรู้สึกช้าลง -> เพิ่มค่านี้ (เช่น 1.3)
-    private static final float CONST_MAX_RAW_SPEED_X = 0.7f;
+    private static final float CONST_MAX_RAW_SPEED_X = 1.2f;
     // เพดานแบบเดียวกันของแกน Y (0 = ปิด ไม่แตะแกน Y ตามที่ขอ)
     private static final float CONST_MAX_RAW_SPEED_Y = 0f;
     // ช่วง dt (ms) ที่ใช้คำนวณเพดานต่อ event: ต่ำสุด/สูงสุด (กัน event ที่มาติดกันหรือมาช้าทำให้เพดานเพี้ยน)
@@ -167,7 +167,7 @@ public class MouseController {
 
     // [แก้ไขแก้หน่วง] ความถี่ส่งตำแหน่งนิ้วเสมือนเริ่มต้น (Hz) ก่อนที่หน้าตั้งค่าจะเรียก setViewHz()
     // 0 = ซิงค์เฟรมจอ (อาจดีเลย์ได้ ~16ms บนจอ 60Hz) / 250 = ส่งทันทีที่พ้น interval ตอบสนองไวกว่า
-    private static final int DEFAULT_VIEW_HZ = 250;
+    private static final int DEFAULT_VIEW_HZ = 500;
 
     // ตัวคูณความเร็วตามระยะที่นิ้วเสมือนเลยขอบจอ แกน X (ลดต่อเนื่อง ไม่มีเพดาน)
     // (v = พิกัดบนแกนนั้น, max = ขนาดจอแกนนั้น)
@@ -476,7 +476,7 @@ public class MouseController {
     // ปรับความเร็วสะบัดดิบให้เรียบด้วย EMA ก่อนส่งเข้า leftExtraFactor กันอาการสวิง
     private float smoothedLeftSpeedPxMs = 0f;
     // น้ำหนักของค่าใหม่ในแต่ละเฟรม (0-1): ยิ่งน้อยยิ่งเรียบ/ตอบสนองช้าลง
-    private static final float LEFT_SPEED_SMOOTHING_ALPHA = 0.25f;
+    private static final float LEFT_SPEED_SMOOTHING_ALPHA = 0.5f;
 
     public void setViewFlickAccel(boolean on) { viewFlickAccel = on; }
     public void toggleViewFlickAccel() { viewFlickAccel = !viewFlickAccel; }
