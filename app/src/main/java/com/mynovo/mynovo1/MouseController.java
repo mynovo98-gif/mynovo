@@ -88,14 +88,14 @@ public class MouseController {
     // [เพิ่ม] ตัวคูณความเร็วแกน X ทั้งหมดของระบบคงที่ (ทั้งในจอและนอกจอ) 1.0 = เท่าเดิม
     // ยังเร็วไปให้ลด (0.5) / ช้าไปให้เพิ่ม (0.8) แกน Y ไม่เกี่ยวข้อง
     // [หมายเหตุ] คูณซ้อนกับ CONST_LEFT_HALF_GAIN และ CONST_OFFSCREEN_GAIN_X
-    private static final float CONST_X_SPEED_SCALE = 0.60f;
+    private static final float CONST_X_SPEED_SCALE = 0.65f;
 
     // [เพิ่ม] ช่วงปลอดภัยของแกน X ตอน "วางนิ้วใหม่" (DOWN) ของโหมดคงที่ (สัดส่วนของความกว้างจอ)
     // เหตุผล: เดิมวางนิ้วใหม่ที่ปลายโซนสุดๆ (~37% / ~95%) ซึ่งอาจทับปุ่มจอย/ปุ่มอื่น หรือชิดขอบจอจนระบบมองเป็นปัดจากขอบ
     //         เกมจึงรับเป็นการ "ทัชตรงอื่น" ตอนนี้ DOWN จะอยู่ในช่วงนี้เสมอ ส่วนระยะลาก (MOVE) ยังกว้างตามโซนเดิม
     // หมุนไปขวา -> วางใหม่ที่ DOWN_SAFE_X_MIN / หมุนไปซ้าย -> วางใหม่ที่ DOWN_SAFE_X_MAX
     // ปรับให้ตรงกับพื้นที่ว่าง (ไม่มีปุ่ม) ของเกมคุณ
-    private static final float DOWN_SAFE_X_MIN = 0.36f;
+    private static final float DOWN_SAFE_X_MIN = 0.26f;
     private static final float DOWN_SAFE_X_MAX = 0.94f;
     // [เพิ่ม] สบัดแรงจนข้ามโซนได้กี่รอบในเฟรมเดียว (ระยะที่เกินจะยกไปทำต่อหลังวางนิ้วใหม่ ไม่ทิ้ง)
     private static final int MAX_ZONE_WRAPS = 6;
@@ -127,7 +127,7 @@ public class MouseController {
     // LEFT_HALF_GAIN: 1.0 = ปิดการชดเชย (ความเร็วคงที่ทั้งจอ)
     // เดิม 0.8 ทำให้ความเร็วซ้าย/ขวาไม่เท่ากัน เพราะ viewX ลอยนอกจอได้ไกล
     private static final float LEFT_HALF_X = 0.525f;
-    private static final float LEFT_HALF_GAIN = 0.8f;
+    private static final float LEFT_HALF_GAIN = 0.75f;
     private static final float LEFT_HALF_BAND =  1.0f;
 
     // ตัวลดความเร็วเพิ่มเติมฝั่งซ้าย (ปิดอยู่ = 1.0) [ตอนนี้ระบบคงที่ไม่เรียกใช้แล้ว]
