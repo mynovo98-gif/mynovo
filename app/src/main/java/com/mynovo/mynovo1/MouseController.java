@@ -129,7 +129,7 @@ public class MouseController {
     // LEFT_HALF_GAIN: 1.0 = ปิดการชดเชย (ความเร็วคงที่ทั้งจอ)
     // เดิม 0.8 ทำให้ความเร็วซ้าย/ขวาไม่เท่ากัน เพราะ viewX ลอยนอกจอได้ไกล
     private static final float LEFT_HALF_X = 0.525f;
-    private static final float LEFT_HALF_GAIN = 0.6f;
+    private static final float LEFT_HALF_GAIN = 0.8f;
     private static final float LEFT_HALF_BAND =  1.0f;
 
     // ตัวลดความเร็วเพิ่มเติมฝั่งซ้าย (ปิดอยู่ = 1.0) [ตอนนี้ระบบคงที่ไม่เรียกใช้แล้ว]
@@ -639,7 +639,7 @@ public class MouseController {
     // ตัวคูณความเร็วโหมดมุมมอง แยกแกน X / Y
     // [แก้ไข] X ลดจาก 0.45 เป็น 0.40 (ช้าลง ~11%)
     // ถ้ายังเร็วไปให้ลด X ทีละ 0.03-0.05 (เช่น 0.36) / ถ้าช้าไปให้เพิ่ม (เช่น 0.42)
-    private static final float VIEW_SPEED_SCALE_X = 0.30f;
+    private static final float VIEW_SPEED_SCALE_X = 0.35f;
     private static final float VIEW_SPEED_SCALE_Y = 0.35f;
 
     private float softenViewSens(float s, float pivot, float scale) {
