@@ -72,14 +72,14 @@ public class MouseController {
     private static final float CONST_LEFT_HALF_X = 0.5f;
     // [แก้ไขให้สมูท] ความกว้างช่วงเปลี่ยนนุ่มๆ รอบเส้นแบ่ง (สัดส่วนความกว้างจอ) เพิ่ม = เปลี่ยนค่อยเป็นค่อยไป
     // เดิม 0.08 (เปลี่ยนความเร็วในช่วงแคบ ~16% ของจอ รู้สึกสะดุด) -> 0.35 ไล่ระดับเกือบทั้งจอ
-    private static final float CONST_LEFT_HALF_BAND = 0.35f;
+    private static final float CONST_LEFT_HALF_BAND = 0.1f;
 
     // [เพิ่ม] ความเร็วตอนนิ้วเสมือนอยู่ "นอกจอ" เท่านั้น (ระบบคงที่) 1.0 = ไม่ลด
     // ในจอความเร็วเท่าเดิมทุกอย่าง ผลมีเฉพาะตอนนิ้วลอยเลยขอบจอ
     // [แก้ไขให้สมูท] เดิม 0.20 (ชันมาก ช้าลง 80%) -> 0.45
     // ยังเร็วไปให้ลด CONST_X_SPEED_SCALE แทน อย่าลดค่านี้ เพราะยิ่งต่ำยิ่งทำให้ความเร็วเปลี่ยนชัน
     // [หมายเหตุ] นอกจอซ้ายจะซ้อนกับ CONST_LEFT_HALF_GAIN
-    private static final float CONST_OFFSCREEN_GAIN_X = 0.45f;
+    private static final float CONST_OFFSCREEN_GAIN_X = 0.25f;
     private static final float CONST_OFFSCREEN_GAIN_Y = 1.0f;   // 1.0 = ไม่แตะแกน Y
     // [แก้ไขให้สมูท] ระยะนอกจอ (สัดส่วนของจอ) ที่ถึงค่า GAIN เต็มที่ เพิ่ม = ค่อยๆ ช้าลง
     // เดิม 0.3 -> 1.0 (ไล่ระดับยาวขึ้น ไม่มีจุดหักมุม)
