@@ -43,7 +43,7 @@ public class MouseController {
     private static final float ZONE_X_MIN = 0.12f;
     private static final float ZONE_X_MAX = 0.88f;
     // [หมายเหตุ] ZONE_Y_*, ZONE_RESTART ใช้เฉพาะตอน VIEW_Y_FREE_IN_ZONE = false (พฤติกรรมเดิมของแกน Y)
-    private static final float ZONE_Y_MIN = 0.14f;
+    private static final float ZONE_Y_MIN = 0.24f;
     private static final float ZONE_Y_MAX = 0.88f;
     // วางนิ้วใหม่ที่ตำแหน่งกี่ % ของโซนจากปลายด้านตรงข้าม (ใช้กับแกน Y เท่านั้น)
     private static final float ZONE_RESTART = 0.04f;
@@ -127,7 +127,7 @@ public class MouseController {
     // LEFT_HALF_GAIN: 1.0 = ปิดการชดเชย (ความเร็วคงที่ทั้งจอ)
     // เดิม 0.8 ทำให้ความเร็วซ้าย/ขวาไม่เท่ากัน เพราะ viewX ลอยนอกจอได้ไกล
     private static final float LEFT_HALF_X = 0.525f;
-    private static final float LEFT_HALF_GAIN = 0.75f;
+    private static final float LEFT_HALF_GAIN = 0.8f;
     private static final float LEFT_HALF_BAND =  1.0f;
 
     // ตัวลดความเร็วเพิ่มเติมฝั่งซ้าย (ปิดอยู่ = 1.0) [ตอนนี้ระบบคงที่ไม่เรียกใช้แล้ว]
