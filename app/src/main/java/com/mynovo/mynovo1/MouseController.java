@@ -43,7 +43,7 @@ public class MouseController {
     private static final float ZONE_X_MIN = 0.16f;
     private static final float ZONE_X_MAX = 0.88f;
     // [หมายเหตุ] ZONE_Y_*, ZONE_RESTART ใช้เฉพาะตอน VIEW_Y_FREE_IN_ZONE = false (พฤติกรรมเดิมของแกน Y)
-    private static final float ZONE_Y_MIN = 0.18f;
+    private static final float ZONE_Y_MIN = 0.12f;
     private static final float ZONE_Y_MAX = 0.88f;
     // วางนิ้วใหม่ที่ตำแหน่งกี่ % ของโซนจากปลายด้านตรงข้าม (ใช้กับแกน Y เท่านั้น)
     private static final float ZONE_RESTART = 0.04f;
@@ -80,7 +80,7 @@ public class MouseController {
     // [แก้ไขให้สมูท] เดิม 0.20 (ชันมาก ช้าลง 80%) -> 0.45
     // ยังเร็วไปให้ลด CONST_X_SPEED_SCALE แทน อย่าลดค่านี้ เพราะยิ่งต่ำยิ่งทำให้ความเร็วเปลี่ยนชัน
     // [หมายเหตุ] นอกจอซ้ายจะซ้อนกับ CONST_LEFT_HALF_GAIN
-    private static final float CONST_OFFSCREEN_GAIN_X = 0.35f;
+    private static final float CONST_OFFSCREEN_GAIN_X = 0.30f;
     private static final float CONST_OFFSCREEN_GAIN_Y = 1.0f;   // 1.0 = ไม่แตะแกน Y
     // [แก้ไขให้สมูท] ระยะนอกจอ (สัดส่วนของจอ) ที่ถึงค่า GAIN เต็มที่ เพิ่ม = ค่อยๆ ช้าลง
     // เดิม 0.3 -> 1.0 (ไล่ระดับยาวขึ้น ไม่มีจุดหักมุม)
@@ -97,8 +97,8 @@ public class MouseController {
     //         เกมจึงรับเป็นการ "ทัชตรงอื่น" ตอนนี้ DOWN จะอยู่ในช่วงนี้เสมอ ส่วนระยะลาก (MOVE) ยังกว้างตามโซนเดิม
     // หมุนไปขวา -> วางใหม่ที่ DOWN_SAFE_X_MIN / หมุนไปซ้าย -> วางใหม่ที่ DOWN_SAFE_X_MAX
     // ปรับให้ตรงกับพื้นที่ว่าง (ไม่มีปุ่ม) ของเกมคุณ
-    private static final float DOWN_SAFE_X_MIN = 0.22f;
-    private static final float DOWN_SAFE_X_MAX = 0.94f;
+    private static final float DOWN_SAFE_X_MIN = 0.18f;
+    private static final float DOWN_SAFE_X_MAX = 0.88f;
     // [เพิ่ม] สบัดแรงจนข้ามโซนได้กี่รอบในเฟรมเดียว (ระยะที่เกินจะยกไปทำต่อหลังวางนิ้วใหม่ ไม่ทิ้ง)
     private static final int MAX_ZONE_WRAPS = 6;
 
@@ -153,8 +153,8 @@ public class MouseController {
     // false = ปิดตัวชดเชย ความเร็ว = ระยะเมาส์ x ความไว เป็นเส้นตรงจริงๆ
     private static final boolean OFFSCREEN_COMPENSATE = false;
 
-    private static final float OFFSCREEN_GAIN_X = 0.35f;
-    private static final float OFFSCREEN_MIN_X = 035f;
+    private static final float OFFSCREEN_GAIN_X = 0.30f;
+    private static final float OFFSCREEN_MIN_X = 030f;
     // แกน Y กลับไปใช้ค่าเดิม (1.0 = ไม่ชดเชย)
     private static final float OFFSCREEN_GAIN_Y = 1.0f;
     private static final float OFFSCREEN_BAND = 0.9f;
@@ -631,7 +631,7 @@ public class MouseController {
     }
 
     // ความชันของค่าความไว (ตั้งจากหน้าตั้งค่า): 1.0 = เส้นตรง
-    private static final float VIEW_SENS_CURVE = 1.0f;
+    private static final float VIEW_SENS_CURVE = 0.9f;
     // ค่าความไวที่ตอนนี้รู้สึกพอดี แยกแกน (ตรงค่านี้ความเร็วเท่าเดิมเป๊ะ)
     private static final float VIEW_SENS_PIVOT_X = 0.02f;
     private static final float VIEW_SENS_PIVOT_Y = 0.04f;
@@ -639,7 +639,7 @@ public class MouseController {
     // ตัวคูณความเร็วโหมดมุมมอง แยกแกน X / Y
     // [แก้ไข] X ลดจาก 0.45 เป็น 0.40 (ช้าลง ~11%)
     // ถ้ายังเร็วไปให้ลด X ทีละ 0.03-0.05 (เช่น 0.36) / ถ้าช้าไปให้เพิ่ม (เช่น 0.42)
-    private static final float VIEW_SPEED_SCALE_X = 0.35f;
+    private static final float VIEW_SPEED_SCALE_X = 0.30f;
     private static final float VIEW_SPEED_SCALE_Y = 0.35f;
 
     private float softenViewSens(float s, float pivot, float scale) {
