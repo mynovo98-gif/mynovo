@@ -43,7 +43,7 @@ public class MouseController {
     private static final float ZONE_X_MIN = 0.12f;
     private static final float ZONE_X_MAX = 0.88f;
     // [หมายเหตุ] ZONE_Y_*, ZONE_RESTART ใช้เฉพาะตอน VIEW_Y_FREE_IN_ZONE = false (พฤติกรรมเดิมของแกน Y)
-    private static final float ZONE_Y_MIN = 0.12f;
+    private static final float ZONE_Y_MIN = 0.16f;
     private static final float ZONE_Y_MAX = 0.88f;
     // วางนิ้วใหม่ที่ตำแหน่งกี่ % ของโซนจากปลายด้านตรงข้าม (ใช้กับแกน Y เท่านั้น)
     private static final float ZONE_RESTART = 0.04f;
@@ -115,7 +115,7 @@ public class MouseController {
     // [เพิ่ม] ช่วงปลอดภัยของ Y ตอน "วางนิ้วใหม่" (สัดส่วนของความสูงจอ)
     // DOWN ใหม่ห้ามอยู่ติดขอบบน/ล่าง ไม่งั้นระบบมองเป็นการปัดจากขอบ (ดึงแถบแจ้งเตือน/ท่าทางโฮม)
     // นิ้วที่ลากเลยขอบหลังวางแล้วยังทะลุได้เหมือนเดิม (ไม่เกี่ยวกับค่านี้)
-    private static final float DOWN_SAFE_Y_MIN = 0.12f;
+    private static final float DOWN_SAFE_Y_MIN = 0.16f;
     private static final float DOWN_SAFE_Y_MAX = 0.88f;
 
     // ระยะลากสูงสุดของโหมดมุมมองจากจุดเริ่ม (สัดส่วนของความกว้าง/สูงจอ) เกินแล้วจะยกนิ้วแล้ววางใหม่
@@ -155,7 +155,7 @@ public class MouseController {
     private static final float OFFSCREEN_MIN_X = 0.35f;
     // แกน Y กลับไปใช้ค่าเดิม (1.0 = ไม่ชดเชย)
     private static final float OFFSCREEN_GAIN_Y = 1.0f;
-    private static final float OFFSCREEN_BAND = 0.8f;
+    private static final float OFFSCREEN_BAND = 0.9f;
     // BAND ของแกน Y (ค่าเดิม)
     private static final float OFFSCREEN_BAND_Y = 0.04f;
     private static final boolean OFFSCREEN_STACK_LEFT = false;
@@ -570,7 +570,7 @@ public class MouseController {
     // [แก้ไข] X ลดจาก 0.45 เป็น 0.40 (ช้าลง ~11%)
     // ถ้ายังเร็วไปให้ลด X ทีละ 0.03-0.05 (เช่น 0.36) / ถ้าช้าไปให้เพิ่ม (เช่น 0.42)
     private static final float VIEW_SPEED_SCALE_X = 0.40f;
-    private static final float VIEW_SPEED_SCALE_Y = 0.35f;
+    private static final float VIEW_SPEED_SCALE_Y = 0.42f;
 
     private float softenViewSens(float s, float pivot, float scale) {
         if (s <= 0f) return 0f;
