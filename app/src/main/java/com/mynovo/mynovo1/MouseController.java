@@ -43,7 +43,7 @@ public class MouseController {
     private static final float ZONE_X_MIN = 0.12f;
     private static final float ZONE_X_MAX = 0.88f;
     // [หมายเหตุ] ZONE_Y_*, ZONE_RESTART ใช้เฉพาะตอน VIEW_Y_FREE_IN_ZONE = false (พฤติกรรมเดิมของแกน Y)
-    private static final float ZONE_Y_MIN = 0.16f;
+    private static final float ZONE_Y_MIN = 0.14f;
     private static final float ZONE_Y_MAX = 0.88f;
     // วางนิ้วใหม่ที่ตำแหน่งกี่ % ของโซนจากปลายด้านตรงข้าม (ใช้กับแกน Y เท่านั้น)
     private static final float ZONE_RESTART = 0.04f;
@@ -67,12 +67,12 @@ public class MouseController {
 
     // [เพิ่ม] ซีกซ้ายของจอช้ากว่าซีกขวา (ระบบคงที่ แกน X) ตามตำแหน่งนิ้วเสมือน
     // 0.85 = ซีกซ้ายช้ากว่า ~15% / ยังเร็วไปให้ลด (0.80) / ช้าไปให้เพิ่ม (0.90)
-    private static final float CONST_LEFT_HALF_GAIN = 0.55f;
+    private static final float CONST_LEFT_HALF_GAIN = 0.75f;
     // เส้นแบ่งซ้าย/ขวา (สัดส่วนความกว้างจอ)
     private static final float CONST_LEFT_HALF_X = 0.5f;
     // [แก้ไขให้สมูท] ความกว้างช่วงเปลี่ยนนุ่มๆ รอบเส้นแบ่ง (สัดส่วนความกว้างจอ) เพิ่ม = เปลี่ยนค่อยเป็นค่อยไป
     // เดิม 0.08 (เปลี่ยนความเร็วในช่วงแคบ ~16% ของจอ รู้สึกสะดุด) -> 0.35 ไล่ระดับเกือบทั้งจอ
-    private static final float CONST_LEFT_HALF_BAND = 0.1f;
+    private static final float CONST_LEFT_HALF_BAND = 0.2f;
 
     // [เพิ่ม] ความเร็วตอนนิ้วเสมือนอยู่ "นอกจอ" เท่านั้น (ระบบคงที่) 1.0 = ไม่ลด
     // ในจอความเร็วเท่าเดิมทุกอย่าง ผลมีเฉพาะตอนนิ้วลอยเลยขอบจอ
@@ -88,7 +88,7 @@ public class MouseController {
     // [เพิ่ม] ตัวคูณความเร็วแกน X ทั้งหมดของระบบคงที่ (ทั้งในจอและนอกจอ) 1.0 = เท่าเดิม
     // ยังเร็วไปให้ลด (0.5) / ช้าไปให้เพิ่ม (0.8) แกน Y ไม่เกี่ยวข้อง
     // [หมายเหตุ] คูณซ้อนกับ CONST_LEFT_HALF_GAIN และ CONST_OFFSCREEN_GAIN_X
-    private static final float CONST_X_SPEED_SCALE = 0.70f;
+    private static final float CONST_X_SPEED_SCALE = 0.60f;
 
     // [เพิ่ม] ช่วงปลอดภัยของแกน X ตอน "วางนิ้วใหม่" (DOWN) ของโหมดคงที่ (สัดส่วนของความกว้างจอ)
     // เหตุผล: เดิมวางนิ้วใหม่ที่ปลายโซนสุดๆ (~37% / ~95%) ซึ่งอาจทับปุ่มจอย/ปุ่มอื่น หรือชิดขอบจอจนระบบมองเป็นปัดจากขอบ
@@ -151,7 +151,7 @@ public class MouseController {
     // false = ปิดตัวชดเชย ความเร็ว = ระยะเมาส์ x ความไว เป็นเส้นตรงจริงๆ
     private static final boolean OFFSCREEN_COMPENSATE = false;
 
-    private static final float OFFSCREEN_GAIN_X = 0.25f;
+    private static final float OFFSCREEN_GAIN_X = 0.35f;
     private static final float OFFSCREEN_MIN_X = 0.35f;
     // แกน Y กลับไปใช้ค่าเดิม (1.0 = ไม่ชดเชย)
     private static final float OFFSCREEN_GAIN_Y = 1.0f;
@@ -181,7 +181,7 @@ public class MouseController {
 
     // ความถี่ส่งตำแหน่งนิ้วเสมือนเริ่มต้น (Hz) ก่อนที่หน้าตั้งค่าจะเรียก setViewHz()
     // 0 = ซิงค์เฟรมจอ (อาจดีเลย์ได้ ~16ms บนจอ 60Hz) / 250 = ส่งทันทีที่พ้น interval ตอบสนองไวกว่า
-    private static final int DEFAULT_VIEW_HZ = 500;
+    private static final int DEFAULT_VIEW_HZ = 250;
 
     // ตัวคูณความเร็วตามระยะที่นิ้วเสมือนเลยขอบจอ แกน X (ลดต่อเนื่อง ไม่มีเพดาน)
     // (v = พิกัดบนแกนนั้น, max = ขนาดจอแกนนั้น)
@@ -569,8 +569,8 @@ public class MouseController {
     // ตัวคูณความเร็วโหมดมุมมอง แยกแกน X / Y
     // [แก้ไข] X ลดจาก 0.45 เป็น 0.40 (ช้าลง ~11%)
     // ถ้ายังเร็วไปให้ลด X ทีละ 0.03-0.05 (เช่น 0.36) / ถ้าช้าไปให้เพิ่ม (เช่น 0.42)
-    private static final float VIEW_SPEED_SCALE_X = 0.40f;
-    private static final float VIEW_SPEED_SCALE_Y = 0.42f;
+    private static final float VIEW_SPEED_SCALE_X = 0.35f;
+    private static final float VIEW_SPEED_SCALE_Y = 0.35f;
 
     private float softenViewSens(float s, float pivot, float scale) {
         if (s <= 0f) return 0f;
