@@ -77,7 +77,7 @@ public class MouseController {
     // ในจอความเร็วเท่าเดิมทุกอย่าง ผลมีเฉพาะตอนนิ้วลอยเลยขอบจอ
     // 0.80 = ช้าลง ~20% เมื่อลอยไกลถึงระยะ BAND / ยังเร็วไปให้ลด (0.70) / ช้าไปให้เพิ่ม (0.90)
     // [หมายเหตุ] นอกจอซ้ายจะซ้อนกับ CONST_LEFT_HALF_GAIN (0.85 x 0.80 = ~0.68)
-    private static final float CONST_OFFSCREEN_GAIN_X = 0.80f;
+    private static final float CONST_OFFSCREEN_GAIN_X = 0.35f;
     private static final float CONST_OFFSCREEN_GAIN_Y = 1.0f;   // 1.0 = ไม่แตะแกน Y
     // ระยะนอกจอ (สัดส่วนของจอ) ที่ถึงค่า GAIN เต็มที่ เพิ่ม = ค่อยๆ ช้าลง
     private static final float CONST_OFFSCREEN_BAND = 0.5f;
@@ -87,7 +87,7 @@ public class MouseController {
     //         เกมจึงรับเป็นการ "ทัชตรงอื่น" ตอนนี้ DOWN จะอยู่ในช่วงนี้เสมอ ส่วนระยะลาก (MOVE) ยังกว้างตามโซนเดิม
     // หมุนไปขวา -> วางใหม่ที่ DOWN_SAFE_X_MIN / หมุนไปซ้าย -> วางใหม่ที่ DOWN_SAFE_X_MAX
     // ปรับให้ตรงกับพื้นที่ว่าง (ไม่มีปุ่ม) ของเกมคุณ
-    private static final float DOWN_SAFE_X_MIN = 0.56f;
+    private static final float DOWN_SAFE_X_MIN = 0.36f;
     private static final float DOWN_SAFE_X_MAX = 0.94f;
     // [เพิ่ม] สบัดแรงจนข้ามโซนได้กี่รอบในเฟรมเดียว (ระยะที่เกินจะยกไปทำต่อหลังวางนิ้วใหม่ ไม่ทิ้ง)
     private static final int MAX_ZONE_WRAPS = 6;
@@ -119,7 +119,7 @@ public class MouseController {
     // LEFT_HALF_GAIN: 1.0 = ปิดการชดเชย (ความเร็วคงที่ทั้งจอ)
     // เดิม 0.8 ทำให้ความเร็วซ้าย/ขวาไม่เท่ากัน เพราะ viewX ลอยนอกจอได้ไกล
     private static final float LEFT_HALF_X = 0.525f;
-    private static final float LEFT_HALF_GAIN = 1.0f;
+    private static final float LEFT_HALF_GAIN = 0.8f;
     private static final float LEFT_HALF_BAND =  1.0f;
 
     // ตัวลดความเร็วเพิ่มเติมฝั่งซ้าย (ปิดอยู่ = 1.0) [ตอนนี้ระบบคงที่ไม่เรียกใช้แล้ว]
