@@ -181,7 +181,7 @@ public class MouseController {
 
     // ความถี่ส่งตำแหน่งนิ้วเสมือนเริ่มต้น (Hz) ก่อนที่หน้าตั้งค่าจะเรียก setViewHz()
     // 0 = ซิงค์เฟรมจอ (อาจดีเลย์ได้ ~16ms บนจอ 60Hz) / 250 = ส่งทันทีที่พ้น interval ตอบสนองไวกว่า
-    private static final int DEFAULT_VIEW_HZ = 250;
+    private static final int DEFAULT_VIEW_HZ = 500;
 
     // ตัวคูณความเร็วตามระยะที่นิ้วเสมือนเลยขอบจอ แกน X (ลดต่อเนื่อง ไม่มีเพดาน)
     // (v = พิกัดบนแกนนั้น, max = ขนาดจอแกนนั้น)
