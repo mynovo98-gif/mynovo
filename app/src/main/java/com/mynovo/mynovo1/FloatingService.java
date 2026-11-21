@@ -54,6 +54,8 @@ public class FloatingService extends Service implements MouseController.MouseEve
 
     // ใช้ร่วมกับ KeyBlockService เพื่อกันปุ่ม Windows ไม่ให้ออกหน้าหลัก
     public static volatile boolean blockMetaKey = false;
+    // ใช้ร่วมกับ FilePickerActivity: ระหว่างเลือกไฟล์ห้ามให้มอนิเตอร์สั่งปิดระบบ
+    public static volatile boolean pickerOpen = false;
     public static volatile FloatingService instance = null;
 
     private WindowManager windowManager;
@@ -3269,9 +3271,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
         return tv;
     }
 
-    private static final String SHARE_PREFIX = "MNV1:";
-    private static final int SHARE_MAX_BUTTONS = 60;
-
     private void createCloudWindow() {
         try {
             LinearLayout card = new LinearLayout(this);
@@ -3337,12 +3336,17 @@ public class FloatingService extends Service implements MouseController.MouseEve
 
             body.addView(cloudDivider());
 
-            // ---- แชร์ปุ่มด้วยโค้ด ----
-            body.addView(cloudLabel("แชร์ปุ่มด้วยโค้ด"));
+            // ---- แชร์ปุ่มด้วยโค้ด / ไฟล์ ----
+            body.addView(cloudLabel("แชร์ปุ่มด้วยโค้ด / ไฟล์"));
             LinearLayout shareRow = cloudRow();
             shareRow.addView(cloudButton("📤 คัดลอกโค้ด", "#F1FA8C", v -> onCopyShareCode()));
             shareRow.addView(cloudButton("📥 นำเข้าโค้ด", "#FFB86C", v -> onImportShareCode()));
             body.addView(shareRow);
+
+            LinearLayout fileRow = cloudRow();
+            fileRow.addView(cloudButton("💾 ส่งออกไฟล์", "#F1FA8C", v -> onExportFile()));
+            fileRow.addView(cloudButton("📂 นำเข้าไฟล์", "#FFB86C", v -> onImportFile()));
+            body.addView(fileRow);
 
             etShareCode = new EditText(this);
             etShareCode.setHint("วางโค้ดที่นี่ (แตะช่อง แล้วกดวาง)");
@@ -3532,6 +3536,214 @@ public class FloatingService extends Service implements MouseController.MouseEve
         Toast.makeText(this, "📤 คัดลอกโค้ดแล้ว (ส่งให้เพื่อนได้เลย)", Toast.LENGTH_SHORT).show();
     }
 
+    private String readClipboardText() {
+        try {
+            android.content.ClipboardManager cm =
+                    (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            android.content.ClipData d = cm != null ? cm.getPrimaryClip() : null;
+            if (d != null && d.getItemCount() > 0) {
+                CharSequence t = d.getItemAt(0).coerceToText(this);
+                if (t != null) return t.toString().trim();
+            }
+        } catch (Exception ignored) {}
+        return "";
+    }
+
+    // ===================== ระบบโค้ดแชร์ปุ่ม =====================
+    private static final String SHARE_PREFIX = "MNV1:";   // รุ่นเก่า (JSON) รับเข้าอย่างเดียว
+    private static final String SHARE_PREFIX2 = "MNV2:";  // รุ่นใหม่ (ไบนารี + deflate) สั้นกว่ามาก
+    private static final int SHARE_MAX_BUTTONS = 60;
+    // ห้ามสลับลำดับ/แทรกกลาง ให้ต่อท้ายอย่างเดียว ไม่งั้นโค้ดเก่าจะอ่านผิด
+    private static final java.util.List<String> SHARE_TYPES = java.util.Arrays.asList(
+            "NORMAL", "DPAD", "HIDE_MOUSE", "RAPID_FIRE", "MOUSE_LOCK", "FIRE", "SWIPE", "ZOOM");
+
+    private static boolean near(double a, double b) { return Math.abs(a - b) < 0.004; }
+    private static int c100(double v) { return (int) Math.round(v * 100.0); }
+
+    // ---- สร้างโค้ด: ไบนารี -> raw deflate -> Base64 (ตัดค่า default ทิ้ง) ----
+    private String encodeShareCode() {
+        try {
+            savePresetToCloud(); // ให้ prefs เป็นข้อมูลล่าสุด
+            SharedPreferences prefs = getSharedPreferences(mappingPrefsName(), MODE_PRIVATE);
+            String arr = prefs.getString(presetKey(onExternalDisplay()), "");
+            if (arr == null || arr.isEmpty() || arr.equals("[]")) return null;
+            JSONArray src = new JSONArray(arr);
+            int n = Math.min(src.length(), SHARE_MAX_BUTTONS);
+
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            java.io.DataOutputStream out = new java.io.DataOutputStream(bos);
+            out.writeShort((int) maxScreenWidth);
+            out.writeShort((int) maxScreenHeight);
+            out.writeByte(n);
+
+            for (int i = 0; i < n; i++) {
+                JSONObject b = src.getJSONObject(i);
+                int ti = Math.max(0, SHARE_TYPES.indexOf(b.optString("type", "NORMAL")));
+                if (b.optInt("tg", 0) == 1) ti |= 0x80;   // บิตสูง = โหมดกดเริ่ม/กดหยุด
+                out.writeByte(ti);
+                out.writeShort(b.getInt("x"));
+                out.writeShort(b.getInt("y"));
+
+                int key = b.optInt("key", -1);
+                double sx = b.optDouble("sx", 1.0), sy = b.optDouble("sy", 1.0);
+                int hz = b.optInt("hz", 500);
+                boolean flick = b.has("fm") && !(b.optInt("fm", 1) == 1
+                        && near(b.optDouble("lm", 0.8), 0.8) && near(b.optDouble("br", 0.8), 0.8)
+                        && near(b.optDouble("bg", 0.0), 0.0) && near(b.optDouble("bm", 4.0), 4.0));
+                int ims = b.optInt("ims", 100), pms = b.optInt("pms", 25);
+
+                int f = 0;
+                if (key != -1) f |= 1;
+                if (b.has("size")) f |= 2;
+                if (!near(sx, 1.0)) f |= 4;
+                if (!near(sy, 1.0)) f |= 8;
+                if (hz != 500) f |= 16;
+                if (flick) f |= 32;
+                if (ims != 100) f |= 64;
+                if (pms != 25) f |= 128;
+                out.writeByte(f);
+
+                if ((f & 1) != 0) out.writeInt(key);
+                if ((f & 2) != 0) out.writeByte(b.getInt("size"));
+                if ((f & 4) != 0) out.writeShort(c100(sx));
+                if ((f & 8) != 0) out.writeShort(c100(sy));
+                if ((f & 16) != 0) out.writeShort(hz);
+                if ((f & 32) != 0) {
+                    out.writeByte(b.optInt("fm", 1));
+                    out.writeShort(c100(b.optDouble("lm", 0.8)));
+                    out.writeShort(c100(b.optDouble("br", 0.8)));
+                    out.writeShort(c100(b.optDouble("bg", 0.0)));
+                    out.writeShort(c100(b.optDouble("bm", 4.0)));
+                }
+                if ((f & 64) != 0) out.writeShort(ims);
+                if ((f & 128) != 0) out.writeShort(pms);
+            }
+            out.flush();
+            byte[] raw = bos.toByteArray();
+
+            java.util.zip.Deflater d = new java.util.zip.Deflater(
+                    java.util.zip.Deflater.BEST_COMPRESSION, true); // raw = ไม่มี header
+            d.setInput(raw);
+            d.finish();
+            byte[] buf = new byte[raw.length + 64];
+            int len = d.deflate(buf);
+            d.end();
+
+            return SHARE_PREFIX2 + android.util.Base64.encodeToString(buf, 0, len,
+                    android.util.Base64.NO_WRAP | android.util.Base64.NO_PADDING
+                            | android.util.Base64.URL_SAFE);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    // ---- ถอดโค้ด (รองรับ MNV2 และ MNV1) ----
+    private JSONArray parseShareCode(String code) {
+        try {
+            code = code.replaceAll("\\s+", "");
+            if (code.startsWith(SHARE_PREFIX2)) {
+                return parseShareV2(code.substring(SHARE_PREFIX2.length()));
+            }
+            if (!code.startsWith(SHARE_PREFIX)) return null;
+
+            byte[] data = android.util.Base64.decode(
+                    code.substring(SHARE_PREFIX.length()), android.util.Base64.URL_SAFE);
+            java.util.zip.GZIPInputStream gin = new java.util.zip.GZIPInputStream(
+                    new java.io.ByteArrayInputStream(data));
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            int n, total = 0;
+            while ((n = gin.read(buf)) > 0) {
+                total += n;
+                if (total > 512 * 1024) return null; // กันไฟล์บวมผิดปกติ
+                bos.write(buf, 0, n);
+            }
+            JSONObject o = new JSONObject(bos.toString("UTF-8"));
+            return sanitizeShared(o.getJSONArray("b"), o.optInt("w", 0), o.optInt("h", 0));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private JSONArray parseShareV2(String b64) {
+        try {
+            byte[] data = android.util.Base64.decode(b64, android.util.Base64.URL_SAFE);
+            byte[] in2 = java.util.Arrays.copyOf(data, data.length + 1); // dummy byte สำหรับ raw inflate
+
+            java.util.zip.Inflater inf = new java.util.zip.Inflater(true);
+            inf.setInput(in2);
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[1024];
+            while (!inf.finished()) {
+                int n = inf.inflate(buf);
+                if (n == 0 && (inf.needsInput() || inf.needsDictionary())) break;
+                bos.write(buf, 0, n);
+                if (bos.size() > 64 * 1024) { inf.end(); return null; }
+            }
+            inf.end();
+
+            java.io.DataInputStream in = new java.io.DataInputStream(
+                    new java.io.ByteArrayInputStream(bos.toByteArray()));
+            int w = in.readUnsignedShort(), h = in.readUnsignedShort();
+            int n = in.readUnsignedByte();
+            JSONArray arr = new JSONArray();
+            for (int i = 0; i < n && i < SHARE_MAX_BUTTONS; i++) {
+                int tb = in.readUnsignedByte();
+                int ti = tb & 0x7F;
+                if (ti >= SHARE_TYPES.size()) return null;
+                JSONObject o = new JSONObject();
+                o.put("type", SHARE_TYPES.get(ti));
+                if ((tb & 0x80) != 0) o.put("tg", 1);
+                o.put("x", (int) in.readShort());
+                o.put("y", (int) in.readShort());
+
+                int f = in.readUnsignedByte();
+                o.put("key", (f & 1) != 0 ? in.readInt() : -1);
+                if ((f & 2) != 0) o.put("size", in.readUnsignedByte());
+                if ((f & 4) != 0) o.put("sx", in.readUnsignedShort() / 100.0);
+                if ((f & 8) != 0) o.put("sy", in.readUnsignedShort() / 100.0);
+                if ((f & 16) != 0) o.put("hz", in.readUnsignedShort());
+                if ((f & 32) != 0) {
+                    o.put("fm", in.readUnsignedByte());
+                    o.put("lm", in.readUnsignedShort() / 100.0);
+                    o.put("br", in.readUnsignedShort() / 100.0);
+                    o.put("bg", in.readUnsignedShort() / 100.0);
+                    o.put("bm", in.readUnsignedShort() / 100.0);
+                }
+                if ((f & 64) != 0) o.put("ims", in.readUnsignedShort());
+                if ((f & 128) != 0) o.put("pms", in.readUnsignedShort());
+                arr.put(o);
+            }
+            return sanitizeShared(arr, w, h);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    // ตรวจความปลอดภัย (โค้ดมาจากคนอื่น) + ปรับตำแหน่งตามขนาดจอเรา (ใช้ร่วมกันทั้ง MNV1/MNV2)
+    private JSONArray sanitizeShared(JSONArray src, int w, int h) throws Exception {
+        float sx = (w > 0 && maxScreenWidth > 0) ? maxScreenWidth / w : 1f;
+        float sy = (h > 0 && maxScreenHeight > 0) ? maxScreenHeight / h : 1f;
+
+        java.util.Set<String> allowed = new java.util.HashSet<>(SHARE_TYPES);
+        JSONArray out = new JSONArray();
+        boolean hasDpad = false;
+        for (int i = 0; i < src.length() && out.length() < SHARE_MAX_BUTTONS; i++) {
+            JSONObject b = src.getJSONObject(i);
+            String type = b.optString("type", "NORMAL");
+            if (!allowed.contains(type)) continue;
+            if ("DPAD".equals(type)) { if (hasDpad) continue; hasDpad = true; }
+            int x = Math.round(b.getInt("x") * sx);
+            int y = Math.round(b.getInt("y") * sy);
+            b.put("x", Math.max(0, Math.min((int) maxScreenWidth, x)));
+            b.put("y", Math.max(0, Math.min((int) maxScreenHeight, y)));
+            out.put(b);
+        }
+        return out.length() > 0 ? out : null;
+    }
+
+    // ===================== นำเข้า (ใช้ร่วมกันทั้งวางโค้ด และนำเข้าไฟล์) =====================
+
     private void onImportShareCode() {
         String text = etShareCode != null ? etShareCode.getText().toString().trim() : "";
         if (text.isEmpty()) text = readClipboardText();
@@ -3539,16 +3751,20 @@ public class FloatingService extends Service implements MouseController.MouseEve
             Toast.makeText(this, "วางโค้ดในช่องก่อน (แตะช่อง แล้วกดวาง)", Toast.LENGTH_LONG).show();
             return;
         }
+        importFromText(text);
+    }
+
+    private void importFromText(String text) {
         final JSONArray parsed = parseShareCode(text);
         if (parsed == null) {
-            Toast.makeText(this, "❌ โค้ดไม่ถูกต้อง", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "❌ โค้ด/ไฟล์ไม่ถูกต้อง", Toast.LENGTH_LONG).show();
             return;
         }
         setCloudFocusable(false);
         final int slotNow = presetSlot + 1;
         showWarningDialog(
                 "📥 นำเข้าปุ่ม",
-                "พบ " + parsed.length() + " ปุ่มในโค้ด\nปุ่มเดิมในพรีเซ็ต " + slotNow
+                "พบ " + parsed.length() + " ปุ่ม\nปุ่มเดิมในพรีเซ็ต " + slotNow
                         + " จะถูกแทนที่ (พรีเซ็ตอื่นไม่ถูกแตะ)",
                 () -> {
                     try {
@@ -3571,86 +3787,50 @@ public class FloatingService extends Service implements MouseController.MouseEve
                 });
     }
 
-    private String readClipboardText() {
-        try {
-            android.content.ClipboardManager cm =
-                    (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-            android.content.ClipData d = cm != null ? cm.getPrimaryClip() : null;
-            if (d != null && d.getItemCount() > 0) {
-                CharSequence t = d.getItemAt(0).coerceToText(this);
-                if (t != null) return t.toString().trim();
-            }
-        } catch (Exception ignored) {}
-        return "";
+    // ===================== ส่งออก/นำเข้าไฟล์ .mnv =====================
+
+    private void onExportFile() {
+        String code = encodeShareCode();
+        if (code == null) {
+            Toast.makeText(this, "ยังไม่มีปุ่มให้ส่งออกในพรีเซ็ตนี้", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String safe = targetPackage.replaceAll("[^A-Za-z0-9_.]", "_");
+        startPicker("export", code, "mynovo_" + safe + "_p" + (presetSlot + 1) + ".mnv");
     }
 
-    // สร้างโค้ด: JSON -> GZIP -> Base64 (ขึ้นต้นด้วย MNV1:)
-    private String encodeShareCode() {
+    private void onImportFile() {
+        startPicker("import", null, null);
+    }
+
+    private void startPicker(String mode, String text, String fileName) {
         try {
-            savePresetToCloud(); // ให้ prefs เป็นข้อมูลล่าสุด
-            SharedPreferences prefs = getSharedPreferences(mappingPrefsName(), MODE_PRIVATE);
-            String arr = prefs.getString(presetKey(onExternalDisplay()), "");
-            if (arr == null || arr.isEmpty() || arr.equals("[]")) return null;
-
-            JSONObject o = new JSONObject();
-            o.put("v", 1);
-            o.put("w", (int) maxScreenWidth);
-            o.put("h", (int) maxScreenHeight);
-            o.put("b", new JSONArray(arr));
-
-            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
-            java.util.zip.GZIPOutputStream gz = new java.util.zip.GZIPOutputStream(bos);
-            gz.write(o.toString().getBytes("UTF-8"));
-            gz.close();
-            return SHARE_PREFIX + android.util.Base64.encodeToString(
-                    bos.toByteArray(), android.util.Base64.NO_WRAP | android.util.Base64.URL_SAFE);
+            setCloudFocusable(false);
+            FilePickerActivity.pendingExport = text;
+            pickerOpen = true;
+            Intent i = new Intent(this, FilePickerActivity.class);
+            i.putExtra(FilePickerActivity.EXTRA_MODE, mode);
+            if (fileName != null) i.putExtra(FilePickerActivity.EXTRA_NAME, fileName);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION);
+            android.os.Bundle opts = null;
+            if (Build.VERSION.SDK_INT >= 26 && targetDisplay != null) {
+                // เปิดตัวเลือกไฟล์บนจอเดียวกับที่วางปุ่มอยู่ (เผื่อใช้ DeX)
+                android.app.ActivityOptions ao = android.app.ActivityOptions.makeBasic();
+                ao.setLaunchDisplayId(targetDisplay.getDisplayId());
+                opts = ao.toBundle();
+            }
+            startActivity(i, opts);
+            // กันค้าง: ถ้า 5 วิแล้ว Activity ยังไม่ขึ้น ให้เลิกกันระบบปิดตัว
+            handler.postDelayed(() -> { if (!FilePickerActivity.alive) pickerOpen = false; }, 5000);
         } catch (Exception e) {
-            return null;
+            pickerOpen = false;
+            Toast.makeText(this, "❌ เปิดตัวเลือกไฟล์ไม่ได้", Toast.LENGTH_LONG).show();
         }
     }
 
-    // ถอดโค้ด + ตรวจความปลอดภัย (โค้ดมาจากคนอื่น) + ปรับตำแหน่งตามขนาดจอเรา
-    private JSONArray parseShareCode(String code) {
-        try {
-            code = code.replaceAll("\\s+", "");
-            if (!code.startsWith(SHARE_PREFIX)) return null;
-            byte[] data = android.util.Base64.decode(
-                    code.substring(SHARE_PREFIX.length()), android.util.Base64.URL_SAFE);
-            java.util.zip.GZIPInputStream gin = new java.util.zip.GZIPInputStream(
-                    new java.io.ByteArrayInputStream(data));
-            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
-            byte[] buf = new byte[4096];
-            int n, total = 0;
-            while ((n = gin.read(buf)) > 0) {
-                total += n;
-                if (total > 512 * 1024) return null; // กันไฟล์บวมผิดปกติ
-                bos.write(buf, 0, n);
-            }
-            JSONObject o = new JSONObject(bos.toString("UTF-8"));
-            JSONArray src = o.getJSONArray("b");
-            int w = o.optInt("w", 0), h = o.optInt("h", 0);
-            float sx = (w > 0 && maxScreenWidth > 0) ? maxScreenWidth / w : 1f;
-            float sy = (h > 0 && maxScreenHeight > 0) ? maxScreenHeight / h : 1f;
-
-            java.util.Set<String> allowed = new java.util.HashSet<>(java.util.Arrays.asList(
-                    "NORMAL", "DPAD", "HIDE_MOUSE", "RAPID_FIRE", "MOUSE_LOCK", "FIRE", "SWIPE", "ZOOM"));
-            JSONArray out = new JSONArray();
-            boolean hasDpad = false;
-            for (int i = 0; i < src.length() && out.length() < SHARE_MAX_BUTTONS; i++) {
-                JSONObject b = src.getJSONObject(i);
-                String type = b.optString("type", "NORMAL");
-                if (!allowed.contains(type)) continue;
-                if ("DPAD".equals(type)) { if (hasDpad) continue; hasDpad = true; }
-                int x = Math.round(b.getInt("x") * sx);
-                int y = Math.round(b.getInt("y") * sy);
-                b.put("x", Math.max(0, Math.min((int) maxScreenWidth, x)));
-                b.put("y", Math.max(0, Math.min((int) maxScreenHeight, y)));
-                out.put(b);
-            }
-            return out.length() > 0 ? out : null;
-        } catch (Exception e) {
-            return null;
-        }
+    // FilePickerActivity เรียกเมื่ออ่านไฟล์เสร็จ
+    public void onFileImported(final String text) {
+        handler.post(() -> { if (!destroyed) importFromText(text); });
     }
 
     private Button createSubMenuOption(String text, String colorHex, View.OnClickListener listener) {
@@ -4306,6 +4486,10 @@ public class FloatingService extends Service implements MouseController.MouseEve
                         targetSeen = true;
                         ownAppCount = 0;
                         awaySince = 0;
+                    } else if (pickerOpen) {
+                        // กำลังเปิดตัวเลือกไฟล์ ห้ามคิดว่าออกจากเกมแล้วปิดระบบ
+                        awaySince = 0;
+                        ownAppCount = 0;
                     } else if (targetSeen) {
                         long nowMs = android.os.SystemClock.uptimeMillis();
                         if (awaySince == 0) awaySince = nowMs;
@@ -4579,6 +4763,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
     public void onDestroy() {
         destroyed = true;
         blockMetaKey = false;
+        pickerOpen = false;
         instance = null;
         isChecking = false;
         probeActive = false;
@@ -4671,5 +4856,3 @@ public class FloatingService extends Service implements MouseController.MouseEve
         super.onDestroy();
     }
 }
-
-              
