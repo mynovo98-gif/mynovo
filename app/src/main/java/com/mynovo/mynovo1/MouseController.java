@@ -184,7 +184,7 @@ public class MouseController {
     private static final int DEFAULT_VIEW_HZ = 250;
 
     // ===== ตัวกรองสัญญาณเมาส์ (โหมดมุมมองเท่านั้น) =====
-    private volatile boolean filterEnabled = true;
+    private volatile boolean filterEnabled = false;
     // ความแรงปรับเรียบตอนขยับช้า: 0 = ไม่เรียบ, 1 = เรียบสุด
     private volatile float filterSmooth = 0f;
     // เดดโซน (px ต่อ event) สะสมจนเกินค่านี้ถึงปล่อยออก 0 = ปิด
