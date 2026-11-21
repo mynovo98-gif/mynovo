@@ -43,7 +43,7 @@ public class MouseController {
     private static final float ZONE_X_MIN = 0.12f;
     private static final float ZONE_X_MAX = 0.88f;
     // [หมายเหตุ] ZONE_Y_*, ZONE_RESTART ใช้เฉพาะตอน VIEW_Y_FREE_IN_ZONE = false (พฤติกรรมเดิมของแกน Y)
-    private static final float ZONE_Y_MIN = 0.24f;
+    private static final float ZONE_Y_MIN = 0.18f;
     private static final float ZONE_Y_MAX = 0.88f;
     // วางนิ้วใหม่ที่ตำแหน่งกี่ % ของโซนจากปลายด้านตรงข้าม (ใช้กับแกน Y เท่านั้น)
     private static final float ZONE_RESTART = 0.04f;
@@ -79,7 +79,7 @@ public class MouseController {
     // [แก้ไขให้สมูท] เดิม 0.20 (ชันมาก ช้าลง 80%) -> 0.45
     // ยังเร็วไปให้ลด CONST_X_SPEED_SCALE แทน อย่าลดค่านี้ เพราะยิ่งต่ำยิ่งทำให้ความเร็วเปลี่ยนชัน
     // [หมายเหตุ] นอกจอซ้ายจะซ้อนกับ CONST_LEFT_HALF_GAIN
-    private static final float CONST_OFFSCREEN_GAIN_X = 0.25f;
+    private static final float CONST_OFFSCREEN_GAIN_X = 0.20f;
     private static final float CONST_OFFSCREEN_GAIN_Y = 1.0f;   // 1.0 = ไม่แตะแกน Y
     // [แก้ไขให้สมูท] ระยะนอกจอ (สัดส่วนของจอ) ที่ถึงค่า GAIN เต็มที่ เพิ่ม = ค่อยๆ ช้าลง
     // เดิม 0.3 -> 1.0 (ไล่ระดับยาวขึ้น ไม่มีจุดหักมุม)
@@ -95,7 +95,7 @@ public class MouseController {
     //         เกมจึงรับเป็นการ "ทัชตรงอื่น" ตอนนี้ DOWN จะอยู่ในช่วงนี้เสมอ ส่วนระยะลาก (MOVE) ยังกว้างตามโซนเดิม
     // หมุนไปขวา -> วางใหม่ที่ DOWN_SAFE_X_MIN / หมุนไปซ้าย -> วางใหม่ที่ DOWN_SAFE_X_MAX
     // ปรับให้ตรงกับพื้นที่ว่าง (ไม่มีปุ่ม) ของเกมคุณ
-    private static final float DOWN_SAFE_X_MIN = 0.26f;
+    private static final float DOWN_SAFE_X_MIN = 0.22f;
     private static final float DOWN_SAFE_X_MAX = 0.94f;
     // [เพิ่ม] สบัดแรงจนข้ามโซนได้กี่รอบในเฟรมเดียว (ระยะที่เกินจะยกไปทำต่อหลังวางนิ้วใหม่ ไม่ทิ้ง)
     private static final int MAX_ZONE_WRAPS = 6;
@@ -127,7 +127,7 @@ public class MouseController {
     // LEFT_HALF_GAIN: 1.0 = ปิดการชดเชย (ความเร็วคงที่ทั้งจอ)
     // เดิม 0.8 ทำให้ความเร็วซ้าย/ขวาไม่เท่ากัน เพราะ viewX ลอยนอกจอได้ไกล
     private static final float LEFT_HALF_X = 0.525f;
-    private static final float LEFT_HALF_GAIN = 0.8f;
+    private static final float LEFT_HALF_GAIN = 0.75f;
     private static final float LEFT_HALF_BAND =  1.0f;
 
     // ตัวลดความเร็วเพิ่มเติมฝั่งซ้าย (ปิดอยู่ = 1.0) [ตอนนี้ระบบคงที่ไม่เรียกใช้แล้ว]
@@ -151,8 +151,8 @@ public class MouseController {
     // false = ปิดตัวชดเชย ความเร็ว = ระยะเมาส์ x ความไว เป็นเส้นตรงจริงๆ
     private static final boolean OFFSCREEN_COMPENSATE = false;
 
-    private static final float OFFSCREEN_GAIN_X = 0.35f;
-    private static final float OFFSCREEN_MIN_X = 0.35f;
+    private static final float OFFSCREEN_GAIN_X = 0.25f;
+    private static final float OFFSCREEN_MIN_X = 025f;
     // แกน Y กลับไปใช้ค่าเดิม (1.0 = ไม่ชดเชย)
     private static final float OFFSCREEN_GAIN_Y = 1.0f;
     private static final float OFFSCREEN_BAND = 0.9f;
@@ -182,7 +182,7 @@ public class MouseController {
     // ความถี่ส่งตำแหน่งนิ้วเสมือนเริ่มต้น (Hz) ก่อนที่หน้าตั้งค่าจะเรียก setViewHz()
     // 0 = ซิงค์เฟรมจอ (อาจดีเลย์ได้ ~16ms บนจอ 60Hz) / 250 = ส่งทันทีที่พ้น interval ตอบสนองไวกว่า
     // [แก้ไขอาการเป้าสั่น] ลดจาก 250 เป็น 144 ให้จังหวะส่งนิ่งขึ้น (ถ้าหน้าตั้งค่าเรียก setViewHz() ค่านั้นจะทับค่านี้)
-    private static final int DEFAULT_VIEW_HZ = 144;
+    private static final int DEFAULT_VIEW_HZ = 250;
 
     // ===== ตัวกรองสัญญาณเมาส์ (โหมดมุมมองเท่านั้น) =====
     // [แก้ไขอาการเป้าสั่น] เปิดตัวกรองเป็นค่าเริ่มต้น (ถ้าหน้าตั้งค่าเรียก setMouseFilter() ค่านั้นจะทับค่านี้)
