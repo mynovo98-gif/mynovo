@@ -186,9 +186,9 @@ public class MouseController {
     // ===== ตัวกรองสัญญาณเมาส์ (โหมดมุมมองเท่านั้น) =====
     private volatile boolean filterEnabled = true;
     // ความแรงปรับเรียบตอนขยับช้า: 0 = ไม่เรียบ, 1 = เรียบสุด
-    private volatile float filterSmooth = 0.5f;
+    private volatile float filterSmooth = 0f;
     // เดดโซน (px ต่อ event) สะสมจนเกินค่านี้ถึงปล่อยออก 0 = ปิด
-    private volatile float filterDeadzonePx = 0.25f;
+    private volatile float filterDeadzonePx = 0f;
 
     // ความเร็ว (px/ms) ที่ถือว่า "สบัดเร็ว" ปรับเรียบเหลือ 0 ไม่มีหน่วง
     private static final float FILTER_FAST_SPEED = 0.6f;
