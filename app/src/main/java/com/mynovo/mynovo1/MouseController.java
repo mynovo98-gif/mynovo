@@ -67,7 +67,7 @@ public class MouseController {
 
     // [เพิ่ม] ซีกซ้ายของจอช้ากว่าซีกขวา (ระบบคงที่ แกน X) ตามตำแหน่งนิ้วเสมือน
     // 0.85 = ซีกซ้ายช้ากว่า ~15% / ยังเร็วไปให้ลด (0.80) / ช้าไปให้เพิ่ม (0.90)
-    private static final float CONST_LEFT_HALF_GAIN = 0.85f;
+    private static final float CONST_LEFT_HALF_GAIN = 0.55f;
     // เส้นแบ่งซ้าย/ขวา (สัดส่วนความกว้างจอ)
     private static final float CONST_LEFT_HALF_X = 0.5f;
     // ความกว้างช่วงเปลี่ยนนุ่มๆ รอบเส้นแบ่ง (สัดส่วนความกว้างจอ) เพิ่ม = เปลี่ยนค่อยเป็นค่อยไป
@@ -77,10 +77,10 @@ public class MouseController {
     // ในจอความเร็วเท่าเดิมทุกอย่าง ผลมีเฉพาะตอนนิ้วลอยเลยขอบจอ
     // 0.80 = ช้าลง ~20% เมื่อลอยไกลถึงระยะ BAND / ยังเร็วไปให้ลด (0.70) / ช้าไปให้เพิ่ม (0.90)
     // [หมายเหตุ] นอกจอซ้ายจะซ้อนกับ CONST_LEFT_HALF_GAIN (0.85 x 0.80 = ~0.68)
-    private static final float CONST_OFFSCREEN_GAIN_X = 0.35f;
+    private static final float CONST_OFFSCREEN_GAIN_X = 0.20f;
     private static final float CONST_OFFSCREEN_GAIN_Y = 1.0f;   // 1.0 = ไม่แตะแกน Y
     // ระยะนอกจอ (สัดส่วนของจอ) ที่ถึงค่า GAIN เต็มที่ เพิ่ม = ค่อยๆ ช้าลง
-    private static final float CONST_OFFSCREEN_BAND = 0.5f;
+    private static final float CONST_OFFSCREEN_BAND = 0.3f;
 
     // [เพิ่ม] ตัวคูณความเร็วแกน X ทั้งหมดของระบบคงที่ (ทั้งในจอและนอกจอ) 1.0 = เท่าเดิม
     // ยังเร็วไปให้ลด (0.5) / ช้าไปให้เพิ่ม (0.8) แกน Y ไม่เกี่ยวข้อง
