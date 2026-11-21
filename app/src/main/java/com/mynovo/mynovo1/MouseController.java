@@ -181,14 +181,16 @@ public class MouseController {
 
     // ความถี่ส่งตำแหน่งนิ้วเสมือนเริ่มต้น (Hz) ก่อนที่หน้าตั้งค่าจะเรียก setViewHz()
     // 0 = ซิงค์เฟรมจอ (อาจดีเลย์ได้ ~16ms บนจอ 60Hz) / 250 = ส่งทันทีที่พ้น interval ตอบสนองไวกว่า
-    private static final int DEFAULT_VIEW_HZ = 250;
+    // [แก้ไขอาการเป้าสั่น] ลดจาก 250 เป็น 144 ให้จังหวะส่งนิ่งขึ้น (ถ้าหน้าตั้งค่าเรียก setViewHz() ค่านั้นจะทับค่านี้)
+    private static final int DEFAULT_VIEW_HZ = 144;
 
     // ===== ตัวกรองสัญญาณเมาส์ (โหมดมุมมองเท่านั้น) =====
-    private volatile boolean filterEnabled = false;
+    // [แก้ไขอาการเป้าสั่น] เปิดตัวกรองเป็นค่าเริ่มต้น (ถ้าหน้าตั้งค่าเรียก setMouseFilter() ค่านั้นจะทับค่านี้)
+    private volatile boolean filterEnabled = true;
     // ความแรงปรับเรียบตอนขยับช้า: 0 = ไม่เรียบ, 1 = เรียบสุด
-    private volatile float filterSmooth = 0f;
+    private volatile float filterSmooth = 0.35f;
     // เดดโซน (px ต่อ event) สะสมจนเกินค่านี้ถึงปล่อยออก 0 = ปิด
-    private volatile float filterDeadzonePx = 0f;
+    private volatile float filterDeadzonePx = 0.5f;
 
     // ความเร็ว (px/ms) ที่ถือว่า "สบัดเร็ว" ปรับเรียบเหลือ 0 ไม่มีหน่วง
     private static final float FILTER_FAST_SPEED = 0.6f;
@@ -1033,7 +1035,9 @@ public class MouseController {
                     // (นิ้วนอกจอมักถูกรายงานว่า "ไม่ได้กด" ทำให้โดนวางนิ้วใหม่ที่ขอบจอ = กล้องกระโดด)
                     // จึง DOWN เฉพาะตอนเริ่มโหมดเท่านั้น (tokenGone)
                     boolean freeX = !viewFlickAccel && VIEW_X_FREE_IN_ZONE;
-                    boolean reportedUp = !tokenGone && !freeX && !TouchSimulator.isPointerDown(2);
+                    // [แก้ไขอาการเป้าสั่นตอนยิง] ตอนกดยิง/คลิกค้างอยู่ (pressing) ข้ามการเช็ค isPointerDown
+                    // เพราะระบบอาจรายงานนิ้ว ID 2 หลุดชั่วคราวทั้งที่ยังกดอยู่ -> โดนยก-วางใหม่ = กล้องสะดุด/สั่น
+                    boolean reportedUp = !tokenGone && !freeX && !pressing && !TouchSimulator.isPointerDown(2);
                     if (reportedUp) {
                         lostPointerStreak++;
                     } else {
