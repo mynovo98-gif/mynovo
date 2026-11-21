@@ -180,20 +180,6 @@ public class MouseController {
     // 0 = ซิงค์เฟรมจอ (อาจดีเลย์ได้ ~16ms บนจอ 60Hz) / 250 = ส่งทันทีที่พ้น interval ตอบสนองไวกว่า
     private static final int DEFAULT_VIEW_HZ = 250;
 
-    // [เพิ่ม] ความถี่ส่งตำแหน่งนิ้วเสมือน "ขั้นต่ำ" (Hz) กันดีเลย์
-    // เดิมถ้าหน้าตั้งค่าเลือก 0 (ซิงค์เฟรมจอ) จะหน่วงได้ถึง ~16ms และค่าต่ำๆ (เช่น 60) หน่วง ~16ms
-    // ตอนนี้ไม่ว่าหน้าตั้งค่าส่งค่าอะไรมา จะส่งไม่ต่ำกว่าค่านี้ (500Hz = หน่วงไม่เกิน ~2ms)
-    // ถ้าเครื่องกระตุก/แลคเพราะส่งถี่เกิน ให้ลดเป็น 250 / 0 = ปิดตัวกันนี้ (ใช้ค่าจากหน้าตั้งค่าตรงๆ)
-    private static final int VIEW_MIN_INJECT_HZ = 500;
-
-    // [เพิ่ม] โหมดเคอร์เซอร์ปกติ: ใช้ความไวเป็นเส้นตรง (ไม่มีความเร่งตามความเร็วต่อ event)
-    // อาการที่แก้: ความเร่งเดิมคิดจากระยะต่อ event ซึ่งเปลี่ยนตามจังหวะที่ระบบรวม event
-    //             ขยับเมาส์ไปแล้วกลับระยะเท่าเดิม เคอร์เซอร์ไม่กลับจุดเดิม (ดริฟ)
-    // false = ใช้ความเร่งแบบเดิม
-    private static final boolean CURSOR_LINEAR = true;
-    // ตัวคูณของโหมดเส้นตรง (0.5625 = ค่าเดิมตอนขยับปกติ ความรู้สึกเท่าเดิม) ปรับให้เร็ว/ช้าได้ที่นี่
-    private static final float CURSOR_LINEAR_GAIN = 0.5625f;
-
     // ตัวคูณความเร็วตามระยะที่นิ้วเสมือนเลยขอบจอ แกน X (ลดต่อเนื่อง ไม่มีเพดาน)
     // (v = พิกัดบนแกนนั้น, max = ขนาดจอแกนนั้น)
     private float offscreenFactor(float v, float max, float gainOut) {
@@ -316,7 +302,7 @@ public class MouseController {
     // ความถี่ส่งตำแหน่งนิ้วเสมือนของโหมดมุมมอง (Hz) ตั้งจากหน้าตั้งค่าปุ่มล็อกเมาส์
     // 0 = ซิงค์กับเฟรมจอ (Choreographer)
     // มากกว่า 0 = จำกัดความถี่ตามที่ตั้ง (ช่วง 30 - 1000) คำนวณเป็น nanosecond
-    private int viewInjectHz = Math.max(DEFAULT_VIEW_HZ, VIEW_MIN_INJECT_HZ);
+    private int viewInjectHz = DEFAULT_VIEW_HZ;
     private long lastInjectNs = 0;
     private final android.os.Handler injectHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable injectRunnable = this::doViewInject;
@@ -599,10 +585,6 @@ public class MouseController {
             this.viewInjectHz = 0;
         } else {
             this.viewInjectHz = Math.max(30, Math.min(1000, hz));
-        }
-        // [แก้ไข] กันดีเลย์: บังคับความถี่ไม่ต่ำกว่า VIEW_MIN_INJECT_HZ (รวมกรณี 0 = ซิงค์เฟรมจอ)
-        if (VIEW_MIN_INJECT_HZ > 0 && this.viewInjectHz < VIEW_MIN_INJECT_HZ) {
-            this.viewInjectHz = Math.min(1000, VIEW_MIN_INJECT_HZ);
         }
     }
 
@@ -964,9 +946,7 @@ public class MouseController {
                 // โหมดเคอร์เซอร์ปกติ: ยังมีความเร่งเหมือนเดิม
                 float gain = isMouseMode
                         ? mouseSensitivity
-                        : (CURSOR_LINEAR
-                            ? mouseSensitivity * CURSOR_LINEAR_GAIN
-                            : mouseSensitivity * (0.5f + Math.min(speed, 1f) * 0.0625f));
+                        : mouseSensitivity * (0.5f + Math.min(speed, 1f) * 0.0625f);
 
                 if (isMouseMode) {
                     // ถ้านิ้วเมาส์ (ID 2) ถูกล้างไปแล้ว ให้ DOWN ใหม่อัตโนมัติ (debounce 2 ครั้งกัน flicker)
