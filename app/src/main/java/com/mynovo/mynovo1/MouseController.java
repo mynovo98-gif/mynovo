@@ -70,17 +70,20 @@ public class MouseController {
     private static final float CONST_LEFT_HALF_GAIN = 0.55f;
     // เส้นแบ่งซ้าย/ขวา (สัดส่วนความกว้างจอ)
     private static final float CONST_LEFT_HALF_X = 0.5f;
-    // ความกว้างช่วงเปลี่ยนนุ่มๆ รอบเส้นแบ่ง (สัดส่วนความกว้างจอ) เพิ่ม = เปลี่ยนค่อยเป็นค่อยไป
-    private static final float CONST_LEFT_HALF_BAND = 0.08f;
+    // [แก้ไขให้สมูท] ความกว้างช่วงเปลี่ยนนุ่มๆ รอบเส้นแบ่ง (สัดส่วนความกว้างจอ) เพิ่ม = เปลี่ยนค่อยเป็นค่อยไป
+    // เดิม 0.08 (เปลี่ยนความเร็วในช่วงแคบ ~16% ของจอ รู้สึกสะดุด) -> 0.35 ไล่ระดับเกือบทั้งจอ
+    private static final float CONST_LEFT_HALF_BAND = 0.35f;
 
     // [เพิ่ม] ความเร็วตอนนิ้วเสมือนอยู่ "นอกจอ" เท่านั้น (ระบบคงที่) 1.0 = ไม่ลด
     // ในจอความเร็วเท่าเดิมทุกอย่าง ผลมีเฉพาะตอนนิ้วลอยเลยขอบจอ
-    // 0.80 = ช้าลง ~20% เมื่อลอยไกลถึงระยะ BAND / ยังเร็วไปให้ลด (0.70) / ช้าไปให้เพิ่ม (0.90)
-    // [หมายเหตุ] นอกจอซ้ายจะซ้อนกับ CONST_LEFT_HALF_GAIN (0.85 x 0.80 = ~0.68)
-    private static final float CONST_OFFSCREEN_GAIN_X = 0.20f;
+    // [แก้ไขให้สมูท] เดิม 0.20 (ชันมาก ช้าลง 80%) -> 0.45
+    // ยังเร็วไปให้ลด CONST_X_SPEED_SCALE แทน อย่าลดค่านี้ เพราะยิ่งต่ำยิ่งทำให้ความเร็วเปลี่ยนชัน
+    // [หมายเหตุ] นอกจอซ้ายจะซ้อนกับ CONST_LEFT_HALF_GAIN
+    private static final float CONST_OFFSCREEN_GAIN_X = 0.45f;
     private static final float CONST_OFFSCREEN_GAIN_Y = 1.0f;   // 1.0 = ไม่แตะแกน Y
-    // ระยะนอกจอ (สัดส่วนของจอ) ที่ถึงค่า GAIN เต็มที่ เพิ่ม = ค่อยๆ ช้าลง
-    private static final float CONST_OFFSCREEN_BAND = 0.3f;
+    // [แก้ไขให้สมูท] ระยะนอกจอ (สัดส่วนของจอ) ที่ถึงค่า GAIN เต็มที่ เพิ่ม = ค่อยๆ ช้าลง
+    // เดิม 0.3 -> 1.0 (ไล่ระดับยาวขึ้น ไม่มีจุดหักมุม)
+    private static final float CONST_OFFSCREEN_BAND = 1.0f;
 
     // [เพิ่ม] ตัวคูณความเร็วแกน X ทั้งหมดของระบบคงที่ (ทั้งในจอและนอกจอ) 1.0 = เท่าเดิม
     // ยังเร็วไปให้ลด (0.5) / ช้าไปให้เพิ่ม (0.8) แกน Y ไม่เกี่ยวข้อง
@@ -887,15 +890,24 @@ public class MouseController {
             doViewInject();
         } else if (!injectScheduled) {
             // ยังไม่ถึงเวลา นัดส่งตำแหน่งล่าสุดตอนครบ interval (trailing)
+            // [แก้ไขให้สมูท] ปัดเวลารอ "ขึ้น" เป็น ms แทนปัดทิ้ง กันจังหวะส่งเหวี่ยงและคลาดสะสม
             injectScheduled = true;
-            injectHandler.postDelayed(injectRunnable, Math.max(1L, waitNs / 1_000_000L));
+            injectHandler.postDelayed(injectRunnable, Math.max(1L, (waitNs + 999_999L) / 1_000_000L));
         }
     }
 
     private void doViewInject() {
         injectScheduled = false;
         if (destroyed || isPaused || !isMouseMode || mouseMoveToken == 0) return;
-        lastInjectNs = System.nanoTime();
+
+        // [แก้ไขให้สมูท] เดินตามตารางเวลาคงที่ (lastInjectNs + interval) ไม่ใช้เวลาจริงทุกครั้ง
+        // กันจังหวะคลาดสะสม ถ้าช้าเกิน 2 interval ค่อยซิงค์เวลาใหม่
+        long now = System.nanoTime();
+        long intervalNs = viewInjectHz > 0 ? 1_000_000_000L / viewInjectHz : 0L;
+        lastInjectNs = (intervalNs == 0L || now - lastInjectNs > intervalNs * 2)
+                ? now
+                : lastInjectNs + intervalNs;
+
         // ส่งพิกัดทศนิยม ไม่ปัดเป็นพิกเซลเต็ม ความเร็วจะไม่เป็นขั้นบันได
         TouchSimulator.simulateMoveF(mouseMoveToken, 2, (float) viewX, (float) viewY);
     }
