@@ -1,74 +1,72 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# ==== Hardened R8 rules ====
+# หลักการ: keep เฉพาะที่จำเป็นจริง ๆ และใช้ rule แคบที่สุดเท่าที่ทำได้
 
-# ==== เอา -keep class com.mynovo.mynovo1.** ออกแล้ว ====
-# ตอนนี้คลาสทั่วไปในแอปจะถูกสับชื่อ/ลบโค้ดที่ไม่ได้ใช้ ป้องกันโค้ดได้เต็มที่
-# เหลือ -keep เฉพาะจุดที่จำเป็นจริงๆ ด้านล่างนี้เท่านั้น
+# ---------- เพิ่มความแรงของ obfuscation ----------
+# ย้ายทุกคลาสไปแพ็กเกจรากเดียว ทำให้โครงสร้างโปรเจกต์หายไป
+-repackageclasses ''
+# อนุญาตให้ R8 ปรับ access modifier เพื่อ inline/ย่อโค้ดได้มากขึ้น
+-allowaccessmodification
+# ผ่านการ optimize หลายรอบ
+-optimizationpasses 5
 
-# FloatingService ถูกเรียกจากระบบ Android (Service lifecycle) ผ่านชื่อเต็มใน AndroidManifest
-# ต้องกันไว้ ไม่งั้นระบบหาคลาสไม่เจอตอนเปิด service
--keep class com.mynovo.mynovo1.FloatingService { *; }
+# ---------- ลบ Log ออกจาก release ----------
+# กัน log หลุดข้อมูลภายใน (ชื่อเมธอด, state, ข้อมูล ADB pairing ฯลฯ)
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+    public static int w(...);
+}
 
-# MainActivity ถูกเรียกจากระบบผ่าน AndroidManifest เหมือนกัน
--keep class com.mynovo.mynovo1.MainActivity { *; }
+# ---------- Stack trace ----------
+# เก็บเลขบรรทัดไว้ แต่ซ่อนชื่อไฟล์ต้นฉบับ (ใช้ mapping.txt แปลกลับตอน debug)
+-keepattributes LineNumberTable
+-renamesourcefileattribute ''
 
-# interface callback ที่เรียกข้าม object (MouseController.MouseEventListener)
-# ถ้าไม่กัน method name อาจถูกสับจนเรียกไม่ตรงกัน
--keep interface com.mynovo.mynovo1.MouseController$MouseEventListener { *; }
+# ---------- Android components ----------
+# AGP สร้าง keep rule ให้ Activity/Service ที่อยู่ใน AndroidManifest อัตโนมัติ
+# จึงไม่ต้อง keep FloatingService / MainActivity แบบ { *; } อีก (ชื่อเมธอดภายในจะถูกสับได้)
 
-# IKeymapperService + AIDL stub/proxy ที่ generate อัตโนมัติ (ใช้ข้าม process/Shizuku)
+# ---------- AIDL (ข้าม process / Shizuku) ----------
+# จำกัดเฉพาะแพ็กเกจของเรา ไม่ใช้ wildcard **.I*$Stub ที่กว้างเกินไป
 -keep interface com.mynovo.mynovo1.IKeymapperService { *; }
--keep class com.mynovo.mynovo1.IKeymapperService$* { *; }
--keep class **.I*$Stub { *; }
--keep class **.I*$Stub$Proxy { *; }
+-keep class com.mynovo.mynovo1.IKeymapperService$Stub { *; }
+-keep class com.mynovo.mynovo1.IKeymapperService$Stub$Proxy { *; }
 
-# native-lib.cpp (JNI): ห้ามเปลี่ยนชื่อคลาส/เมธอดที่ native code เรียกกลับมา ไม่งั้น UnsatisfiedLinkError
--keepclasseswithmembernames class * {
+# ---------- JNI ----------
+# ชื่อ native method ต้องคงไว้
+-keepclasseswithmembernames,includedescriptorclasses class * {
     native <methods>;
 }
-# ถ้า native-lib.cpp เรียกเมธอดใน MouseController/TouchSimulator/VirtualInputDriver กลับเข้ามาโดยตรง (JNI callback)
-# ให้ปลดคอมเมนต์บรรทัดที่เกี่ยวข้องด้านล่าง (เผื่อไว้ก่อน เปิดใช้ถ้า build แล้วพังเรื่อง native)
-#-keep class com.mynovo.mynovo1.MouseController { *; }
-#-keep class com.mynovo.mynovo1.TouchSimulator { *; }
-#-keep class com.mynovo.mynovo1.VirtualInputDriver { *; }
+# ถ้า native-lib.cpp เรียกกลับเข้า Java ให้เปิดเฉพาะเมธอดที่ถูกเรียกจริง
+# (แคบกว่า keep ทั้งคลาส) เช่น:
+#-keepclassmembers class com.mynovo.mynovo1.MouseController {
+#    void onNativeCallback(int, int);
+#}
 
-# Shizuku ต้องกันทั้งหมด (ใช้ AIDL + reflection ภายใน)
--keep class rikka.shizuku.** { *; }
--keep interface rikka.shizuku.** { *; }
+# ---------- InputServer (app_process) ----------
+# keep แค่ main() ไม่ต้อง keep สมาชิกอื่น
+-keep class com.mynovo.mynovo1.InputServer {
+    public static void main(java.lang.String[]);
+}
+
+# ---------- ไลบรารีภายนอก ----------
+# Shizuku มี consumer rules ในตัว ลองไม่ใส่ก่อน ถ้าพังค่อยเปิด
+#-keep class rikka.shizuku.** { *; }
 -dontwarn rikka.shizuku.**
 
-# AppCompat / Material อาจมี reflection ภายใน กันไว้กันพลาด
--keep class androidx.appcompat.** { *; }
--dontwarn androidx.appcompat.**
-
-# เก็บ line number ไว้ช่วย debug stack trace ตอน release พัง (เปิดไว้ก่อนช่วงทดสอบ)
--keepattributes SourceFile,LineNumberTable
--keepattributes *Annotation*
-
-# ปิดใช้งานตอนปล่อยจริงแล้วอยากซ่อนชื่อไฟล์ต้นฉบับ (ตอนนี้ปิดไว้เพื่อให้ debug ง่ายก่อน)
-#-renamesourcefileattribute SourceFile
-
-# ==== Wireless activation (libadb-android / BouncyCastle / Conscrypt) ====
-# libadb ใช้ reflection และ crypto provider ภายใน ถ้าถูกสับชื่อ/ลบ pair จะล้มใน release
+# libadb-android: คงไว้ก่อน (ใช้ reflection) ทดสอบแล้วค่อยตัดให้แคบลง
 -keep class io.github.muntashirakon.adb.** { *; }
 -dontwarn io.github.muntashirakon.adb.**
 
--keep class org.bouncycastle.** { *; }
+# BouncyCastle: keep เฉพาะ provider ไม่ใช่ทั้งไลบรารี
+-keep class org.bouncycastle.jce.provider.BouncyCastleProvider { *; }
+-keep class org.bouncycastle.jcajce.provider.** { *; }
 -dontwarn org.bouncycastle.**
 
--keep class org.conscrypt.** { *; }
+# Conscrypt
+-keep class org.conscrypt.OpenSSLProvider { *; }
 -dontwarn org.conscrypt.**
 
-# คลาสของเราที่เกี่ยวกับ ADB
--keep class com.mynovo.mynovo1.AdbManager { *; }
-
-# ==== InputServer (รันผ่าน app_process ด้วยสิทธิ์ shell) ====
-# ไม่ได้ถูกอ้างในโค้ดแอป ถ้าไม่ keep R8 จะลบ/เปลี่ยนชื่อ main() แล้ว server เปิดไม่ขึ้น
--keep class com.mynovo.mynovo1.InputServer { *; }
--keepclassmembers class com.mynovo.mynovo1.InputServer {
-    public static void main(java.lang.String[]);
-}
+# AdbManager ถูกอ้างจากโค้ดตรง ๆ ไม่ต้อง keep แล้ว R8 จะสับชื่อให้
+# AppCompat/Material: ลบ keep ออก ใช้ consumer rules ของไลบรารีเอง
