@@ -73,6 +73,15 @@ public class MouseController {
     // ความกว้างช่วงเปลี่ยนนุ่มๆ รอบเส้นแบ่ง (สัดส่วนความกว้างจอ) เพิ่ม = เปลี่ยนค่อยเป็นค่อยไป
     private static final float CONST_LEFT_HALF_BAND = 0.08f;
 
+    // [เพิ่ม] ความเร็วตอนนิ้วเสมือนอยู่ "นอกจอ" เท่านั้น (ระบบคงที่) 1.0 = ไม่ลด
+    // ในจอความเร็วเท่าเดิมทุกอย่าง ผลมีเฉพาะตอนนิ้วลอยเลยขอบจอ
+    // 0.80 = ช้าลง ~20% เมื่อลอยไกลถึงระยะ BAND / ยังเร็วไปให้ลด (0.70) / ช้าไปให้เพิ่ม (0.90)
+    // [หมายเหตุ] นอกจอซ้ายจะซ้อนกับ CONST_LEFT_HALF_GAIN (0.85 x 0.80 = ~0.68)
+    private static final float CONST_OFFSCREEN_GAIN_X = 0.80f;
+    private static final float CONST_OFFSCREEN_GAIN_Y = 1.0f;   // 1.0 = ไม่แตะแกน Y
+    // ระยะนอกจอ (สัดส่วนของจอ) ที่ถึงค่า GAIN เต็มที่ เพิ่ม = ค่อยๆ ช้าลง
+    private static final float CONST_OFFSCREEN_BAND = 0.5f;
+
     // [เพิ่ม] ช่วงปลอดภัยของแกน X ตอน "วางนิ้วใหม่" (DOWN) ของโหมดคงที่ (สัดส่วนของความกว้างจอ)
     // เหตุผล: เดิมวางนิ้วใหม่ที่ปลายโซนสุดๆ (~37% / ~95%) ซึ่งอาจทับปุ่มจอย/ปุ่มอื่น หรือชิดขอบจอจนระบบมองเป็นปัดจากขอบ
     //         เกมจึงรับเป็นการ "ทัชตรงอื่น" ตอนนี้ DOWN จะอยู่ในช่วงนี้เสมอ ส่วนระยะลาก (MOVE) ยังกว้างตามโซนเดิม
@@ -227,6 +236,16 @@ public class MouseController {
         t = Math.max(0f, Math.min(1f, t));
         t = t * t * (3f - 2f * t); // smoothstep
         return CONST_LEFT_HALF_GAIN + (1f - CONST_LEFT_HALF_GAIN) * t;
+    }
+
+    // [เพิ่ม] ตัวคูณตอนอยู่นอกจอ (ระบบคงที่): ในจอ = 1.0 เป๊ะ (ไม่กระทบความเร็วในจอ)
+    // ยิ่งลอยเลยขอบไกลยิ่งลดลงนุ่มๆ (smoothstep) จนถึงค่า gain ที่ระยะ CONST_OFFSCREEN_BAND
+    private float constOffscreenFactor(float v, float max, float gain) {
+        float d = v < 0f ? -v : (v > max ? v - max : 0f);
+        if (d <= 0f || gain >= 1f) return 1f;
+        float t = Math.min(1f, d / Math.max(1f, CONST_OFFSCREEN_BAND * max));
+        t = t * t * (3f - 2f * t); // smoothstep
+        return 1f - (1f - gain) * t;
     }
 
     private final Context context;
@@ -1014,7 +1033,9 @@ public class MouseController {
                         final float mvX = dx * gain * viewSensX;
 
                         // แกน Y
-                        viewY += dy * gain * viewSensY;
+                        // [แก้ไข] ชะลอเฉพาะตอนนิ้วเสมือนอยู่นอกจอ (ในจอ factor = 1.0 ความเร็วเท่าเดิม)
+                        viewY += dy * gain * viewSensY
+                                * constOffscreenFactor((float) viewY, maxScreenHeight, CONST_OFFSCREEN_GAIN_Y);
                         if (VIEW_Y_FREE_IN_ZONE) {
                             // ลากทะลุขอบจอได้ ไม่ยก-วางนิ้วใหม่ (แค่กันเลขลอยไกลเกินจริง)
                             final double yLim = maxScreenHeight * VIEW_Y_LIMIT_SCREENS;
@@ -1026,7 +1047,9 @@ public class MouseController {
                         if (VIEW_X_FREE_IN_ZONE) {
                             // [แก้ไข] ซีกซ้ายของจอช้ากว่าซีกขวา ตามตำแหน่งนิ้วเสมือน (smoothstep รอบเส้นแบ่ง)
                             // ซีกขวา = เส้นตรงล้วนๆ (ความเร็ว = ระยะเมาส์ x ความไว) / ซีกซ้าย x CONST_LEFT_HALF_GAIN
-                            viewX += mvX * constLeftHalfFactorX((float) viewX);
+                            // [แก้ไข] + ชะลอเฉพาะตอนนิ้วเสมือนอยู่นอกจอ (ในจอ factor = 1.0 ความเร็วเท่าเดิม)
+                            viewX += mvX * constLeftHalfFactorX((float) viewX)
+                                    * constOffscreenFactor((float) viewX, maxScreenWidth, CONST_OFFSCREEN_GAIN_X);
                             final double xLim = maxScreenWidth * VIEW_X_LIMIT_SCREENS;
                             if (viewX < -xLim) viewX = -xLim;
                             else if (viewX > maxScreenWidth + xLim) viewX = maxScreenWidth + xLim;
