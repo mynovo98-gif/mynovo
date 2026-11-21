@@ -40,7 +40,7 @@ public class MouseController {
     // ขอบเขตโซน (สัดส่วนของจอ) = ระยะที่นิ้วเสมือน "ลาก" ได้ในโหมดคงที่
     // ถ้าฝั่งซ้ายของโซนกล้องหมุนเร็วกว่าฝั่งขวา ให้เพิ่ม ZONE_X_MIN (เช่น 0.5)
     // [หมายเหตุ] ถ้า VIEW_X_FREE_IN_ZONE = true ค่า ZONE_X_* ไม่ถูกใช้แล้ว (ไม่ว่าแกน Y จะตั้งเป็นอะไร)
-    private static final float ZONE_X_MIN = 0.12f;
+    private static final float ZONE_X_MIN = 0.16f;
     private static final float ZONE_X_MAX = 0.88f;
     // [หมายเหตุ] ZONE_Y_*, ZONE_RESTART ใช้เฉพาะตอน VIEW_Y_FREE_IN_ZONE = false (พฤติกรรมเดิมของแกน Y)
     private static final float ZONE_Y_MIN = 0.12f;
@@ -60,17 +60,45 @@ public class MouseController {
     //         ไม่ชนขอบโซน ไม่ยก-วางนิ้วใหม่ ไม่รีเซ็ตตอนเมาส์หยุด (ไม่ขึ้นกับการตั้งค่าแกน Y)
     // false = พฤติกรรมเดิม (X ชนขอบโซนแล้วยก-วางใหม่)
     private static final boolean VIEW_X_FREE_IN_ZONE = true;
-    // [เพิ่มใหม่] ลอยไกลสุดของแกน X กี่เท่าของความกว้างจอ (แค่หยุดที่เพดาน ไม่ยกนิ้ว) กันตัวเลขลอยไกลเกินจริง
-    // ถ้ากล้องไม่ขยับตอนนิ้วอยู่นอกจอไกลๆ ให้ลดค่านี้ (เช่น 5-10)
-    private static final float VIEW_X_LIMIT_SCREENS = 50f;
+    // [แก้ไข] ลอยไกลสุดของแกน X กี่เท่าของความกว้างจอ (แค่หยุดที่เพดาน ไม่ยกนิ้ว)
+    // เดิม 50 -> ลดเหลือ 5 เพราะนิ้วที่ไกลเกินไปทำให้เกม/ระบบทิ้งนิ้ว (กล้องหยุดหมุนเอง)
+    // ถ้ากล้องไม่ขยับตอนนิ้วอยู่นอกจอไกลๆ ให้ลดค่านี้ (เช่น 3) / ถ้าชนเพดานบ่อยให้เพิ่ม
+    private static final float VIEW_X_LIMIT_SCREENS = 5f;
+
+    // [เพิ่ม] ซีกซ้ายของจอช้ากว่าซีกขวา (ระบบคงที่ แกน X) ตามตำแหน่งนิ้วเสมือน
+    // 0.85 = ซีกซ้ายช้ากว่า ~15% / ยังเร็วไปให้ลด (0.80) / ช้าไปให้เพิ่ม (0.90)
+    // [แก้ไขล่าสุด] 0.75 -> 0.70 ให้ซีกซ้ายช้ากว่าซีกขวาอีกนิด
+    private static final float CONST_LEFT_HALF_GAIN = 0.70f;
+    // เส้นแบ่งซ้าย/ขวา (สัดส่วนความกว้างจอ)
+    private static final float CONST_LEFT_HALF_X = 0.5f;
+    // [แก้ไขให้สมูท] ความกว้างช่วงเปลี่ยนนุ่มๆ รอบเส้นแบ่ง (สัดส่วนความกว้างจอ) เพิ่ม = เปลี่ยนค่อยเป็นค่อยไป
+    // เดิม 0.08 (เปลี่ยนความเร็วในช่วงแคบ ~16% ของจอ รู้สึกสะดุด) -> 0.35 ไล่ระดับเกือบทั้งจอ
+    private static final float CONST_LEFT_HALF_BAND = 0.2f;
+
+    // [เพิ่ม] ความเร็วตอนนิ้วเสมือนอยู่ "นอกจอ" เท่านั้น (ระบบคงที่) 1.0 = ไม่ลด
+    // ในจอความเร็วเท่าเดิมทุกอย่าง ผลมีเฉพาะตอนนิ้วลอยเลยขอบจอ
+    // [แก้ไขให้สมูท] เดิม 0.20 (ชันมาก ช้าลง 80%) -> 0.45
+    // ยังเร็วไปให้ลด CONST_X_SPEED_SCALE แทน อย่าลดค่านี้ เพราะยิ่งต่ำยิ่งทำให้ความเร็วเปลี่ยนชัน
+    // [หมายเหตุ] นอกจอซ้ายจะซ้อนกับ CONST_LEFT_HALF_GAIN
+    private static final float CONST_OFFSCREEN_GAIN_X = 0.30f;
+    private static final float CONST_OFFSCREEN_GAIN_Y = 1.0f;   // 1.0 = ไม่แตะแกน Y
+    // [แก้ไขให้สมูท] ระยะนอกจอ (สัดส่วนของจอ) ที่ถึงค่า GAIN เต็มที่ เพิ่ม = ค่อยๆ ช้าลง
+    // เดิม 0.3 -> 1.0 (ไล่ระดับยาวขึ้น ไม่มีจุดหักมุม)
+    private static final float CONST_OFFSCREEN_BAND = 1.0f;
+
+    // [เพิ่ม] ตัวคูณความเร็วแกน X ทั้งหมดของระบบคงที่ (ทั้งในจอและนอกจอ) 1.0 = เท่าเดิม
+    // ยังเร็วไปให้ลด (0.5) / ช้าไปให้เพิ่ม (0.8) แกน Y ไม่เกี่ยวข้อง
+    // [หมายเหตุ] คูณซ้อนกับ CONST_LEFT_HALF_GAIN และ CONST_OFFSCREEN_GAIN_X
+    // [แก้ไขล่าสุด] 0.65 -> 0.52 (ช้าลง 20% ทั้งในจอและนอกจอ)
+    private static final float CONST_X_SPEED_SCALE = 0.52f;
 
     // [เพิ่ม] ช่วงปลอดภัยของแกน X ตอน "วางนิ้วใหม่" (DOWN) ของโหมดคงที่ (สัดส่วนของความกว้างจอ)
     // เหตุผล: เดิมวางนิ้วใหม่ที่ปลายโซนสุดๆ (~37% / ~95%) ซึ่งอาจทับปุ่มจอย/ปุ่มอื่น หรือชิดขอบจอจนระบบมองเป็นปัดจากขอบ
     //         เกมจึงรับเป็นการ "ทัชตรงอื่น" ตอนนี้ DOWN จะอยู่ในช่วงนี้เสมอ ส่วนระยะลาก (MOVE) ยังกว้างตามโซนเดิม
     // หมุนไปขวา -> วางใหม่ที่ DOWN_SAFE_X_MIN / หมุนไปซ้าย -> วางใหม่ที่ DOWN_SAFE_X_MAX
     // ปรับให้ตรงกับพื้นที่ว่าง (ไม่มีปุ่ม) ของเกมคุณ
-    private static final float DOWN_SAFE_X_MIN = 0.56f;
-    private static final float DOWN_SAFE_X_MAX = 0.94f;
+    private static final float DOWN_SAFE_X_MIN = 0.18f;
+    private static final float DOWN_SAFE_X_MAX = 0.88f;
     // [เพิ่ม] สบัดแรงจนข้ามโซนได้กี่รอบในเฟรมเดียว (ระยะที่เกินจะยกไปทำต่อหลังวางนิ้วใหม่ ไม่ทิ้ง)
     private static final int MAX_ZONE_WRAPS = 6;
 
@@ -89,7 +117,7 @@ public class MouseController {
     // [เพิ่ม] ช่วงปลอดภัยของ Y ตอน "วางนิ้วใหม่" (สัดส่วนของความสูงจอ)
     // DOWN ใหม่ห้ามอยู่ติดขอบบน/ล่าง ไม่งั้นระบบมองเป็นการปัดจากขอบ (ดึงแถบแจ้งเตือน/ท่าทางโฮม)
     // นิ้วที่ลากเลยขอบหลังวางแล้วยังทะลุได้เหมือนเดิม (ไม่เกี่ยวกับค่านี้)
-    private static final float DOWN_SAFE_Y_MIN = 0.26f;
+    private static final float DOWN_SAFE_Y_MIN = 0.16f;
     private static final float DOWN_SAFE_Y_MAX = 0.88f;
 
     // ระยะลากสูงสุดของโหมดมุมมองจากจุดเริ่ม (สัดส่วนของความกว้าง/สูงจอ) เกินแล้วจะยกนิ้วแล้ววางใหม่
@@ -97,16 +125,14 @@ public class MouseController {
     private static final float VIEW_RANGE_X = 0.10f;
     private static final float VIEW_RANGE_Y = 0.12f;
 
-    // เกมให้ความเร็วกล้องครึ่งจอซ้ายเร็วกว่าครึ่งขวา เลยชดเชยให้เท่ากัน (ไม่กั้นนิ้ว)
-    // LEFT_HALF_GAIN: 1.0 = ปิดการชดเชย (ความเร็วคงที่ทั้งจอ) / ถ้าซ้ายเร็วกว่าขวาให้ลดลง (เช่น 0.5)
-    // LEFT_HALF_X = เส้นแบ่งซ้าย/ขวา, LEFT_HALF_BAND = ความกว้างช่วงเปลี่ยนค่อยๆ (กันกระโดดตรงเส้นแบ่ง)
+    // [แก้ไข] ปิดการชดเชยความเร็วตามตำแหน่งแกน X (ให้เป็นเส้นตรงเหมือนอีมูเลเตอร์)
+    // LEFT_HALF_GAIN: 1.0 = ปิดการชดเชย (ความเร็วคงที่ทั้งจอ)
+    // เดิม 0.8 ทำให้ความเร็วซ้าย/ขวาไม่เท่ากัน เพราะ viewX ลอยนอกจอได้ไกล
     private static final float LEFT_HALF_X = 0.525f;
-    private static final float LEFT_HALF_GAIN = 0.8f;
+    private static final float LEFT_HALF_GAIN = 0.6f;
     private static final float LEFT_HALF_BAND =  1.0f;
 
-    // [แก้ไขแก้หน่วง] ตัวลดความเร็วเพิ่มเติมฝั่งซ้าย (ใช้ร่วมกับ leftHalfFactor)
-    // ตั้งเป็น 1.0 = ปิดตัวลดนี้ทั้งหมด (ทดสอบว่าหายหน่วงหรือไม่)
-    // ถ้าหายหน่วงแล้วฝั่งซ้ายเร็วกว่าขวา ค่อยๆ ลดทีละนิด เช่น 0.9 -> 0.8 -> 0.7
+    // ตัวลดความเร็วเพิ่มเติมฝั่งซ้าย (ปิดอยู่ = 1.0) [ตอนนี้ระบบคงที่ไม่เรียกใช้แล้ว]
     private static final float LEFT_EXTRA_GAIN = 1.0f;
     // เส้นแบ่งซ้าย/ขวา (สัดส่วนของความกว้างจอ)
     private static final float LEFT_EXTRA_X = 0.5f;
@@ -114,60 +140,118 @@ public class MouseController {
     private static final float LEFT_EXTRA_BAND = 0.05f;
 
     // ช่วงความเร็วดิบ (px/ms ก่อนคูณความไว) ที่เริ่มนับว่า "เริ่มสะบัดเร็ว" ถึง "สะบัดเร็วสุด"
-    private static final float LEFT_FAST_SPEED_MIN = 0.8f;
+    private static final float LEFT_FAST_SPEED_MIN = 0.7f;
     private static final float LEFT_FAST_SPEED_MAX = 0.9f;
-    // [แก้ไขแก้หน่วง] gain ของฝั่งซ้ายตอนสะบัดเร็วสุด ตั้งเป็น 1.0 = ปิดการหรี่ตอนสะบัด
-    // ถ้าสะบัดเร็วแล้วฝั่งซ้ายพุ่งเกิน ค่อยๆ ลดลง (เช่น 0.9 -> 0.8)
+    // gain ของฝั่งซ้ายตอนสะบัดเร็วสุด ตั้งเป็น 1.0 = ปิดการหรี่ตอนสะบัด
     private static final float LEFT_EXTRA_GAIN_FAST = 1.0f;
 
-    // [เพิ่ม] ตัวคูณความเร็วตอน "หันซ้าย" (ตามทิศที่เมาส์ขยับ ไม่เกี่ยวกับตำแหน่งนิ้วเสมือน)
-    // 1.0 = เท่าเดิม, 0.9 = ช้าลง 10%, 0.8 = ช้าลง 20%, 0.7 = ช้าลง 30%
+    // ตัวคูณความเร็วตอน "หันซ้าย" (ตามทิศที่เมาส์ขยับ ไม่เกี่ยวกับตำแหน่งนิ้วเสมือน)
+    // 1.0 = เท่าเดิม [ตอนนี้ระบบคงที่ไม่เรียกใช้แล้ว]
     private static final float TURN_LEFT_GAIN = 1.0f;
 
-    // [แก้ไขแก้หน่วง] สวิตช์ตัวชดเชยตอนนิ้วเสมือนลากหลุดขอบจอ
-    // false = ปิดตัวชดเชย ความเร็ว = ระยะเมาส์ x ความไว เป็นเส้นตรงจริงๆ (ไม่มีตัวลดตอนนิ้วนอกจอ)
-    // true  = เปิดตัวชดเชย (ถ้านอกจอแล้วเกมเร็วขึ้นจริงๆ ให้เปิดแล้วปรับ OFFSCREEN_GAIN_X/MIN_X)
+    // สวิตช์ตัวชดเชยตอนนิ้วเสมือนลากหลุดขอบจอ
+    // false = ปิดตัวชดเชย ความเร็ว = ระยะเมาส์ x ความไว เป็นเส้นตรงจริงๆ
     private static final boolean OFFSCREEN_COMPENSATE = false;
 
-    // ตอนนิ้วเสมือนลากหลุดขอบจอ เกมให้ความเร็วเร็วขึ้น เลยชดเชยให้เท่าตอนอยู่ในจอ (ใช้ทั้งแกน X และ Y)
-    // OFFSCREEN_GAIN: 1.0 = ปิดการชดเชย (ความเร็วคงที่ทั้งแกน X และ Y)
-    private static final float OFFSCREEN_GAIN_X = 0.25f;
-    // ตัวคูณต่ำสุดของแกน X นอกจอ (กันช้าลงเรื่อยๆ ตอนสะบัดไกล) เพิ่ม = นอกจอเร็วขึ้น
-    private static final float OFFSCREEN_MIN_X = 0.35f;
+    private static final float OFFSCREEN_GAIN_X = 0.30f;
+    private static final float OFFSCREEN_MIN_X = 030f;
     // แกน Y กลับไปใช้ค่าเดิม (1.0 = ไม่ชดเชย)
     private static final float OFFSCREEN_GAIN_Y = 1.0f;
-    // ระยะที่ค่อยๆ เปลี่ยนความเร็วเมื่อเลยขอบออกไป (สัดส่วนของขนาดจอ) จะได้ไม่กระโดดตรงขอบ
-    private static final float OFFSCREEN_BAND = 0.8f;
+    private static final float OFFSCREEN_BAND = 0.9f;
     // BAND ของแกน Y (ค่าเดิม)
     private static final float OFFSCREEN_BAND_Y = 0.04f;
     private static final boolean OFFSCREEN_STACK_LEFT = false;
 
-    // [แก้ไขแก้หน่วง] กันกล้องพุ่งตอน "ยกเมาส์แล้ววางใหม่" (เฉพาะระบบคงที่)
+    // กันกล้องพุ่งตอน "ยกเมาส์แล้ววางใหม่" (เฉพาะระบบคงที่)
     // ถ้าห่างจาก MOVE ก่อนหน้านานกว่าค่านี้ ถือว่าเพิ่งพ้นช่วงเงียบ
-    // เพิ่มจาก 60 เป็น 150 เพื่อไม่ให้การหยุดมือสั้นๆ แล้วสะบัดต่อโดนทิ้ง event
-    // ถ้ายังพุ่งตอนยกเมาส์อยู่บ้าง ให้ลดค่านี้ลง (เช่น 100)
     private static final float POST_GAP_MS = 150f;
-    // [แก้ไขแก้หน่วง] เพดานความเร็วดิบ (พิกเซลดิบ/ms) ที่ยอมรับได้ "ทันที" หลังช่วงเงียบ
-    // เพิ่มจาก 2.5 เป็น 5.0 ให้ก้อนแรกหลังหยุดมือไม่โดนทิ้งง่ายเกินไป
-    // ยังพุ่งตอนยกเมาส์อยู่ -> ลดค่านี้ลง (เช่น 3.5)
-    private static final float POST_GAP_MAX_V = 5.0f;
-    // ล็อก dt ที่ใช้คำนวณเพดานหลังช่วงเงียบ (ms) เพดาน = POST_GAP_MAX_V x ค่านี้ ไม่ว่ายกเมาส์นานแค่ไหน
+    // [แก้ไข] เพดานความเร็วของ event ก้อนแรกหลังช่วงเงียบ (px/ms) ก้อนที่เกินจะถูก "บีบ" ให้เท่าเพดาน (ไม่ทิ้งทั้งก้อน)
+    // 0.8 x 16ms = ~13px ใกล้เคียง event ปกติ -> ยกเมาส์วางใหม่แล้วความเร็วเท่าเดิม ไม่พุ่ง
+    // ถ้ายังเร็วอยู่ให้ลดเป็น 0.5 / ถ้าก้อนแรกหน่วงเกินไปให้เพิ่มเป็น 1.2
+    private static final float POST_GAP_MAX_V = 0.8f;
+    // ล็อก dt ที่ใช้คำนวณเพดานหลังช่วงเงียบ (ms)
     private static final float POST_GAP_CAP_DT_MS = 16f;
 
-    // [เพิ่มใหม่] เพดานความเร็วดิบของ "ระบบคงที่" (พิกเซลดิบของเมาส์/ms ก่อนคูณความไว) เฉพาะแกน X
-    // สบัดเมาส์แรงแค่ไหน ความเร็วหมุนก็ไม่เกินค่านี้ (ระยะส่วนที่เกินเพดานจะถูกตัดทิ้ง ไม่เก็บไว้ทำต่อ)
-    // ความเร็วปกติที่ต่ำกว่าเพดานไม่ถูกแตะเลย / ระบบบิตไม่ถูกแตะ / 0 = ปิดเพดาน
-    // ยังรู้สึกเร็วขึ้นตอนสบัด -> ลดค่านี้ (เช่น 0.8 -> 0.6) / หมุนปกติรู้สึกช้าลง -> เพิ่มค่านี้ (เช่น 1.3)
-    private static final float CONST_MAX_RAW_SPEED_X = 1.0f;
-    // เพดานแบบเดียวกันของแกน Y (0 = ปิด ไม่แตะแกน Y ตามที่ขอ)
+    // [แก้ไข] เพดานความเร็วดิบของ "ระบบคงที่" แกน X: เดิม 1.0 ตัดระยะทิ้ง ทำให้ความเร็วไม่เป็นเส้นตรง
+    // 0 = ปิดเพดาน (เหมือนอีมูเลเตอร์) / ถ้าสบัดแล้วพุ่งเกินไป ค่อยเปิดเป็น 2.0 แล้วลดทีละนิด
+    private static final float CONST_MAX_RAW_SPEED_X = 0f;
+    // เพดานแบบเดียวกันของแกน Y (0 = ปิด)
     private static final float CONST_MAX_RAW_SPEED_Y = 0f;
-    // ช่วง dt (ms) ที่ใช้คำนวณเพดานต่อ event: ต่ำสุด/สูงสุด (กัน event ที่มาติดกันหรือมาช้าทำให้เพดานเพี้ยน)
+    // ช่วง dt (ms) ที่ใช้คำนวณเพดานต่อ event: ต่ำสุด/สูงสุด
     private static final float CONST_CAP_DT_MIN_MS = 2f;
     private static final float CONST_CAP_DT_MAX_MS = 16f;
 
-    // [แก้ไขแก้หน่วง] ความถี่ส่งตำแหน่งนิ้วเสมือนเริ่มต้น (Hz) ก่อนที่หน้าตั้งค่าจะเรียก setViewHz()
+    // ความถี่ส่งตำแหน่งนิ้วเสมือนเริ่มต้น (Hz) ก่อนที่หน้าตั้งค่าจะเรียก setViewHz()
     // 0 = ซิงค์เฟรมจอ (อาจดีเลย์ได้ ~16ms บนจอ 60Hz) / 250 = ส่งทันทีที่พ้น interval ตอบสนองไวกว่า
+    // [แก้ไขอาการเป้าสั่น] ลดจาก 250 เป็น 144 ให้จังหวะส่งนิ่งขึ้น (ถ้าหน้าตั้งค่าเรียก setViewHz() ค่านั้นจะทับค่านี้)
     private static final int DEFAULT_VIEW_HZ = 250;
+
+    // ===== ตัวกรองสัญญาณเมาส์ (โหมดมุมมองเท่านั้น) =====
+    // [แก้ไขอาการเป้าสั่น] เปิดตัวกรองเป็นค่าเริ่มต้น (ถ้าหน้าตั้งค่าเรียก setMouseFilter() ค่านั้นจะทับค่านี้)
+    private volatile boolean filterEnabled = true;
+    // ความแรงปรับเรียบตอนขยับช้า: 0 = ไม่เรียบ, 1 = เรียบสุด
+    private volatile float filterSmooth = 0.35f;
+    // เดดโซน (px ต่อ event) สะสมจนเกินค่านี้ถึงปล่อยออก 0 = ปิด
+    private volatile float filterDeadzonePx = 0.5f;
+
+    // ความเร็ว (px/ms) ที่ถือว่า "สบัดเร็ว" ปรับเรียบเหลือ 0 ไม่มีหน่วง
+    private static final float FILTER_FAST_SPEED = 0.6f;
+    // กันสไปค์: เพดาน = max(MIN_PX, ค่าเฉลี่ย x RATIO)
+    private static final float FILTER_SPIKE_RATIO = 6f;
+    private static final float FILTER_SPIKE_MIN_PX = 120f;
+    // เงียบเกินนี้ (ms) ล้างสถานะตัวกรอง
+    private static final float FILTER_RESET_GAP_MS = 120f;
+
+    private float fPrevX, fPrevY, fAccX, fAccY, fAvgMag;
+    private final float[] fOut = new float[2];
+
+    private void resetMouseFilter() {
+        fPrevX = fPrevY = fAccX = fAccY = fAvgMag = 0f;
+    }
+
+    // ผลลัพธ์อยู่ใน fOut[0], fOut[1]
+    private void applyMouseFilter(float dx, float dy, float dtMs) {
+        final float dt = Math.max(1f, Math.min(32f, dtMs));
+        if (dtMs > FILTER_RESET_GAP_MS) resetMouseFilter();
+
+        // 1) กันสไปค์ (บีบ ไม่ทิ้ง)
+        float mag = (float) Math.hypot(dx, dy);
+        float cap = Math.max(FILTER_SPIKE_MIN_PX, fAvgMag * FILTER_SPIKE_RATIO);
+        if (mag > cap && mag > 0f) {
+            float s = cap / mag;
+            dx *= s; dy *= s; mag = cap;
+        }
+        fAvgMag += 0.2f * (mag - fAvgMag);
+
+        // 2) ปรับเรียบตามความเร็ว: ช้า = เรียบ, เร็ว = alpha 1 (ไม่หน่วง)
+        float t = Math.max(0f, Math.min(1f, (mag / dt) / FILTER_FAST_SPEED));
+        float minAlpha = 1f - 0.85f * Math.max(0f, Math.min(1f, filterSmooth));
+        float alpha = minAlpha + (1f - minAlpha) * t;
+        fPrevX += alpha * (dx - fPrevX);
+        fPrevY += alpha * (dy - fPrevY);
+        float ox = fPrevX, oy = fPrevY;
+
+        // 3) เดดโซนแบบสะสม
+        float dz = filterDeadzonePx;
+        if (dz > 0f) {
+            fAccX += ox; fAccY += oy;
+            if (Math.hypot(fAccX, fAccY) < dz) {
+                ox = 0f; oy = 0f;
+            } else {
+                ox = fAccX; oy = fAccY;
+                fAccX = 0f; fAccY = 0f;
+            }
+        }
+        fOut[0] = ox;
+        fOut[1] = oy;
+    }
+
+    public void setMouseFilter(boolean enabled, float smooth, float deadzonePx) {
+        filterEnabled = enabled;
+        filterSmooth = Math.max(0f, Math.min(1f, smooth));
+        filterDeadzonePx = Math.max(0f, deadzonePx);
+        resetMouseFilter();
+    }
 
     // ตัวคูณความเร็วตามระยะที่นิ้วเสมือนเลยขอบจอ แกน X (ลดต่อเนื่อง ไม่มีเพดาน)
     // (v = พิกัดบนแกนนั้น, max = ขนาดจอแกนนั้น)
@@ -189,6 +273,7 @@ public class MouseController {
     }
 
     // ตัวคูณความเร็วแกน X ตามตำแหน่งนิ้วเสมือน เปลี่ยนค่อยๆ รอบเส้นแบ่ง ไม่กระโดด
+    // (ปัจจุบันระบบคงที่ไม่เรียกใช้ เก็บไว้เผื่อใช้ภายหลัง)
     private float leftHalfFactor(float x) {
         float band = Math.max(1f, LEFT_HALF_BAND * maxScreenWidth);
         float t = (x - (LEFT_HALF_X * maxScreenWidth - band)) / (2f * band);
@@ -196,8 +281,7 @@ public class MouseController {
         return LEFT_HALF_GAIN + (1f - LEFT_HALF_GAIN) * t;
     }
 
-    // [เฉพาะแกน X] ตัวลดความเร็วเพิ่มเติมฝั่งซ้าย: ซ้ายของเส้นแบ่ง = gain (ขึ้นกับความเร็วสะบัด), ขวา = 1.0
-    // เปลี่ยนนุ่มๆ (smoothstep) ในช่วง LEFT_EXTRA_BAND รอบเส้นแบ่ง ไม่กระโดด
+    // ตัวลดความเร็วเพิ่มเติมฝั่งซ้าย (ปัจจุบันระบบคงที่ไม่เรียกใช้ เก็บไว้เผื่อใช้ภายหลัง)
     private float leftExtraFactor(float x, float rawSpeedPxMs) {
         float mid = LEFT_EXTRA_X * maxScreenWidth;
         float band = Math.max(1f, LEFT_EXTRA_BAND * maxScreenWidth);
@@ -218,6 +302,28 @@ public class MouseController {
     private float factorX(float x) {
         if (!OFFSCREEN_COMPENSATE) return 1f;
         return offscreenFactor(x, maxScreenWidth, OFFSCREEN_GAIN_X);
+    }
+
+    // [เพิ่ม] ตัวคูณซีกซ้าย (ระบบคงที่ แกน X): ซ้ายสุด = CONST_LEFT_HALF_GAIN, ขวา = 1.0
+    // เปลี่ยนนุ่มๆ รอบเส้นแบ่งด้วย smoothstep ไม่กระชาก
+    // นิ้วที่ลอยออกนอกจอซ้าย (x < 0) ถือเป็นซีกซ้ายเต็มที่ (ได้ CONST_LEFT_HALF_GAIN)
+    private float constLeftHalfFactorX(float x) {
+        float mid = CONST_LEFT_HALF_X * maxScreenWidth;
+        float band = Math.max(1f, CONST_LEFT_HALF_BAND * maxScreenWidth);
+        float t = (x - (mid - band)) / (2f * band);
+        t = Math.max(0f, Math.min(1f, t));
+        t = t * t * (3f - 2f * t); // smoothstep
+        return CONST_LEFT_HALF_GAIN + (1f - CONST_LEFT_HALF_GAIN) * t;
+    }
+
+    // [เพิ่ม] ตัวคูณตอนอยู่นอกจอ (ระบบคงที่): ในจอ = 1.0 เป๊ะ (ไม่กระทบความเร็วในจอ)
+    // ยิ่งลอยเลยขอบไกลยิ่งลดลงนุ่มๆ (smoothstep) จนถึงค่า gain ที่ระยะ CONST_OFFSCREEN_BAND
+    private float constOffscreenFactor(float v, float max, float gain) {
+        float d = v < 0f ? -v : (v > max ? v - max : 0f);
+        if (d <= 0f || gain >= 1f) return 1f;
+        float t = Math.min(1f, d / Math.max(1f, CONST_OFFSCREEN_BAND * max));
+        t = t * t * (3f - 2f * t); // smoothstep
+        return 1f - (1f - gain) * t;
     }
 
     private final Context context;
@@ -473,7 +579,7 @@ public class MouseController {
 
     private long lastMoveNs = 0;
 
-    // ปรับความเร็วสะบัดดิบให้เรียบด้วย EMA ก่อนส่งเข้า leftExtraFactor กันอาการสวิง
+    // ปรับความเร็วสะบัดดิบให้เรียบด้วย EMA (ปัจจุบันระบบคงที่ไม่ใช้แล้ว)
     private float smoothedLeftSpeedPxMs = 0f;
     // น้ำหนักของค่าใหม่ในแต่ละเฟรม (0-1): ยิ่งน้อยยิ่งเรียบ/ตอบสนองช้าลง
     private static final float LEFT_SPEED_SMOOTHING_ALPHA = 0.25f;
@@ -525,15 +631,15 @@ public class MouseController {
     }
 
     // ความชันของค่าความไว (ตั้งจากหน้าตั้งค่า): 1.0 = เส้นตรง
-    private static final float VIEW_SENS_CURVE = 1.0f;
+    private static final float VIEW_SENS_CURVE = 0.9f;
     // ค่าความไวที่ตอนนี้รู้สึกพอดี แยกแกน (ตรงค่านี้ความเร็วเท่าเดิมเป๊ะ)
     private static final float VIEW_SENS_PIVOT_X = 0.02f;
     private static final float VIEW_SENS_PIVOT_Y = 0.04f;
 
     // ตัวคูณความเร็วโหมดมุมมอง แยกแกน X / Y
-    // [แก้ไขแก้หน่วง] X เพิ่มจาก 0.30 เป็น 0.45 (ความไวต่ำเกินไปทำให้รู้สึกอืด)
-    // ถ้าเร็วไปให้ลด (เช่น 0.38) / ถ้ายังช้าให้เพิ่ม (เช่น 0.5)
-    private static final float VIEW_SPEED_SCALE_X = 0.45f;
+    // [แก้ไข] X ลดจาก 0.45 เป็น 0.40 (ช้าลง ~11%)
+    // ถ้ายังเร็วไปให้ลด X ทีละ 0.03-0.05 (เช่น 0.36) / ถ้าช้าไปให้เพิ่ม (เช่น 0.42)
+    private static final float VIEW_SPEED_SCALE_X = 0.30f;
     private static final float VIEW_SPEED_SCALE_Y = 0.35f;
 
     private float softenViewSens(float s, float pivot, float scale) {
@@ -854,15 +960,24 @@ public class MouseController {
             doViewInject();
         } else if (!injectScheduled) {
             // ยังไม่ถึงเวลา นัดส่งตำแหน่งล่าสุดตอนครบ interval (trailing)
+            // [แก้ไขให้สมูท] ปัดเวลารอ "ขึ้น" เป็น ms แทนปัดทิ้ง กันจังหวะส่งเหวี่ยงและคลาดสะสม
             injectScheduled = true;
-            injectHandler.postDelayed(injectRunnable, Math.max(1L, waitNs / 1_000_000L));
+            injectHandler.postDelayed(injectRunnable, Math.max(1L, (waitNs + 999_999L) / 1_000_000L));
         }
     }
 
     private void doViewInject() {
         injectScheduled = false;
         if (destroyed || isPaused || !isMouseMode || mouseMoveToken == 0) return;
-        lastInjectNs = System.nanoTime();
+
+        // [แก้ไขให้สมูท] เดินตามตารางเวลาคงที่ (lastInjectNs + interval) ไม่ใช้เวลาจริงทุกครั้ง
+        // กันจังหวะคลาดสะสม ถ้าช้าเกิน 2 interval ค่อยซิงค์เวลาใหม่
+        long now = System.nanoTime();
+        long intervalNs = viewInjectHz > 0 ? 1_000_000_000L / viewInjectHz : 0L;
+        lastInjectNs = (intervalNs == 0L || now - lastInjectNs > intervalNs * 2)
+                ? now
+                : lastInjectNs + intervalNs;
+
         // ส่งพิกัดทศนิยม ไม่ปัดเป็นพิกเซลเต็ม ความเร็วจะไม่เป็นขั้นบันได
         TouchSimulator.simulateMoveF(mouseMoveToken, 2, (float) viewX, (float) viewY);
     }
@@ -918,7 +1033,13 @@ public class MouseController {
                 if (isMouseMode) {
                     // ถ้านิ้วเมาส์ (ID 2) ถูกล้างไปแล้ว ให้ DOWN ใหม่อัตโนมัติ (debounce 2 ครั้งกัน flicker)
                     boolean tokenGone = mouseMoveToken == 0;
-                    boolean reportedUp = !tokenGone && !TouchSimulator.isPointerDown(2);
+                    // [แก้ไข] ระบบคงที่ + X ลอยนอกจอได้: ข้ามการเช็ค isPointerDown ทั้งหมด
+                    // (นิ้วนอกจอมักถูกรายงานว่า "ไม่ได้กด" ทำให้โดนวางนิ้วใหม่ที่ขอบจอ = กล้องกระโดด)
+                    // จึง DOWN เฉพาะตอนเริ่มโหมดเท่านั้น (tokenGone)
+                    boolean freeX = !viewFlickAccel && VIEW_X_FREE_IN_ZONE;
+                    // [แก้ไขอาการเป้าสั่นตอนยิง] ตอนกดยิง/คลิกค้างอยู่ (pressing) ข้ามการเช็ค isPointerDown
+                    // เพราะระบบอาจรายงานนิ้ว ID 2 หลุดชั่วคราวทั้งที่ยังกดอยู่ -> โดนยก-วางใหม่ = กล้องสะดุด/สั่น
+                    boolean reportedUp = !tokenGone && !freeX && !pressing && !TouchSimulator.isPointerDown(2);
                     if (reportedUp) {
                         lostPointerStreak++;
                     } else {
@@ -949,20 +1070,27 @@ public class MouseController {
                     // ระบบคงที่: แกน X ไม่ตัดระยะเลย / แกน Y และระบบบิตใช้ 1500
                     final float MAX_FRAME_DELTA = 1500f;
                     final float MAX_FRAME_DELTA_X = viewFlickAccel ? MAX_FRAME_DELTA : 1_000_000f;
-                    float dx = Math.max(-MAX_FRAME_DELTA_X, Math.min(MAX_FRAME_DELTA_X, sumDx));
-                    float dy = Math.max(-MAX_FRAME_DELTA, Math.min(MAX_FRAME_DELTA, sumDy));
 
-                    // ระบบคงที่เท่านั้น: event แรกหลัง "ช่วงเงียบ" ถ้าก้อนใหญ่เกินเพดานให้ทิ้งทั้งก้อน
+                    // [เพิ่ม] ตัวกรองสัญญาณเมาส์ (กรองก่อนเข้าสูตรความเร็วเดิม)
+                    float inDx = sumDx, inDy = sumDy;
+                    if (filterEnabled) {
+                        applyMouseFilter(sumDx, sumDy, dtMsFull);
+                        inDx = fOut[0];
+                        inDy = fOut[1];
+                    }
+                    float dx = Math.max(-MAX_FRAME_DELTA_X, Math.min(MAX_FRAME_DELTA_X, inDx));
+                    float dy = Math.max(-MAX_FRAME_DELTA, Math.min(MAX_FRAME_DELTA, inDy));
+
+                    // ระบบคงที่เท่านั้น: event แรกหลัง "ช่วงเงียบ" (ยกเมาส์แล้ววางใหม่)
+                    // [แก้ไข] ถ้าก้อนใหญ่เกินเพดาน ให้ "บีบ" ให้เท่าเพดาน (ไม่ทิ้งทั้งก้อนเหมือนเดิม)
+                    // ความเร็วหลังวางเมาส์ใหม่จึงใกล้เคียงตอนขยับปกติ ไม่พุ่ง
                     if (!viewFlickAccel && dtMsFull > POST_GAP_MS) {
                         float capPx = POST_GAP_MAX_V * Math.min(dtMsFull, POST_GAP_CAP_DT_MS);
-                        if (Math.abs(dx) > capPx || Math.abs(dy) > capPx) {
-                            dx = 0f;
-                            dy = 0f;
-                        }
+                        dx = Math.max(-capPx, Math.min(capPx, dx));
+                        dy = Math.max(-capPx, Math.min(capPx, dy));
                     }
 
-                    // [เพิ่มใหม่] ระบบคงที่เท่านั้น: เพดานความเร็วดิบ สบัดเมาส์แรงแค่ไหนก็ไม่หมุนเร็วเกินเพดาน
-                    // (รวมก้อนแรกหลังยกเมาส์วางใหม่ด้วย) ความเร็วที่ต่ำกว่าเพดานไม่ถูกแตะ
+                    // ระบบคงที่เท่านั้น: เพดานความเร็วดิบ (ตอนนี้ปิดอยู่ทั้ง X และ Y = 0)
                     if (!viewFlickAccel) {
                         final float capDt = Math.max(CONST_CAP_DT_MIN_MS, Math.min(dtMsFull, CONST_CAP_DT_MAX_MS));
                         if (CONST_MAX_RAW_SPEED_X > 0f) {
@@ -999,10 +1127,13 @@ public class MouseController {
 
                     if (useZone) {
                         // ===== โซนความเร็วคงที่: หมุนต่อเนื่อง ไม่ทิ้งระยะ ไม่ทัชผิดที่ =====
-                        final float mvX = dx * gain * viewSensX;
+                        // [แก้ไข] คูณ CONST_X_SPEED_SCALE ลดความเร็วแกน X ทั้งหมด (ในจอ + นอกจอ) แกน Y ไม่เกี่ยว
+                        final float mvX = dx * gain * viewSensX * CONST_X_SPEED_SCALE;
 
                         // แกน Y
-                        viewY += dy * gain * viewSensY;
+                        // [แก้ไข] ชะลอเฉพาะตอนนิ้วเสมือนอยู่นอกจอ (ในจอ factor = 1.0 ความเร็วเท่าเดิม)
+                        viewY += dy * gain * viewSensY
+                                * constOffscreenFactor((float) viewY, maxScreenHeight, CONST_OFFSCREEN_GAIN_Y);
                         if (VIEW_Y_FREE_IN_ZONE) {
                             // ลากทะลุขอบจอได้ ไม่ยก-วางนิ้วใหม่ (แค่กันเลขลอยไกลเกินจริง)
                             final double yLim = maxScreenHeight * VIEW_Y_LIMIT_SCREENS;
@@ -1012,17 +1143,11 @@ public class MouseController {
 
                         // แกน X ลากทะลุขอบจอได้ ไม่ขึ้นกับ VIEW_Y_FREE_IN_ZONE
                         if (VIEW_X_FREE_IN_ZONE) {
-                            // ชดเชยเฉพาะตอนหมุน "ออกนอกจอ" (ตอนหมุนกลับเข้าจอใช้ความเร็วปกติ)
-                            final boolean outward = (viewX < 0 && mvX < 0)
-                                    || (viewX > maxScreenWidth && mvX > 0);
-
-                            // ปรับความเร็วดิบให้เรียบด้วย EMA ก่อน กันอาการ "สวิง"
-                            final float rawSpeedPxMs = Math.abs(dx) / dtMsFull;
-                            smoothedLeftSpeedPxMs += (rawSpeedPxMs - smoothedLeftSpeedPxMs) * LEFT_SPEED_SMOOTHING_ALPHA;
-                            final float leftF = leftHalfFactor((float) viewX) * leftExtraFactor((float) viewX, smoothedLeftSpeedPxMs);
-                            // ตัวคูณตามทิศหันซ้าย (mvX < 0 = เมาส์ไปทางซ้าย)
-                            final float dirF = mvX < 0 ? TURN_LEFT_GAIN : 1f;
-                            viewX += (outward ? mvX * factorX((float) viewX) : mvX) * leftF * dirF;
+                            // [แก้ไข] ซีกซ้ายของจอช้ากว่าซีกขวา ตามตำแหน่งนิ้วเสมือน (smoothstep รอบเส้นแบ่ง)
+                            // ซีกขวา = เส้นตรงล้วนๆ (ความเร็ว = ระยะเมาส์ x ความไว) / ซีกซ้าย x CONST_LEFT_HALF_GAIN
+                            // [แก้ไข] + ชะลอเฉพาะตอนนิ้วเสมือนอยู่นอกจอ (ในจอ factor = 1.0 ความเร็วเท่าเดิม)
+                            viewX += mvX * constLeftHalfFactorX((float) viewX)
+                                    * constOffscreenFactor((float) viewX, maxScreenWidth, CONST_OFFSCREEN_GAIN_X);
                             final double xLim = maxScreenWidth * VIEW_X_LIMIT_SCREENS;
                             if (viewX < -xLim) viewX = -xLim;
                             else if (viewX > maxScreenWidth + xLim) viewX = maxScreenWidth + xLim;
@@ -1241,6 +1366,8 @@ public class MouseController {
                 smoothedLeftSpeedPxMs = 0f;
                 // รีเซ็ตตัวนับ flicker ของการเช็ค isPointerDown
                 lostPointerStreak = 0;
+                // [เพิ่ม] ล้างสถานะตัวกรองสัญญาณเมาส์
+                resetMouseFilter();
 
                 if (mouseMoveToken != 0) {
                     TouchSimulator.simulateUp(mouseMoveToken, 2, (int) cursorX, (int) cursorY);
@@ -1348,6 +1475,8 @@ public class MouseController {
         rightDown = false;
         prevSecondary = false;
         lostPointerStreak = 0;
+        // [เพิ่ม] ล้างสถานะตัวกรองสัญญาณเมาส์
+        resetMouseFilter();
         // ปล่อยนิ้วคลิกซ้ายที่กดค้างอยู่ (ถ้ามี)
         if (pressing && isMouseMode) {
             pressing = false;

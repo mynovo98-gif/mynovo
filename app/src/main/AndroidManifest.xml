@@ -87,6 +87,14 @@
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboard|keyboardHidden|uiMode"
             android:theme="@style/Theme.AppCompat.NoActionBar" />
 
+        <!-- ตัวเลือกไฟล์สำหรับส่งออก/นำเข้าพรีเซ็ต .mnv (โปร่งใส ไม่ขึ้นใน Recents) -->
+        <activity
+            android:name=".FilePickerActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <!-- อัปเดต Service ระบุประเภท specialUse ให้รอดจากระบบจัดการแบตของ Android 16 -->
         <service
             android:name=".FloatingService"

@@ -54,6 +54,8 @@ public class FloatingService extends Service implements MouseController.MouseEve
 
     // ใช้ร่วมกับ KeyBlockService เพื่อกันปุ่ม Windows ไม่ให้ออกหน้าหลัก
     public static volatile boolean blockMetaKey = false;
+    // ใช้ร่วมกับ FilePickerActivity: ระหว่างเลือกไฟล์ห้ามให้มอนิเตอร์สั่งปิดระบบ
+    public static volatile boolean pickerOpen = false;
     public static volatile FloatingService instance = null;
 
     private WindowManager windowManager;
@@ -73,13 +75,18 @@ public class FloatingService extends Service implements MouseController.MouseEve
     private Button btnToggleKeyRef = null;
 
     // ===== [KB] จับคีย์บอร์ดแบบ exclusive (kbgrab ผ่าน InputServer / ShellServerClient) =====
+    // kbGrabEnabled   : ผู้ใช้เปิดใช้ระบบนี้ (ตั้งค่าระบบ) เก็บถาวรใน prefs
+    // kbEscaped       : ผู้ใช้กด Ctrl+Esc ปล่อยชั่วคราว (รีเซ็ตเมื่อกลับเข้าเกม หรือแตะปุ่มในตั้งค่า)
+    // kbGrabRequested : ตอนนี้ขอ grab อยู่หรือไม่
+    // kbGrabCount     : จำนวนคีย์บอร์ดที่ grab อยู่จริง (0 = ไม่สำเร็จ/ไม่มีคีย์บอร์ด)
     private volatile boolean kbGrabEnabled = true;
     private volatile boolean kbEscaped = false;
     private volatile boolean kbGrabRequested = false;
     private volatile int kbGrabCount = 0;
     private boolean settingsTextEditing = false;
-    private Button btnKbGrabRef = null;
+    private Button btnKbGrabRef = null; // [FPS] ไม่ใช้แสดงในเมนูแล้ว แต่เก็บไว้กันโค้ดอื่นพัง
     private long kbDownTime = 0;
+    // [แก้ lag] จำกัดความถี่การลองเชื่อม InputServer ใหม่
     private long lastKbReconnectAt = 0;
 
     // ===== [FPS] เปิด/ปิดการแสดง FPS ลอยหน้าจอ =====
@@ -165,13 +172,11 @@ public class FloatingService extends Service implements MouseController.MouseEve
     private Map<View, Runnable> rapidFireRunnables = new HashMap<>();
 
     private final Map<View, RapidTap> rapidTapMap = new HashMap<>();
-    // เก็บเป็น "ช่วงห่าง (ms)"
+    // [แก้ไข] เดิมเก็บเป็น "ครั้ง/วิ" ตอนนี้เก็บเป็น "ช่วงห่าง (ms)"
     private final Map<View, Integer> buttonIntervalMap = new HashMap<>();
-    // โหมดแตะรัวของแต่ละปุ่ม: false/ไม่มีค่า = กดค้างเพื่อรัว, true = กดเริ่ม กดอีกครั้งหยุด
+    // [เพิ่ม] โหมดแตะรัวของแต่ละปุ่ม: false/ไม่มีค่า = กดค้างเพื่อรัว, true = กดเริ่ม กดอีกครั้งหยุด
     private final Map<View, Boolean> buttonRapidToggleMap = new HashMap<>();
     private final Map<View, Integer> buttonPressMsMap = new HashMap<>();
-    // [เพิ่ม] ปุ่มแตะ (NORMAL) ที่เปิดโหมด "แตะรัว" (Tap quickly to trigger)
-    private final Map<View, Boolean> buttonQuickTapMap = new HashMap<>();
     private int rapidPtrCounter = 0;
     private View rapidMouseHeld = null;
 
@@ -179,7 +184,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
     private static final int TAP_PTR_BASE = 40;
     private static final int TAP_PTR_POOL = 20;
 
-    // ปุ่มแตะ (NORMAL) ที่กำลังกดค้างอยู่ -> pointer id ที่ใช้
+    // [เพิ่ม] ปุ่มแตะ (NORMAL) ที่กำลังกดค้างอยู่ -> pointer id ที่ใช้
     private final Map<View, Integer> tapHeldPtr = new HashMap<>();
 
     private int allocTapPtr() {
@@ -251,7 +256,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
         String cur = cleanSetting(runShizukuShell("settings get global navigation_bar_gesture_while_hidden"));
         String det = cleanSetting(runShizukuShell("settings get global navigation_bar_gesture_detail_type"));
         prevNavGesture = (cur != null) ? cur : "0";
-        prevNavDetail = det;
+        prevNavDetail = det; 
         navSwitched = true;
         Log.i("NAV", "prev gesture=" + prevNavGesture + " detail=" + prevNavDetail);
         if (!"1".equals(cur)) {
@@ -452,19 +457,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
         return t != null && t;
     }
 
-    // [เพิ่ม] ปุ่มแตะ (NORMAL) ที่เปิดโหมดแตะรัว
-    private boolean isQuickTap(View b) {
-        if (b == null) return false;
-        Boolean q = buttonQuickTapMap.get(b);
-        return q != null && q && "NORMAL".equals(String.valueOf(b.getTag()));
-    }
-
-    // [เพิ่ม] ปุ่มที่ทำงานแบบแตะรัว (RAPID_FIRE หรือ NORMAL ที่เปิดแตะรัว)
-    private boolean isRapidLike(View b) {
-        if (b == null) return false;
-        return "RAPID_FIRE".equals(String.valueOf(b.getTag())) || isQuickTap(b);
-    }
-
     // กดปุ่ม: โหมดกดค้าง = เริ่มรัว / โหมดกดเริ่ม-กดหยุด = สลับเปิดปิด
     private void rapidPress(View b) {
         if (b == null) return;
@@ -494,7 +486,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
         buttonIntervalMap.remove(b);
         buttonRapidToggleMap.remove(b);
         buttonPressMsMap.remove(b);
-        buttonQuickTapMap.remove(b);
     }
 
     private void clearAllRapidData() {
@@ -503,7 +494,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
         buttonIntervalMap.clear();
         buttonRapidToggleMap.clear();
         buttonPressMsMap.clear();
-        buttonQuickTapMap.clear();
         rapidMouseHeld = null;
     }
 
@@ -524,12 +514,12 @@ public class FloatingService extends Service implements MouseController.MouseEve
     private boolean buildOverlay() {
         if (overlayBuilt) return true;
         android.view.Display d = findTargetDisplay();
-        if (d == null) return false;
+        if (d == null) return false; 
         try {
             targetDisplay = d;
             displayContext = buildDisplayContext(targetDisplay);
             windowManager = (WindowManager) displayContext.getSystemService(WINDOW_SERVICE);
-            overlayBuilt = true;
+            overlayBuilt = true; 
             int[] initSize = realScreenSize();
             maxScreenWidth = initSize[0];
             maxScreenHeight = initSize[1];
@@ -574,7 +564,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
         return true;
     }
 
-    // ถ้าจอ DeX ยังเข้าถึงไม่ได้ จะพยายามเปิดจอซ้ำหลายรอบ และเมื่อหมดเวลาจะสร้างบนจอมือถือชั่วคราว
+    // [แก้ไข] ถ้าจอ DeX ยังเข้าถึงไม่ได้ จะพยายามเปิดจอซ้ำหลายรอบ และเมื่อหมดเวลาจะสร้างบนจอมือถือชั่วคราว
     // จากนั้นตัวมอนิเตอร์จะย้ายกลับไป DeX ให้เองเมื่อเห็นว่าเกมรันอยู่ที่ DeX จริง
     private void tryBuild(final int attempt) {
         if (destroyed) return;
@@ -597,7 +587,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
         }
     }
 
-    // ไม่เปลี่ยน gameDisplayId เองตอนมีจอใหม่ถูกเพิ่ม
+    // [แก้ไข] ไม่เปลี่ยน gameDisplayId เองตอนมีจอใหม่ถูกเพิ่ม (เดิมทำให้ overlay กระโดดไป DeX ทั้งที่เกมอยู่บนมือถือ)
     private void registerDisplayListener() {
         try {
             android.hardware.display.DisplayManager dm =
@@ -752,7 +742,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
         if (mouseLeftToken != 0) return;
         View mapped = findMouseLeftButton();
         if (mapped == null) return;
-        if (isRapidLike(mapped)) { // [แก้ไข] รองรับปุ่มแตะที่เปิดแตะรัว
+        if ("RAPID_FIRE".equals(String.valueOf(mapped.getTag()))) {
             rapidMouseHeld = mapped;
             rapidPress(mapped);
             return;
@@ -1094,6 +1084,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
     }
 
     // real: 0 = มือถือ, >0 = จอภายนอก, <0 = ไม่รู้  -> คืนจอที่จะวางปุ่ม
+    // [แก้ไข] เอาระบบสลับจอออกแล้ว คืนค่าจอที่ตรวจเจอตรง ๆ
     private int mapDisplay(int real) {
         if (real > 0) rememberExternal(real);
         return real;
@@ -1118,8 +1109,9 @@ public class FloatingService extends Service implements MouseController.MouseEve
 
     private volatile boolean displayConfirmed = false;
 
-    // คืนค่า "จอที่เกมกำลัง resumed อยู่จริง" เท่านั้น
+    // [แก้ไข] คืนค่า "จอที่เกมกำลัง resumed อยู่จริง" เท่านั้น
     //   0  = จอมือถือ, >0 = จอ DeX/จอภายนอก, -1 = ไม่รู้/กำกวม
+    // เดิมใช้ ActivityRecord ที่ไม่ได้ resumed (record เก่าค้างในอีกจอ) มาตัดสิน ทำให้สลับจอผิด
     private int queryGameDisplay(String pkg) {
         int a = queryDisplayViaWindow(pkg);
         if (a >= 0) {
@@ -1131,7 +1123,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
         return b;
     }
 
-    // วิธีหลัก: dumpsys window displays ระบุจอชัดเจนด้วย "mDisplayId=N" และ mFocusedApp/mCurrentFocus ต่อจอ
+    // [ใหม่] วิธีหลัก: dumpsys window displays ระบุจอชัดเจนด้วย "mDisplayId=N" และ mFocusedApp/mCurrentFocus ต่อจอ
     private int queryDisplayViaWindow(String pkg) {
         try {
             if (pkg == null || pkg.isEmpty() || !Shizuku.pingBinder()) return -1;
@@ -1268,7 +1260,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
         } catch (Throwable t) {}
     }
 
-    // ลำดับการเลือกจอตอนเริ่ม:
+    // [แก้ไข] ลำดับการเลือกจอตอนเริ่ม:
     //   1) ดูว่าเกม resumed อยู่จอไหนจริง (อ่านตรงกัน 2 ครั้งติดกัน) -> ใช้จอนั้น
     //   2) ถ้ายังไม่เห็นเกม -> ใช้จอที่ Intent ส่งมาเป็นคำใบ้ (GAME_DISPLAY)
     //   3) ถ้าไม่มีคำใบ้ -> จอมือถือ
@@ -1318,7 +1310,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
         if (intent.hasExtra("GAME_PACKAGE")) {
             targetPackage = intent.getStringExtra("GAME_PACKAGE");
             if (targetPackage == null) targetPackage = "";
-
+            
             forcedDisplayId = intent.getIntExtra("GAME_DISPLAY", -1);
             targetSeen = false;
             ownAppCount = 0;
@@ -1344,7 +1336,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
                 int detected = detectInitialDisplaySync(targetPackage);
                 gameDisplayId = (detected != android.view.Display.DEFAULT_DISPLAY) ? detected : -1;
             }
-
+            
             if (targetDisplay != null) {
                 android.view.Display want = findTargetDisplay();
                 if (want != null && want.getDisplayId() != targetDisplay.getDisplayId()) {
@@ -1385,7 +1377,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
                 || isWaitingForKey;
     }
 
-    // ซ่อนปุ่มได้เฉพาะเมื่อมีการตั้งปุ่มลัดไว้ในตั้งค่าระบบ
+    // [แก้ไข] ซ่อนปุ่มได้เฉพาะเมื่อมีการตั้งปุ่มลัดไว้ในตั้งค่าระบบ (เอาปุ่ม "ซ่อนปุ่ม" บนจอออกแล้ว)
     private void applyButtonsHiddenState() {
         if (destroyed || !isTargetInForeground) return;
         boolean hide = buttonsHidden && !isEditModeActive() && toggleBtnsKeyId != -1;
@@ -1549,7 +1541,8 @@ public class FloatingService extends Service implements MouseController.MouseEve
     // เฟรมที่ได้จาก kbgrab (ถูกเรียกจากเธรดอ่านของ ShellServerClient จึงส่งต่อเข้า main handler ทุกครั้ง)
     private final ShellServerClient.KeyListener kbListener = new ShellServerClient.KeyListener() {
         @Override public void onKey(final int scanCode, final int value) {
-            // ทิ้งเฟรม key-repeat (value==2) ตั้งแต่ต้นทาง
+            // [แก้ lag] ทิ้งเฟรม key-repeat (value==2) ตั้งแต่ต้นทาง ไม่ต้องส่งเข้า main thread
+            // (ปุ่มที่ map ไว้ใช้แค่ down/up อยู่แล้ว)
             if (value == 2) return;
             handler.post(() -> onKbKey(scanCode, value));
         }
@@ -2374,6 +2367,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
         if (dpadKey != -1) {
             if (!isEditModeActive()) {
                 if (dPadController != null) {
+                    // [แก้ lag] ไม่ส่ง key-repeat เข้า D-Pad ซ้ำ ๆ (สถานะกดค้างถูกตั้งไว้แล้วตอน down)
                     if (isUp || (isDown && event.getRepeatCount() == 0)) {
                         dPadController.onKeyEvent(dpadKey, isDown);
                     }
@@ -2386,8 +2380,8 @@ public class FloatingService extends Service implements MouseController.MouseEve
             boolean h = false;
             for (Map.Entry<View, Integer> en : buttonKeyMap.entrySet()) {
                 Integer v = en.getValue();
-                // [แก้ไข] ครอบคลุมทั้ง RAPID_FIRE และ NORMAL ที่เปิดแตะรัว
-                if (v != null && keyMatches(v, event) && isRapidLike(en.getKey())) {
+                if (v != null && keyMatches(v, event)
+                        && "RAPID_FIRE".equals(String.valueOf(en.getKey().getTag()))) {
                     rapidRelease(en.getKey());
                     h = true;
                 }
@@ -2436,13 +2430,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
                     continue;
                 }
 
-                // [เพิ่ม] ปุ่มแตะที่เปิดโหมดแตะรัว
-                if (isQuickTap(b)) {
-                    if (!isEditModeActive() && isTargetInForeground) rapidPress(b);
-                    handled = true;
-                    continue;
-                }
-
                 if ("NORMAL".equals(tag)) {
                     Integer cur = tapHeldPtr.get(b);
                     if (cur == null || !TouchSimulator.isHeld(cur)) {
@@ -2451,6 +2438,40 @@ public class FloatingService extends Service implements MouseController.MouseEve
                         int hptr = allocTapPtr();
                         tapHeldPtr.put(b, hptr);
                         TouchSimulator.simulatePress(hptr, l[0] + b.getWidth() / 2, l[1] + b.getHeight() / 2);
+                    }
+                    handled = true;
+                    continue;
+                }
+
+                int baseKey = event.getScanCode() != 0 ? 1000 + event.getScanCode() : keyCode;
+                if (tapDebounced(baseKey * 31 + System.identityHashCode(b))) { handled = true; continue; }
+
+                int[] loc = new int[2];
+                b.getLocationOnScreen(loc);
+                int ptr = TAP_PTR_BASE + (tapPtrCounter++ % TAP_PTR_POOL);
+                TouchSimulator.simulateClick(ptr, loc[0] + b.getWidth() / 2, loc[1] + b.getHeight() / 2);
+                handled = true;
+            }
+        }
+        return handled;
+    }
+
+    private boolean hasViewKeyAssigned() {
+        for (Map.Entry<View, Integer> e : buttonKeyMap.entrySet()) {
+            View b = e.getKey();
+            if (e.getValue() != null && b != null) {
+                String tag = String.valueOf(b.getTag());
+                if ("HIDE_MOUSE".equals(tag) || "MOUSE_LOCK".equals(tag)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private void toggleViewModeFromKey() {
+        long now = android.os.SystemClock.uptimeMillis();
+        if (now - lastViewToggleTime < 50) return;
         lastViewToggleTime = now;
         toggleMouseLock();
     }
@@ -2502,6 +2523,2302 @@ public class FloatingService extends Service implements MouseController.MouseEve
         final float MIN = 0.01f, MAX = 10.0f;
         final Map<View, Float> map = isX ? buttonSensXMap : buttonSensYMap;
         final String name = isX ? "ความเร็วแกน X: " : "ความเร็วแกน Y: ";
+        Float saved = map.get(container);
+        float cur = saved != null ? saved : 1.0f;
+        cur = Math.max(MIN, Math.min(MAX, cur));
+
+        final TextView tv = createSettingsLabel(name + String.format(java.util.Locale.US, "%.2f", cur));
+        layout.addView(tv);
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+
+        final SeekBar bar = new SeekBar(this);
+        bar.setMax(Math.round((MAX - MIN) * 100f));
+        bar.setProgress(Math.round((cur - MIN) * 100f));
+        bar.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                float v = MIN + progress / 100f;
+                tv.setText(name + String.format(java.util.Locale.US, "%.2f", v));
+                map.put(container, v);
+                applyViewSettingsFromButton();
+            }
+            @Override public void onStartTrackingTouch(SeekBar seekBar) {}
+            @Override public void onStopTrackingTouch(SeekBar seekBar) { savePresetToCloud(); }
+        });
+
+        TextView minus = createStepButton("−");
+        minus.setOnClickListener(v -> {
+            bar.setProgress(Math.max(0, bar.getProgress() - 1));
+            savePresetToCloud();
+        });
+        TextView plus = createStepButton("+");
+        plus.setOnClickListener(v -> {
+            bar.setProgress(Math.min(bar.getMax(), bar.getProgress() + 1));
+            savePresetToCloud();
+        });
+
+        row.addView(minus);
+        row.addView(bar);
+        row.addView(plus);
+        layout.addView(row);
+    }
+
+    private void addHzRow(LinearLayout layout, final View container) {
+        final int[] STEPS = {125, 250, 500, 1000};
+        Integer saved = buttonHzMap.get(container);
+        int curIdx = 2;
+        for (int i = 0; i < STEPS.length; i++) {
+            if (saved != null && STEPS[i] == saved) curIdx = i;
+        }
+        final String name = "ความถี่ส่ง (Hz): ";
+
+        final TextView tv = createSettingsLabel(name + STEPS[curIdx]);
+        layout.addView(tv);
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+
+        final SeekBar bar = new SeekBar(this);
+        bar.setMax(STEPS.length - 1);
+        bar.setProgress(curIdx);
+        bar.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                int hz = STEPS[progress];
+                tv.setText(name + hz);
+                buttonHzMap.put(container, hz);
+                applyViewSettingsFromButton();
+            }
+            @Override public void onStartTrackingTouch(SeekBar seekBar) {}
+            @Override public void onStopTrackingTouch(SeekBar seekBar) { savePresetToCloud(); }
+        });
+
+        TextView minus = createStepButton("−");
+        minus.setOnClickListener(v -> {
+            bar.setProgress(Math.max(0, bar.getProgress() - 1));
+            savePresetToCloud();
+        });
+        TextView plus = createStepButton("+");
+        plus.setOnClickListener(v -> {
+            bar.setProgress(Math.min(bar.getMax(), bar.getProgress() + 1));
+            savePresetToCloud();
+        });
+
+        row.addView(minus);
+        row.addView(bar);
+        row.addView(plus);
+        layout.addView(row);
+    }
+
+    private interface FloatCb { void on(float v); }
+
+    private String fmtNum(float v) {
+        return String.format(java.util.Locale.US, "%.2f", v).replaceAll("\\.?0+$", "");
+    }
+
+    private void styleModeButton(Button b, boolean selected) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(Color.parseColor(selected ? "#8BE9FD" : "#2E3447"));
+        g.setCornerRadius(dpToPx(8));
+        b.setBackground(g);
+        b.setTextColor(selected ? Color.parseColor("#1B1E2E") : Color.WHITE);
+    }
+
+    private void addFlickSettings(LinearLayout layout, final View container) {
+        final float[] cfg = flickCfg(container);
+        layout.addView(createSettingsLabel("โหมดตอนสบัดเมาส์"));
+
+        LinearLayout modeRow = new LinearLayout(this);
+        modeRow.setOrientation(LinearLayout.HORIZONTAL);
+        modeRow.setGravity(Gravity.CENTER);
+        final Button btnConst = createSubMenuOption("คงที่", "#2E3447", null);
+        final Button btnBit = createSubMenuOption("บิต", "#2E3447", null);
+        modeRow.addView(btnConst);
+        modeRow.addView(btnBit);
+        layout.addView(modeRow);
+
+        final LinearLayout bitGroup = new LinearLayout(this);
+        bitGroup.setOrientation(LinearLayout.VERTICAL);
+
+        addNumberRow(bitGroup, "เริ่มเร่งเมื่อเร็วเกิน (px/ms)", 0.05f, 20f, cfg[2],
+                v -> { cfg[2] = v; applyViewSettingsFromButton(); });
+        addNumberRow(bitGroup, "แรงเร่ง (0 = ไม่เร่งเพิ่ม)", 0f, 20f, cfg[3],
+                v -> { cfg[3] = v; applyViewSettingsFromButton(); });
+        addNumberRow(bitGroup, "เร่งสูงสุด (เท่า)", 1f, 50f, cfg[4],
+                v -> { cfg[4] = v; applyViewSettingsFromButton(); });
+        layout.addView(bitGroup);
+
+        final Runnable refresh = () -> {
+            boolean bit = cfg[0] > 0.5f;
+            styleModeButton(btnConst, !bit);
+            styleModeButton(btnBit, bit);
+            bitGroup.setVisibility(bit ? View.VISIBLE : View.GONE);
+        };
+        btnConst.setOnClickListener(v -> { cfg[0] = 0f; refresh.run(); applyViewSettingsFromButton(); savePresetToCloud(); });
+        btnBit.setOnClickListener(v -> { cfg[0] = 1f; refresh.run(); applyViewSettingsFromButton(); savePresetToCloud(); });
+        refresh.run();
+    }
+
+    private void addNumberRow(LinearLayout parent, String name, final float min, final float max,
+                              float cur, final FloatCb cb) {
+        parent.addView(createSettingsLabel(name + "  [" + fmtNum(min) + " - " + fmtNum(max) + "]"));
+
+        final EditText et = new EditText(this);
+        et.setText(fmtNum(cur));
+        et.setTextColor(Color.WHITE);
+        et.setTextSize(14f);
+        et.setSingleLine(true);
+        et.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        et.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        et.setPadding(dpToPx(12), dpToPx(8), dpToPx(12), dpToPx(8));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(Color.parseColor("#151823"));
+        bg.setCornerRadius(dpToPx(8));
+        bg.setStroke(dpToPx(1), Color.parseColor("#44496B"));
+        et.setBackground(bg);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dpToPx(140),
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.leftMargin = dpToPx(10);
+        et.setLayoutParams(lp);
+
+        final Runnable commit = () -> {
+            try {
+                float v = Float.parseFloat(et.getText().toString().trim());
+                cb.on(Math.max(min, Math.min(max, v)));
+            } catch (NumberFormatException ignored) {}
+        };
+        final Runnable finish = () -> {
+            commit.run();
+            try {
+                float v = Float.parseFloat(et.getText().toString().trim());
+                et.setText(fmtNum(Math.max(min, Math.min(max, v))));
+            } catch (NumberFormatException ignored) {}
+            savePresetToCloud();
+        };
+
+        et.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+            @Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
+            @Override public void afterTextChanged(Editable s) { commit.run(); }
+        });
+        et.setOnEditorActionListener((tv, actionId, ev) -> {
+            finish.run();
+            et.clearFocus();
+            setSettingsFocusable(false);
+            return true;
+        });
+        et.setOnFocusChangeListener((v, has) -> { if (!has) finish.run(); });
+        et.setOnTouchListener((v, ev) -> {
+            if (ev.getAction() == MotionEvent.ACTION_DOWN) {
+                setSettingsFocusable(true);
+                et.post(et::requestFocus);
+            }
+            return false;
+        });
+        parent.addView(et);
+    }
+
+    private void setSettingsFocusable(boolean on) {
+        // [KB] ตอนพิมพ์ตัวเลขในช่องตั้งค่า ต้องปล่อยคีย์บอร์ดคืนระบบ ไม่งั้นพิมพ์ไม่ได้
+        settingsTextEditing = on;
+        updateKbGrab();
+        try {
+            if (buttonSettingsView == null || buttonSettingsParams == null
+                    || buttonSettingsView.getParent() == null) return;
+            if (on) {
+                buttonSettingsParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+                buttonSettingsParams.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN;
+            } else {
+                buttonSettingsParams.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+            }
+            windowManager.updateViewLayout(buttonSettingsView, buttonSettingsParams);
+        } catch (Exception ignored) {}
+    }
+
+    private interface IntCb { void on(int v); }
+
+    private void addIntRow(LinearLayout layout, final String name, final int min, final int max,
+                           int cur, final IntCb cb) {
+        cur = Math.max(min, Math.min(max, cur));
+        final TextView tv = createSettingsLabel(name + cur);
+        layout.addView(tv);
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+
+        final SeekBar bar = new SeekBar(this);
+        bar.setMax(max - min);
+        bar.setProgress(cur - min);
+        bar.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar s, int progress, boolean fromUser) {
+                int v = min + progress;
+                tv.setText(name + v);
+                cb.on(v);
+            }
+            @Override public void onStartTrackingTouch(SeekBar s) {}
+            @Override public void onStopTrackingTouch(SeekBar s) { savePresetToCloud(); }
+        });
+
+        TextView minus = createStepButton("−");
+        minus.setOnClickListener(v -> bar.setProgress(Math.max(0, bar.getProgress() - 1)));
+        TextView plus = createStepButton("+");
+        plus.setOnClickListener(v -> bar.setProgress(Math.min(bar.getMax(), bar.getProgress() + 1)));
+
+        row.addView(minus);
+        row.addView(bar);
+        row.addView(plus);
+        layout.addView(row);
+    }
+
+    private void bringCursorToFront() {
+        if (batchLoading) return;
+        if (mouseController != null) mouseController.bringCursorToFront();
+    }
+
+    private void toggleMouseLock() {
+        if (isTypingMode) return;
+        releaseAllTapHolds();
+        if (dPadController != null) dPadController.release();
+        stopAllRapidTaps();
+        TouchSimulator.releaseTouch();
+        mouseLeftToken = 0;
+        if (mouseController == null) return;
+
+        boolean willLock = !mouseController.isMouseActive();
+        if (willLock) {
+            applyViewSettingsFromButton();
+            closeSubWindows();
+            isMenuShown = false;
+            if (menuView != null) menuView.setVisibility(View.GONE);
+            if (floatingView != null) floatingView.setVisibility(View.VISIBLE);
+            updateEditModeUI();
+        }
+
+        mouseController.toggleMouseMode();
+        isMouseMode = mouseController.isMouseActive();
+    }
+
+    private void createAddMenuWindow() {
+        try {
+            LinearLayout addMenuLayout = new LinearLayout(this);
+            addMenuLayout.setOrientation(LinearLayout.VERTICAL);
+            addMenuLayout.setPadding(dpToPx(8), dpToPx(8), dpToPx(8), dpToPx(8));
+
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(Color.parseColor("#151823"));
+            bg.setCornerRadius(dpToPx(20));
+            bg.setStroke(dpToPx(1), Color.parseColor("#2E3447"));
+            addMenuLayout.setBackground(bg);
+
+            LinearLayout headerLayout = new LinearLayout(this);
+            headerLayout.setOrientation(LinearLayout.HORIZONTAL);
+            headerLayout.setGravity(Gravity.CENTER_VERTICAL);
+            headerLayout.setPadding(0, 0, 0, dpToPx(4));
+
+            LinearLayout titleContainer = new LinearLayout(this);
+            titleContainer.setOrientation(LinearLayout.VERTICAL);
+            titleContainer.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+
+            TextView tvTitle = new TextView(this);
+            tvTitle.setText("เพิ่มตัวควบคุม");
+            tvTitle.setTextColor(Color.WHITE);
+            tvTitle.setTextSize(15f);
+            tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+            titleContainer.addView(tvTitle);
+            headerLayout.addView(titleContainer);
+
+            TextView btnClose = new TextView(this);
+            btnClose.setText("✕");
+            btnClose.setTextColor(Color.parseColor("#8C92A4"));
+            btnClose.setTextSize(16f);
+            btnClose.setGravity(Gravity.CENTER);
+            btnClose.setPadding(dpToPx(6), dpToPx(6), dpToPx(6), dpToPx(6));
+            btnClose.setOnClickListener(v -> {
+                if (isWaitingForKey) cancelKeyWait();
+                addMenuView.setVisibility(View.GONE);
+                menuView.setVisibility(View.GONE);
+                menuView.setVisibility(View.VISIBLE);
+                updateEditModeUI();
+            });
+            headerLayout.addView(btnClose);
+            addMenuLayout.addView(headerLayout);
+
+            int idTap = getDrawableId("btn_tap", R.drawable.btn_b);
+            int idDpad = getDrawableId("btn_dpad", R.drawable.btn_b);
+            int idFps = getDrawableId("btn_fps", R.drawable.btn_b);
+            int idRapid = getDrawableId("btn_rapid", R.drawable.btn_b);
+            int idSwipe = getDrawableId("btn_swipe", R.drawable.btn_b);
+            int idZoom = getDrawableId("btn_zoom", R.drawable.btn_b);
+
+            int idFire = getDrawableId("btn_fire_box", R.drawable.btn_b);
+
+            int defaultCenterX = (int)(maxScreenWidth / 2f) - dpToPx(80);
+            int defaultCenterY = (int)(maxScreenHeight / 2f) - dpToPx(80);
+
+            android.widget.ScrollView sv = makeCappedScrollView(dpToPx(90));
+            LinearLayout rows = new LinearLayout(this);
+            rows.setOrientation(LinearLayout.VERTICAL);
+            sv.addView(rows, new android.widget.ScrollView.LayoutParams(
+                    android.widget.ScrollView.LayoutParams.MATCH_PARENT,
+                    android.widget.ScrollView.LayoutParams.WRAP_CONTENT));
+
+            rows.addView(createButtonRow(
+                "แตะ", idTap, v -> addNewMappingButton("NORMAL", defaultCenterX, defaultCenterY, false, -1, true),
+                "จอยสติ๊ก", idDpad, v -> {
+                    if (dPadController != null) return;
+                    addNewMappingButton("DPAD", defaultCenterX, defaultCenterY, false, -1, true);
+                }
+            ));
+
+            rows.addView(createButtonRow(
+                "มุมมอง", idFps, v -> addNewMappingButton("HIDE_MOUSE", defaultCenterX, defaultCenterY, false, -1, true),
+                "แตะซ้ำ", idRapid, v -> addNewMappingButton("RAPID_FIRE", defaultCenterX, defaultCenterY, false, -1, true)
+            ));
+
+            rows.addView(createButtonRow(
+                "ปัด", idSwipe, v -> addNewMappingButton("SWIPE", defaultCenterX, defaultCenterY, false, -1, true),
+                "ยิง", idFire, v -> {
+                    int fireKeyId = makeKeyId(60001, 0);
+                    addNewMappingButton("FIRE", defaultCenterX, defaultCenterY, false, fireKeyId, true);
+                }
+            ));
+
+            addMenuLayout.addView(sv, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+            addMenuView = addMenuLayout;
+            addMenuParams = new WindowManager.LayoutParams(
+                    dpToPx(280), WindowManager.LayoutParams.WRAP_CONTENT, overlayType(),
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT);
+            addMenuParams.gravity = Gravity.TOP | Gravity.START;
+            addMenuParams.x = 0; addMenuParams.y = 0;
+            addMenuView.setVisibility(View.GONE);
+            windowManager.addView(addMenuView, addMenuParams);
+        } catch (Exception e) {}
+    }
+
+    private void showAddMenu() {
+        if (addMenuView == null) return;
+        try {
+            if (addMenuView.getParent() != null) windowManager.removeView(addMenuView);
+            windowManager.addView(addMenuView, addMenuParams);
+        } catch (Exception ignored) {}
+        addMenuView.setVisibility(View.VISIBLE);
+        bringCursorToFront();
+    }
+
+    private LinearLayout createButtonRow(String text1, int iconRes1, View.OnClickListener l1, String text2, int iconRes2, View.OnClickListener l2) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        rowParams.setMargins(0, dpToPx(3), 0, dpToPx(3));
+        row.setLayoutParams(rowParams);
+        row.addView(createSingleMenuCard(text1, iconRes1, l1));
+        if (text2 == null) {
+            View spacer = new View(this);
+            LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(0, dpToPx(124), 1.0f);
+            sp.setMargins(dpToPx(3), 0, dpToPx(3), 0);
+            spacer.setLayoutParams(sp);
+            row.addView(spacer);
+        } else {
+            row.addView(createSingleMenuCard(text2, iconRes2, l2));
+        }
+        return row;
+    }
+
+    private View createSingleMenuCard(String title, int iconResId, View.OnClickListener listener) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setGravity(Gravity.CENTER);
+        card.setPadding(dpToPx(4), dpToPx(2), dpToPx(4), dpToPx(2));
+
+        GradientDrawable cardBg = new GradientDrawable();
+        cardBg.setColor(Color.parseColor("#1B1F2D"));
+        cardBg.setCornerRadius(dpToPx(10));
+        cardBg.setStroke(dpToPx(1), Color.parseColor("#2E3447"));
+        card.setBackground(cardBg);
+
+        LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(0, dpToPx(124), 1.0f);
+        cardParams.setMargins(dpToPx(3), 0, dpToPx(3), 0);
+        card.setLayoutParams(cardParams);
+
+        ImageView ivIcon = new ImageView(this);
+        ivIcon.setImageResource(iconResId);
+        ivIcon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        ivIcon.setLayoutParams(new LinearLayout.LayoutParams(dpToPx(84), dpToPx(84)));
+        card.addView(ivIcon);
+
+        TextView tvLabel = new TextView(this);
+        tvLabel.setText(title);
+        tvLabel.setTextColor(Color.WHITE);
+        tvLabel.setTextSize(11f);
+        tvLabel.setGravity(Gravity.CENTER);
+        tvLabel.setPadding(0, dpToPx(3), 0, 0);
+        card.addView(tvLabel);
+
+        card.setOnClickListener(listener);
+        return card;
+    }
+
+    private void updateDpadButtonsSize() {
+        for (View container : mappingButtons) {
+            if (container != null && "DPAD".equals(container.getTag())) {
+                int mainSize = dpadSize;
+                int padding = dpToPx(10);
+                int containerSize = mainSize + (padding * 2);
+
+                WindowManager.LayoutParams lp = (WindowManager.LayoutParams) container.getLayoutParams();
+                if (lp != null) {
+                    lp.width = containerSize;
+                    lp.height = containerSize;
+                    try {
+                        windowManager.updateViewLayout(container, lp);
+                    } catch (Exception ignored) {}
+                }
+
+                if (container instanceof FrameLayout) {
+                    FrameLayout fl = (FrameLayout) container;
+                    for (int i = 0; i < fl.getChildCount(); i++) {
+                        View child = fl.getChildAt(i);
+                        if (child instanceof TextView || "DPAD_IMG".equals(child.getTag())) {
+                            FrameLayout.LayoutParams flp = (FrameLayout.LayoutParams) child.getLayoutParams();
+                            flp.width = mainSize;
+                            flp.height = mainSize;
+                            child.setLayoutParams(flp);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private void createIconSettingsWindow() {
+        try {
+            final LinearLayout outer = new LinearLayout(this);
+            outer.setOrientation(LinearLayout.VERTICAL);
+            outer.setPadding(dpToPx(20), dpToPx(20), dpToPx(20), dpToPx(20));
+
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(Color.parseColor("#282B3E"));
+            bg.setCornerRadius(dpToPx(16));
+            bg.setStroke(dpToPx(2), Color.parseColor("#44496B"));
+            outer.setBackground(bg);
+
+            TextView tvTitle = new TextView(this);
+            tvTitle.setText("ตั้งค่าระบบ (Settings)");
+            tvTitle.setTextColor(Color.WHITE);
+            tvTitle.setTextSize(18f);
+            tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+            tvTitle.setGravity(Gravity.CENTER);
+            tvTitle.setPadding(0, 0, 0, dpToPx(20));
+            outer.addView(tvTitle);
+
+            android.widget.ScrollView sv = makeCappedScrollView(dpToPx(200));
+            final LinearLayout layout = new LinearLayout(this);
+            layout.setOrientation(LinearLayout.VERTICAL);
+            sv.addView(layout, new android.widget.ScrollView.LayoutParams(
+                    android.widget.ScrollView.LayoutParams.MATCH_PARENT,
+                    android.widget.ScrollView.LayoutParams.WRAP_CONTENT));
+            outer.addView(sv, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+            layout.addView(createSettingsLabel("ความโปร่งใสของไอคอนเมนู"));
+            SeekBar alphaSeekBar = new SeekBar(this);
+            alphaSeekBar.setMax(100);
+            alphaSeekBar.setProgress((int)(currentAlpha * 100));
+            alphaSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                @Override
+                public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                    currentAlpha = Math.max(0.3f, progress / 100f);
+                    if (floatingView != null) floatingView.setAlpha(currentAlpha);
+                    saveSettings();
+                }
+                @Override public void onStartTrackingTouch(SeekBar seekBar) {}
+                @Override public void onStopTrackingTouch(SeekBar seekBar) {}
+            });
+            layout.addView(alphaSeekBar);
+
+            final TextView tvDpadLabel = createSettingsLabel("ขนาดปุ่มจอยสติ๊ก (DPAD Size): " + dpadSizeDp + " dp");
+            layout.addView(tvDpadLabel);
+
+            SeekBar dpadSizeSeekBar = new SeekBar(this);
+            dpadSizeSeekBar.setMax(200);
+            dpadSizeSeekBar.setProgress(Math.max(0, dpadSizeDp - 80));
+            dpadSizeSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                @Override
+                public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                    dpadSizeDp = 80 + progress;
+                    dpadSize = dpToPx(dpadSizeDp);
+                    tvDpadLabel.setText("ขนาดปุ่มจอยสติ๊ก (DPAD Size): " + dpadSizeDp + " dp");
+                    updateDpadButtonsSize();
+                    saveSettings();
+                }
+                @Override public void onStartTrackingTouch(SeekBar seekBar) {}
+                @Override public void onStopTrackingTouch(SeekBar seekBar) {}
+            });
+            layout.addView(dpadSizeSeekBar);
+
+            final TextView tvBtnSize = createSettingsLabel("ขนาดปุ่มทุกปุ่ม (Button Size): " + globalBtnSizeDp + " dp");
+            layout.addView(tvBtnSize);
+            SeekBar btnSizeBar = new SeekBar(this);
+            btnSizeBar.setMax(96 - 20);
+            btnSizeBar.setProgress(Math.max(0, Math.min(96 - 20, globalBtnSizeDp - 20)));
+            btnSizeBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                @Override
+                public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                    int dp = 20 + progress;
+                    tvBtnSize.setText("ขนาดปุ่มทุกปุ่ม (Button Size): " + dp + " dp");
+                    applyGlobalButtonSize(dp);
+                    saveSettings();
+                }
+                @Override public void onStartTrackingTouch(SeekBar seekBar) {}
+                @Override public void onStopTrackingTouch(SeekBar seekBar) { savePresetToCloud(); }
+            });
+            layout.addView(btnSizeBar);
+
+            final int minPct = Math.round(BTN_MIN_ALPHA * 100f);
+            int curBtnPct = Math.max(minPct, Math.min(100, Math.round(globalBtnAlpha * 100f)));
+            final TextView tvBtnAlpha = createSettingsLabel("ความโปร่งใสปุ่มทุกปุ่ม (Button Opacity): " + curBtnPct + "%");
+            layout.addView(tvBtnAlpha);
+            SeekBar btnAlphaBar = new SeekBar(this);
+            btnAlphaBar.setMax(100 - minPct);
+            btnAlphaBar.setProgress(curBtnPct - minPct);
+            btnAlphaBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                @Override
+                public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                    int pct = minPct + progress;
+                    tvBtnAlpha.setText("ความโปร่งใสปุ่มทุกปุ่ม (Button Opacity): " + pct + "%");
+                    applyGlobalButtonAlpha(pct / 100f);
+                    saveSettings();
+                }
+                @Override public void onStartTrackingTouch(SeekBar seekBar) {}
+                @Override public void onStopTrackingTouch(SeekBar seekBar) {}
+            });
+            layout.addView(btnAlphaBar);
+
+            layout.addView(createSettingsLabel("ขนาดเมาส์จำลอง (Pointer Size)"));
+            SeekBar sizeSeekBar = new SeekBar(this);
+            sizeSeekBar.setMax(100);
+            int currentSizeDp = Math.round(cursorSize / (float) dpToPx(1));
+            int sizeProgress = (currentSizeDp - 20) * 2;
+            sizeSeekBar.setProgress(Math.max(0, Math.min(100, sizeProgress)));
+
+            sizeSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                @Override
+                public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                    cursorSize = dpToPx(20 + (progress / 2));
+                    if (mouseController != null) mouseController.updateCursorSize(cursorSize);
+                    saveSettings();
+                }
+                @Override public void onStartTrackingTouch(SeekBar seekBar) {}
+                @Override public void onStopTrackingTouch(SeekBar seekBar) {}
+            });
+            layout.addView(sizeSeekBar);
+
+            TextView tvSpeedLabel = createSettingsLabel("ความเร็วเมาส์ (Sensitivity): " + String.format("%.1f", mouseSensitivity) + "x");
+            layout.addView(tvSpeedLabel);
+
+            SeekBar speedSeekBar = new SeekBar(this);
+            speedSeekBar.setMax(100);
+            speedSeekBar.setProgress((int) (mouseSensitivity * 10));
+            speedSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                @Override
+                public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                    mouseSensitivity = Math.max(0.5f, progress / 10f);
+                    tvSpeedLabel.setText("ความเร็วเมาส์ (Sensitivity): " + String.format("%.1f", mouseSensitivity) + "x");
+                    if (mouseController != null) mouseController.updateSensitivity(mouseSensitivity);
+                    saveSettings();
+                }
+                @Override public void onStartTrackingTouch(SeekBar seekBar) {}
+                @Override public void onStopTrackingTouch(SeekBar seekBar) {}
+            });
+            layout.addView(speedSeekBar);
+
+            // ปุ่มลัดเปิด/ปิดการแสดงปุ่ม
+            layout.addView(createSettingsLabel("ปุ่มลัดเปิด/ปิดการแสดงปุ่ม"));
+            LinearLayout toggleRow = new LinearLayout(this);
+            toggleRow.setOrientation(LinearLayout.HORIZONTAL);
+            toggleRow.setGravity(Gravity.CENTER_VERTICAL);
+
+            btnToggleKeyRef = createSubMenuOption(toggleKeyButtonText(), "#2E3447",
+                    v -> startToggleKeyWait());
+            btnToggleKeyRef.setLayoutParams(new LinearLayout.LayoutParams(0, dpToPx(44), 3f));
+
+            Button btnClearKey = createSubMenuOption("ล้าง", "#FF5555",
+                    v -> { cancelToggleKeyWait(); setToggleKey(-1); });
+            LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(0, dpToPx(44), 1f);
+            clp.leftMargin = dpToPx(8);
+            btnClearKey.setLayoutParams(clp);
+
+            toggleRow.addView(btnToggleKeyRef);
+            toggleRow.addView(btnClearKey);
+            layout.addView(toggleRow);
+
+            // [FPS] เปิด/ปิดการแสดง FPS ลอยหน้าจอ (แทนที่ปุ่มจับคีย์บอร์ดแบบ exclusive เดิม)
+            layout.addView(createSettingsLabel("แสดง FPS"));
+            btnFpsToggleRef = createSubMenuOption(fpsToggleButtonText(), "#2E3447",
+                    v -> onFpsToggleButtonClick());
+            btnFpsToggleRef.setLayoutParams(new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(44)));
+            layout.addView(btnFpsToggleRef);
+
+            // เลือก FPS (ล็อกรีเฟรชเรตหน้าจอ) 60 / 90 / 120
+            layout.addView(createSettingsLabel("เลือก FPS (ล็อกรีเฟรชเรตหน้าจอ)"));
+            LinearLayout rateRow = new LinearLayout(this);
+            rateRow.setOrientation(LinearLayout.HORIZONTAL);
+            rateRow.setGravity(Gravity.CENTER);
+            for (int i = 0; i < 3; i++) {
+                final int hz = RATE_STEPS[i];
+                btnRateOpt[i] = createSubMenuOption(hz + "", "#2E3447", v -> onRateButtonClick(hz));
+                LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(0, dpToPx(44), 1f);
+                rp.setMargins(dpToPx(4), 0, dpToPx(4), 0);
+                btnRateOpt[i].setLayoutParams(rp);
+                rateRow.addView(btnRateOpt[i]);
+            }
+            layout.addView(rateRow);
+            refreshRateButtons();
+
+            Button btnClose = new Button(this);
+            btnClose.setText("CLOSE");
+            btnClose.setTextColor(Color.parseColor("#282B3E"));
+            btnClose.setBackgroundColor(Color.WHITE);
+            btnClose.setTextSize(12f);
+            LinearLayout.LayoutParams btnParams = new LinearLayout.LayoutParams(dpToPx(100), dpToPx(40));
+            btnParams.gravity = Gravity.END;
+            btnParams.topMargin = dpToPx(30);
+            btnClose.setLayoutParams(btnParams);
+            btnClose.setOnClickListener(v -> {
+                if (isWaitingToggleKey) cancelToggleKeyWait();
+                if (isWaitingForKey) cancelKeyWait();
+                iconSettingsView.setVisibility(View.GONE);
+                menuView.setVisibility(View.VISIBLE);
+                updateEditModeUI();
+            });
+            outer.addView(btnClose);
+
+            configParams = new WindowManager.LayoutParams(
+                    dpToPx(400), WindowManager.LayoutParams.WRAP_CONTENT, overlayType(),
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT);
+            configParams.gravity = Gravity.CENTER;
+
+            iconSettingsView = outer;
+            iconSettingsView.setVisibility(View.GONE);
+            windowManager.addView(iconSettingsView, configParams);
+        } catch (Exception e) {}
+    }
+
+    @SuppressWarnings("deprecation")
+    private int[] realScreenSize() {
+        try {
+            android.util.DisplayMetrics dm = new android.util.DisplayMetrics();
+            windowManager.getDefaultDisplay().getRealMetrics(dm);
+            if (dm.widthPixels > 0 && dm.heightPixels > 0) {
+                return new int[]{dm.widthPixels, dm.heightPixels};
+            }
+        } catch (Exception ignored) {}
+        return new int[]{(int) maxScreenWidth, (int) maxScreenHeight};
+    }
+
+    private void resetAllMappingButtons() {
+        if (destroyed) return;
+        if (isWaitingForKey) cancelKeyWait();
+        closeButtonSettings();
+
+        if (dPadController != null) dPadController.release();
+        dPadController = null;
+        stopAllRapidTaps();
+        TouchSimulator.releaseTouch();
+        mouseLeftToken = 0;
+
+        for (Runnable r : rapidFireRunnables.values()) handler.removeCallbacks(r);
+        rapidFireRunnables.clear();
+        activeTouchPointers.clear();
+
+        for (View btn : new ArrayList<>(mappingButtons)) {
+            try { windowManager.removeView(btn); } catch (Exception ignored) {}
+        }
+        mappingButtons.clear();
+        buttonKeyMap.clear();
+        buttonTextViewMap.clear();
+        buttonSizeDpMap.clear();
+        buttonAlphaMap.clear();
+        buttonSensXMap.clear();
+        buttonSensYMap.clear();
+        buttonHzMap.clear();
+        buttonFlickMap.clear();
+        clearAllRapidData();
+
+        savePresetToCloud();
+        updateEditModeUI();
+    }
+
+    private TextView createSettingsLabel(String text) {
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setTextColor(Color.parseColor("#A0A5C0"));
+        tv.setTextSize(13f);
+        tv.setPadding(dpToPx(10), dpToPx(15), 0, dpToPx(8));
+        return tv;
+    }
+
+    private void createCloudWindow() {
+        try {
+            LinearLayout card = new LinearLayout(this);
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setPadding(dpToPx(16), dpToPx(14), dpToPx(16), dpToPx(10));
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(Color.parseColor("#151823"));
+            bg.setCornerRadius(dpToPx(20));
+            bg.setStroke(dpToPx(1), Color.parseColor("#2E3447"));
+            card.setBackground(bg);
+
+            TextView tvTitle = new TextView(this);
+            tvTitle.setText("☁️ Cloud Preset");
+            tvTitle.setTextColor(Color.parseColor("#8BE9FD"));
+            tvTitle.setTextSize(16f);
+            tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+            tvTitle.setGravity(Gravity.CENTER);
+            tvTitle.setPadding(0, 0, 0, dpToPx(6));
+            card.addView(tvTitle);
+
+            android.widget.ScrollView sv = makeCappedScrollView(dpToPx(170));
+            LinearLayout body = new LinearLayout(this);
+            body.setOrientation(LinearLayout.VERTICAL);
+            sv.addView(body, new android.widget.ScrollView.LayoutParams(
+                    android.widget.ScrollView.LayoutParams.MATCH_PARENT,
+                    android.widget.ScrollView.LayoutParams.WRAP_CONTENT));
+            card.addView(sv, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+            // ---- เลือกพรีเซ็ต 3 ช่อง ----
+            body.addView(cloudLabel("เลือกพรีเซ็ต"));
+            LinearLayout slotRow = cloudRow();
+            for (int i = 0; i < 3; i++) {
+                final int slot = i;
+                btnSlot[i] = cloudButton("พรีเซ็ต " + (i + 1), "#8BE9FD", v -> switchPresetSlot(slot));
+                slotRow.addView(btnSlot[i]);
+            }
+            body.addView(slotRow);
+            refreshSlotButtons();
+
+            body.addView(cloudDivider());
+
+            // ---- บันทึก / โหลด ----
+            body.addView(cloudLabel("จัดการปุ่ม"));
+            LinearLayout saveRow = cloudRow();
+            saveRow.addView(cloudButton("💾 บันทึก", "#50FA7B", v -> {
+                savePresetToCloud();
+                Toast.makeText(this, "✅ บันทึกลงพรีเซ็ต " + (presetSlot + 1) + " แล้ว",
+                        Toast.LENGTH_SHORT).show();
+                setCloudFocusable(false);
+                closeSubWindows();
+                updateEditModeUI();
+            }));
+            saveRow.addView(cloudButton("📂 โหลด", "#BD93F9", v -> {
+                loadPresetFromCloud();
+                Toast.makeText(this, "📂 โหลดพรีเซ็ต " + (presetSlot + 1) + " แล้ว",
+                        Toast.LENGTH_SHORT).show();
+                setCloudFocusable(false);
+                closeSubWindows();
+                updateEditModeUI();
+            }));
+            body.addView(saveRow);
+
+            body.addView(cloudDivider());
+
+            // ---- แชร์ปุ่มด้วยโค้ด / ไฟล์ ----
+            body.addView(cloudLabel("แชร์ปุ่มด้วยโค้ด / ไฟล์"));
+            LinearLayout shareRow = cloudRow();
+            shareRow.addView(cloudButton("📤 คัดลอกโค้ด", "#F1FA8C", v -> onCopyShareCode()));
+            shareRow.addView(cloudButton("📥 นำเข้าโค้ด", "#FFB86C", v -> onImportShareCode()));
+            body.addView(shareRow);
+
+            LinearLayout fileRow = cloudRow();
+            fileRow.addView(cloudButton("💾 ส่งออกไฟล์", "#F1FA8C", v -> onExportFile()));
+            fileRow.addView(cloudButton("📂 นำเข้าไฟล์", "#FFB86C", v -> onImportFile()));
+            body.addView(fileRow);
+
+            etShareCode = new EditText(this);
+            etShareCode.setHint("วางโค้ดที่นี่ (แตะช่อง แล้วกดวาง)");
+            etShareCode.setHintTextColor(Color.parseColor("#5C6280"));
+            etShareCode.setTextColor(Color.WHITE);
+            etShareCode.setTextSize(11f);
+            etShareCode.setMaxLines(3);
+            etShareCode.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+            etShareCode.setImeOptions(EditorInfo.IME_ACTION_DONE);
+            etShareCode.setPadding(dpToPx(10), dpToPx(8), dpToPx(10), dpToPx(8));
+            GradientDrawable etBg = new GradientDrawable();
+            etBg.setColor(Color.parseColor("#0F111A"));
+            etBg.setCornerRadius(dpToPx(8));
+            etBg.setStroke(dpToPx(1), Color.parseColor("#2E3447"));
+            etShareCode.setBackground(etBg);
+            LinearLayout.LayoutParams etLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            etLp.setMargins(dpToPx(4), dpToPx(6), dpToPx(4), dpToPx(4));
+            etShareCode.setLayoutParams(etLp);
+            etShareCode.setOnEditorActionListener((tv, actionId, ev) -> {
+                etShareCode.clearFocus();
+                setCloudFocusable(false);
+                return true;
+            });
+            etShareCode.setOnFocusChangeListener((v, has) -> { if (!has) setCloudFocusable(false); });
+            etShareCode.setOnTouchListener((v, ev) -> {
+                if (ev.getAction() == MotionEvent.ACTION_DOWN) {
+                    setCloudFocusable(true);
+                    etShareCode.post(etShareCode::requestFocus);
+                }
+                return false;
+            });
+            body.addView(etShareCode);
+
+            // ---- แถบล่าง: รีเซ็ต / ปิด (ติดอยู่ล่างเสมอ ไม่เลื่อนไปกับเนื้อหา) ----
+            card.addView(cloudDivider());
+            LinearLayout footer = cloudRow();
+            footer.addView(cloudButton("🗑️ รีเซ็ตปุ่ม", "#FF5555", v -> {
+                setCloudFocusable(false);
+                showWarningDialog(
+                        "🗑️ รีเซ็ตปุ่มพรีเซ็ต " + (presetSlot + 1),
+                        "ปุ่มทั้งหมดบนหน้าจอของเกมนี้ในพรีเซ็ต " + (presetSlot + 1)
+                                + " จะถูกลบ (พรีเซ็ตอื่นไม่ถูกแตะ)",
+                        () -> {
+                            resetAllMappingButtons();
+                            Toast.makeText(this, "🗑️ รีเซ็ตปุ่มเรียบร้อย!", Toast.LENGTH_SHORT).show();
+                            if (cloudView != null) cloudView.setVisibility(View.GONE);
+                            if (menuView != null) menuView.setVisibility(View.VISIBLE);
+                            updateEditModeUI();
+                        });
+            }));
+            footer.addView(cloudButton("✕ ปิด", "#A0A5C0", v -> {
+                if (isWaitingForKey) cancelKeyWait();
+                setCloudFocusable(false);
+                cloudView.setVisibility(View.GONE);
+                menuView.setVisibility(View.VISIBLE);
+                updateEditModeUI();
+            }));
+            card.addView(footer);
+
+            cloudParams = new WindowManager.LayoutParams(
+                    dpToPx(360), WindowManager.LayoutParams.WRAP_CONTENT, overlayType(),
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT);
+            cloudParams.gravity = Gravity.CENTER;
+
+            cloudView = card;
+            cloudView.setVisibility(View.GONE);
+            windowManager.addView(cloudView, cloudParams);
+        } catch (Exception e) {}
+    }
+
+    // ---------- UI helpers ----------
+
+    private TextView cloudLabel(String text) {
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setTextColor(Color.parseColor("#8C92A4"));
+        tv.setTextSize(12f);
+        tv.setPadding(dpToPx(4), dpToPx(6), 0, dpToPx(4));
+        return tv;
+    }
+
+    private LinearLayout cloudRow() {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER);
+        return row;
+    }
+
+    private View cloudDivider() {
+        View d = new View(this);
+        d.setBackgroundColor(Color.parseColor("#262B3D"));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, Math.max(1, dpToPx(1)));
+        lp.setMargins(0, dpToPx(8), 0, dpToPx(4));
+        d.setLayoutParams(lp);
+        return d;
+    }
+
+    private Button cloudButton(String text, String colorHex, View.OnClickListener l) {
+        Button b = new Button(this);
+        b.setText(text);
+        b.setAllCaps(false);
+        b.setTextSize(13f);
+        b.setMinHeight(0);
+        b.setMinimumHeight(0);
+        b.setMinWidth(0);
+        b.setMinimumWidth(0);
+        b.setPadding(dpToPx(6), 0, dpToPx(6), 0);
+        b.setTag(colorHex);
+        styleCloudButton(b, false);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dpToPx(40), 1f);
+        lp.setMargins(dpToPx(4), dpToPx(2), dpToPx(4), dpToPx(2));
+        b.setLayoutParams(lp);
+        b.setOnClickListener(l);
+        return b;
+    }
+
+    private void styleCloudButton(Button b, boolean selected) {
+        String hex = b.getTag() instanceof String ? (String) b.getTag() : "#8BE9FD";
+        GradientDrawable g = new GradientDrawable();
+        g.setCornerRadius(dpToPx(10));
+        if (selected) {
+            g.setColor(Color.parseColor(hex));
+            b.setTextColor(Color.parseColor("#1B1E2E"));
+        } else {
+            g.setColor(Color.parseColor("#1E2235"));
+            g.setStroke(Math.max(1, dpToPx(1)), Color.parseColor(hex));
+            b.setTextColor(Color.parseColor(hex));
+        }
+        b.setBackground(g);
+    }
+
+    private void refreshSlotButtons() {
+        for (int i = 0; i < 3; i++) {
+            if (btnSlot[i] != null) styleCloudButton(btnSlot[i], i == presetSlot);
+        }
+    }
+
+    private void setCloudFocusable(boolean on) {
+        if (settingsTextEditing == on) return;
+        // ตอนพิมพ์/วางโค้ด ต้องปล่อยคีย์บอร์ดคืนระบบ (เหมือนช่องตั้งค่าตัวเลข)
+        settingsTextEditing = on;
+        updateKbGrab();
+        try {
+            if (cloudView == null || cloudParams == null || cloudView.getParent() == null) return;
+            if (on) {
+                cloudParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+                cloudParams.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN;
+            } else {
+                cloudParams.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+            }
+            windowManager.updateViewLayout(cloudView, cloudParams);
+        } catch (Exception ignored) {}
+    }
+
+    // ---------- สลับพรีเซ็ต ----------
+
+    private void switchPresetSlot(int slot) {
+        if (slot == presetSlot || slot < 0 || slot > 2) return;
+        if (!batchLoading) savePresetToCloud();      // เซฟของช่องเดิมก่อนสลับ
+        presetSlot = slot;
+        try {
+            getSharedPreferences("MynovoCore", MODE_PRIVATE).edit()
+                    .putInt("preset_slot", presetSlot).apply();
+        } catch (Exception ignored) {}
+        refreshSlotButtons();
+        loadPresetFromCloud();
+        Toast.makeText(this, "☁️ ใช้พรีเซ็ต " + (presetSlot + 1), Toast.LENGTH_SHORT).show();
+    }
+
+    // ---------- ระบบโค้ดแชร์ปุ่ม ----------
+
+    private void onCopyShareCode() {
+        String code = encodeShareCode();
+        if (code == null) {
+            Toast.makeText(this, "ยังไม่มีปุ่มให้แชร์ในพรีเซ็ตนี้", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        try {
+            android.content.ClipboardManager cm =
+                    (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (cm != null) cm.setPrimaryClip(
+                    android.content.ClipData.newPlainText("MynovoPreset", code));
+        } catch (Exception ignored) {}
+        if (etShareCode != null) etShareCode.setText(code);
+        Toast.makeText(this, "📤 คัดลอกโค้ดแล้ว (ส่งให้เพื่อนได้เลย)", Toast.LENGTH_SHORT).show();
+    }
+
+    private String readClipboardText() {
+        try {
+            android.content.ClipboardManager cm =
+                    (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            android.content.ClipData d = cm != null ? cm.getPrimaryClip() : null;
+            if (d != null && d.getItemCount() > 0) {
+                CharSequence t = d.getItemAt(0).coerceToText(this);
+                if (t != null) return t.toString().trim();
+            }
+        } catch (Exception ignored) {}
+        return "";
+    }
+
+    // ===================== ระบบโค้ดแชร์ปุ่ม =====================
+    private static final String SHARE_PREFIX = "MNV1:";   // รุ่นเก่า (JSON) รับเข้าอย่างเดียว
+    private static final String SHARE_PREFIX2 = "MNV2:";  // รุ่นใหม่ (ไบนารี + deflate) สั้นกว่ามาก
+    private static final int SHARE_MAX_BUTTONS = 60;
+    // ห้ามสลับลำดับ/แทรกกลาง ให้ต่อท้ายอย่างเดียว ไม่งั้นโค้ดเก่าจะอ่านผิด
+    private static final java.util.List<String> SHARE_TYPES = java.util.Arrays.asList(
+            "NORMAL", "DPAD", "HIDE_MOUSE", "RAPID_FIRE", "MOUSE_LOCK", "FIRE", "SWIPE", "ZOOM");
+
+    private static boolean near(double a, double b) { return Math.abs(a - b) < 0.004; }
+    private static int c100(double v) { return (int) Math.round(v * 100.0); }
+
+    // ---- สร้างโค้ด: ไบนารี -> raw deflate -> Base64 (ตัดค่า default ทิ้ง) ----
+    private String encodeShareCode() {
+        try {
+            savePresetToCloud(); // ให้ prefs เป็นข้อมูลล่าสุด
+            SharedPreferences prefs = getSharedPreferences(mappingPrefsName(), MODE_PRIVATE);
+            String arr = prefs.getString(presetKey(onExternalDisplay()), "");
+            if (arr == null || arr.isEmpty() || arr.equals("[]")) return null;
+            JSONArray src = new JSONArray(arr);
+            int n = Math.min(src.length(), SHARE_MAX_BUTTONS);
+
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            java.io.DataOutputStream out = new java.io.DataOutputStream(bos);
+            out.writeShort((int) maxScreenWidth);
+            out.writeShort((int) maxScreenHeight);
+            out.writeByte(n);
+
+            for (int i = 0; i < n; i++) {
+                JSONObject b = src.getJSONObject(i);
+                int ti = Math.max(0, SHARE_TYPES.indexOf(b.optString("type", "NORMAL")));
+                if (b.optInt("tg", 0) == 1) ti |= 0x80;   // บิตสูง = โหมดกดเริ่ม/กดหยุด
+                out.writeByte(ti);
+                out.writeShort(b.getInt("x"));
+                out.writeShort(b.getInt("y"));
+
+                int key = b.optInt("key", -1);
+                double sx = b.optDouble("sx", 1.0), sy = b.optDouble("sy", 1.0);
+                int hz = b.optInt("hz", 500);
+                boolean flick = b.has("fm") && !(b.optInt("fm", 1) == 1
+                        && near(b.optDouble("lm", 0.8), 0.8) && near(b.optDouble("br", 0.8), 0.8)
+                        && near(b.optDouble("bg", 0.0), 0.0) && near(b.optDouble("bm", 4.0), 4.0));
+                int ims = b.optInt("ims", 100), pms = b.optInt("pms", 25);
+
+                int f = 0;
+                if (key != -1) f |= 1;
+                if (b.has("size")) f |= 2;
+                if (!near(sx, 1.0)) f |= 4;
+                if (!near(sy, 1.0)) f |= 8;
+                if (hz != 500) f |= 16;
+                if (flick) f |= 32;
+                if (ims != 100) f |= 64;
+                if (pms != 25) f |= 128;
+                out.writeByte(f);
+
+                if ((f & 1) != 0) out.writeInt(key);
+                if ((f & 2) != 0) out.writeByte(b.getInt("size"));
+                if ((f & 4) != 0) out.writeShort(c100(sx));
+                if ((f & 8) != 0) out.writeShort(c100(sy));
+                if ((f & 16) != 0) out.writeShort(hz);
+                if ((f & 32) != 0) {
+                    out.writeByte(b.optInt("fm", 1));
+                    out.writeShort(c100(b.optDouble("lm", 0.8)));
+                    out.writeShort(c100(b.optDouble("br", 0.8)));
+                    out.writeShort(c100(b.optDouble("bg", 0.0)));
+                    out.writeShort(c100(b.optDouble("bm", 4.0)));
+                }
+                if ((f & 64) != 0) out.writeShort(ims);
+                if ((f & 128) != 0) out.writeShort(pms);
+            }
+            out.flush();
+            byte[] raw = bos.toByteArray();
+
+            java.util.zip.Deflater d = new java.util.zip.Deflater(
+                    java.util.zip.Deflater.BEST_COMPRESSION, true); // raw = ไม่มี header
+            d.setInput(raw);
+            d.finish();
+            byte[] buf = new byte[raw.length + 64];
+            int len = d.deflate(buf);
+            d.end();
+
+            return SHARE_PREFIX2 + android.util.Base64.encodeToString(buf, 0, len,
+                    android.util.Base64.NO_WRAP | android.util.Base64.NO_PADDING
+                            | android.util.Base64.URL_SAFE);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    // ---- ถอดโค้ด (รองรับ MNV2 และ MNV1) ----
+    private JSONArray parseShareCode(String code) {
+        try {
+            code = code.replaceAll("\\s+", "");
+            if (code.startsWith(SHARE_PREFIX2)) {
+                return parseShareV2(code.substring(SHARE_PREFIX2.length()));
+            }
+            if (!code.startsWith(SHARE_PREFIX)) return null;
+
+            byte[] data = android.util.Base64.decode(
+                    code.substring(SHARE_PREFIX.length()), android.util.Base64.URL_SAFE);
+            java.util.zip.GZIPInputStream gin = new java.util.zip.GZIPInputStream(
+                    new java.io.ByteArrayInputStream(data));
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            int n, total = 0;
+            while ((n = gin.read(buf)) > 0) {
+                total += n;
+                if (total > 512 * 1024) return null; // กันไฟล์บวมผิดปกติ
+                bos.write(buf, 0, n);
+            }
+            JSONObject o = new JSONObject(bos.toString("UTF-8"));
+            return sanitizeShared(o.getJSONArray("b"), o.optInt("w", 0), o.optInt("h", 0));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private JSONArray parseShareV2(String b64) {
+        try {
+            byte[] data = android.util.Base64.decode(b64, android.util.Base64.URL_SAFE);
+            byte[] in2 = java.util.Arrays.copyOf(data, data.length + 1); // dummy byte สำหรับ raw inflate
+
+            java.util.zip.Inflater inf = new java.util.zip.Inflater(true);
+            inf.setInput(in2);
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[1024];
+            while (!inf.finished()) {
+                int n = inf.inflate(buf);
+                if (n == 0 && (inf.needsInput() || inf.needsDictionary())) break;
+                bos.write(buf, 0, n);
+                if (bos.size() > 64 * 1024) { inf.end(); return null; }
+            }
+            inf.end();
+
+            java.io.DataInputStream in = new java.io.DataInputStream(
+                    new java.io.ByteArrayInputStream(bos.toByteArray()));
+            int w = in.readUnsignedShort(), h = in.readUnsignedShort();
+            int n = in.readUnsignedByte();
+            JSONArray arr = new JSONArray();
+            for (int i = 0; i < n && i < SHARE_MAX_BUTTONS; i++) {
+                int tb = in.readUnsignedByte();
+                int ti = tb & 0x7F;
+                if (ti >= SHARE_TYPES.size()) return null;
+                JSONObject o = new JSONObject();
+                o.put("type", SHARE_TYPES.get(ti));
+                if ((tb & 0x80) != 0) o.put("tg", 1);
+                o.put("x", (int) in.readShort());
+                o.put("y", (int) in.readShort());
+
+                int f = in.readUnsignedByte();
+                o.put("key", (f & 1) != 0 ? in.readInt() : -1);
+                if ((f & 2) != 0) o.put("size", in.readUnsignedByte());
+                if ((f & 4) != 0) o.put("sx", in.readUnsignedShort() / 100.0);
+                if ((f & 8) != 0) o.put("sy", in.readUnsignedShort() / 100.0);
+                if ((f & 16) != 0) o.put("hz", in.readUnsignedShort());
+                if ((f & 32) != 0) {
+                    o.put("fm", in.readUnsignedByte());
+                    o.put("lm", in.readUnsignedShort() / 100.0);
+                    o.put("br", in.readUnsignedShort() / 100.0);
+                    o.put("bg", in.readUnsignedShort() / 100.0);
+                    o.put("bm", in.readUnsignedShort() / 100.0);
+                }
+                if ((f & 64) != 0) o.put("ims", in.readUnsignedShort());
+                if ((f & 128) != 0) o.put("pms", in.readUnsignedShort());
+                arr.put(o);
+            }
+            return sanitizeShared(arr, w, h);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    // ตรวจความปลอดภัย (โค้ดมาจากคนอื่น) + ปรับตำแหน่งตามขนาดจอเรา (ใช้ร่วมกันทั้ง MNV1/MNV2)
+    private JSONArray sanitizeShared(JSONArray src, int w, int h) throws Exception {
+        float sx = (w > 0 && maxScreenWidth > 0) ? maxScreenWidth / w : 1f;
+        float sy = (h > 0 && maxScreenHeight > 0) ? maxScreenHeight / h : 1f;
+
+        java.util.Set<String> allowed = new java.util.HashSet<>(SHARE_TYPES);
+        JSONArray out = new JSONArray();
+        boolean hasDpad = false;
+        for (int i = 0; i < src.length() && out.length() < SHARE_MAX_BUTTONS; i++) {
+            JSONObject b = src.getJSONObject(i);
+            String type = b.optString("type", "NORMAL");
+            if (!allowed.contains(type)) continue;
+            if ("DPAD".equals(type)) { if (hasDpad) continue; hasDpad = true; }
+            int x = Math.round(b.getInt("x") * sx);
+            int y = Math.round(b.getInt("y") * sy);
+            b.put("x", Math.max(0, Math.min((int) maxScreenWidth, x)));
+            b.put("y", Math.max(0, Math.min((int) maxScreenHeight, y)));
+            out.put(b);
+        }
+        return out.length() > 0 ? out : null;
+    }
+
+    // ===================== นำเข้า (ใช้ร่วมกันทั้งวางโค้ด และนำเข้าไฟล์) =====================
+
+    private void onImportShareCode() {
+        String text = etShareCode != null ? etShareCode.getText().toString().trim() : "";
+        if (text.isEmpty()) text = readClipboardText();
+        if (text.isEmpty()) {
+            Toast.makeText(this, "วางโค้ดในช่องก่อน (แตะช่อง แล้วกดวาง)", Toast.LENGTH_LONG).show();
+            return;
+        }
+        importFromText(text);
+    }
+
+    private void importFromText(String text) {
+        final JSONArray parsed = parseShareCode(text);
+        if (parsed == null) {
+            Toast.makeText(this, "❌ โค้ด/ไฟล์ไม่ถูกต้อง", Toast.LENGTH_LONG).show();
+            return;
+        }
+        setCloudFocusable(false);
+        final int slotNow = presetSlot + 1;
+        showWarningDialog(
+                "📥 นำเข้าปุ่ม",
+                "พบ " + parsed.length() + " ปุ่ม\nปุ่มเดิมในพรีเซ็ต " + slotNow
+                        + " จะถูกแทนที่ (พรีเซ็ตอื่นไม่ถูกแตะ)",
+                () -> {
+                    try {
+                        SharedPreferences prefs = getSharedPreferences(mappingPrefsName(), MODE_PRIVATE);
+                        String key = presetKey(onExternalDisplay());
+                        prefs.edit()
+                                .putString(key, parsed.toString())
+                                .putString(key + "_size", (int) maxScreenWidth + "," + (int) maxScreenHeight)
+                                .apply();
+                        loadPresetFromCloud();
+                        if (etShareCode != null) etShareCode.setText("");
+                        Toast.makeText(this, "✅ นำเข้าลงพรีเซ็ต " + slotNow + " สำเร็จ",
+                                Toast.LENGTH_SHORT).show();
+                        if (cloudView != null) cloudView.setVisibility(View.GONE);
+                        if (menuView != null) menuView.setVisibility(View.VISIBLE);
+                        updateEditModeUI();
+                    } catch (Exception e) {
+                        Toast.makeText(this, "❌ นำเข้าไม่สำเร็จ", Toast.LENGTH_SHORT).show();
+                    }
+                });
+    }
+
+    // ===================== ส่งออก/นำเข้าไฟล์ .mnv =====================
+
+    private void onExportFile() {
+        String code = encodeShareCode();
+        if (code == null) {
+            Toast.makeText(this, "ยังไม่มีปุ่มให้ส่งออกในพรีเซ็ตนี้", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String safe = targetPackage.replaceAll("[^A-Za-z0-9_.]", "_");
+        startPicker("export", code, "mynovo_" + safe + "_p" + (presetSlot + 1) + ".mnv");
+    }
+
+    private void onImportFile() {
+        startPicker("import", null, null);
+    }
+
+    private void startPicker(String mode, String text, String fileName) {
+        try {
+            setCloudFocusable(false);
+            FilePickerActivity.pendingExport = text;
+            pickerOpen = true;
+            Intent i = new Intent(this, FilePickerActivity.class);
+            i.putExtra(FilePickerActivity.EXTRA_MODE, mode);
+            if (fileName != null) i.putExtra(FilePickerActivity.EXTRA_NAME, fileName);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION);
+            android.os.Bundle opts = null;
+            if (Build.VERSION.SDK_INT >= 26 && targetDisplay != null) {
+                // เปิดตัวเลือกไฟล์บนจอเดียวกับที่วางปุ่มอยู่ (เผื่อใช้ DeX)
+                android.app.ActivityOptions ao = android.app.ActivityOptions.makeBasic();
+                ao.setLaunchDisplayId(targetDisplay.getDisplayId());
+                opts = ao.toBundle();
+            }
+            startActivity(i, opts);
+            // กันค้าง: ถ้า 5 วิแล้ว Activity ยังไม่ขึ้น ให้เลิกกันระบบปิดตัว
+            handler.postDelayed(() -> { if (!FilePickerActivity.alive) pickerOpen = false; }, 5000);
+        } catch (Exception e) {
+            pickerOpen = false;
+            Toast.makeText(this, "❌ เปิดตัวเลือกไฟล์ไม่ได้", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    // FilePickerActivity เรียกเมื่ออ่านไฟล์เสร็จ
+    public void onFileImported(final String text) {
+        handler.post(() -> { if (!destroyed) importFromText(text); });
+    }
+
+    private Button createSubMenuOption(String text, String colorHex, View.OnClickListener listener) {
+        Button btn = new Button(this);
+        btn.setText(text);
+        btn.setTextColor(Color.WHITE);
+        btn.setTextSize(14f);
+        btn.setAllCaps(false);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(Color.parseColor(colorHex));
+        bg.setCornerRadius(dpToPx(8));
+        btn.setBackground(bg);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dpToPx(50), 1.0f);
+        params.setMargins(dpToPx(8), 0, dpToPx(8), 0);
+        btn.setLayoutParams(params);
+        btn.setOnClickListener(listener);
+        return btn;
+    }
+
+    private void closeSubWindows() {
+        closeButtonSettings();
+        if (addMenuView != null) addMenuView.setVisibility(View.GONE);
+        if (iconSettingsView != null) iconSettingsView.setVisibility(View.GONE);
+        if (cloudView != null) cloudView.setVisibility(View.GONE);
+        isMenuShown = false;
+    }
+
+    private void toggleMenu() {
+        if (isMenuShown) {
+            menuView.setVisibility(View.GONE);
+            closeSubWindows();
+            isMenuShown = false;
+            if (floatingView != null) floatingView.setVisibility(View.VISIBLE);
+        } else {
+            menuView.setVisibility(View.VISIBLE);
+            isMenuShown = true;
+            if (floatingView != null) floatingView.setVisibility(View.GONE);
+        }
+        updateEditModeUI();
+    }
+
+    private void addNewMappingButton(String type, int posX, int posY, boolean askKey, int savedKey, boolean useStagger) {
+        if (destroyed) return;
+        try {
+            final FrameLayout mapBtnContainer = new FrameLayout(this);
+            mapBtnContainer.setTag(type);
+
+            final int mainSize = type.equals("DPAD") ? dpadSize : dpToPx(globalBtnSizeDp);
+            int subSize = dpToPx(20);
+            int padding = dpToPx(10);
+            final int containerSize = mainSize + (padding * 2);
+
+            int flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                    | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                    | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS;
+            if (!isEditModeActive()) {
+                flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+            }
+
+            final WindowManager.LayoutParams btnParams = new WindowManager.LayoutParams(
+                    containerSize, containerSize, overlayType(), flags, PixelFormat.TRANSLUCENT
+            );
+            btnParams.gravity = Gravity.TOP | Gravity.START;
+            btnParams.alpha = BTN_WINDOW_ALPHA;
+            mapBtnContainer.setAlpha(globalBtnAlpha);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                btnParams.layoutInDisplayCutoutMode =
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
+            }
+
+            int actualX = posX;
+            int actualY = posY;
+            if (useStagger) {
+                int staggerOffset = mappingButtons.size() * dpToPx(45);
+                actualX += staggerOffset;
+                actualY += (staggerOffset % dpToPx(200));
+                int[] scr = realScreenSize();
+                int rangeX = Math.max(1, scr[0] - containerSize);
+                int rangeY = Math.max(1, scr[1] - containerSize);
+                actualX = Math.max(0, actualX % rangeX);
+                actualY = Math.max(0, actualY % rangeY);
+            }
+            btnParams.x = actualX;
+            btnParams.y = actualY;
+
+            if (type.equals("DPAD")) {
+                ImageView dpadImgView = new ImageView(this);
+                int dpadResId = getDrawableId("ic_dpad_blue", 0);
+                if (dpadResId != 0) {
+                    dpadImgView.setImageResource(dpadResId);
+                } else {
+                    dpadImgView.setBackground(makeButtonBg());
+                }
+                dpadImgView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                FrameLayout.LayoutParams imgParams = new FrameLayout.LayoutParams(mainSize, mainSize);
+                imgParams.gravity = Gravity.CENTER;
+                dpadImgView.setLayoutParams(imgParams);
+                dpadImgView.setTag("DPAD_IMG");
+                mapBtnContainer.addView(dpadImgView);
+
+                dPadController = new DPadController(mapBtnContainer, handler, new DPadController.Host() {
+                    @Override public int getDpadSize() { return dpadSize; }
+                    @Override public boolean isDestroyed() { return destroyed; }
+                });
+            }
+
+            TextView mapBtn = new TextView(this);
+            mapBtn.setTextColor(Color.WHITE);
+            mapBtn.setTypeface(null, android.graphics.Typeface.BOLD);
+            mapBtn.setGravity(Gravity.CENTER);
+            mapBtn.setTextSize(12f);
+            mapBtn.setMaxLines(1);
+            mapBtn.setPadding(dpToPx(1), 0, dpToPx(1), 0);
+            mapBtn.setShadowLayer(4f, 0f, 0f, Color.BLACK);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                mapBtn.setAutoSizeTextTypeUniformWithConfiguration(8, 14, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
+            }
+
+            if (type.equals("DPAD")) {
+                mapBtn.setText("");
+            } else {
+                String label;
+                if (type.equals("HIDE_MOUSE")) {
+                    int fpsEyeRes = getDrawableId("btn_fps_eye", 0);
+                    if (fpsEyeRes != 0) {
+                        mapBtn.setBackgroundResource(fpsEyeRes);
+                        label = "";
+                    } else {
+                        label = "👁️";
+                        mapBtn.setBackground(makeButtonBg());
+                    }
+                }
+                else if (type.equals("RAPID_FIRE")) {
+                    label = "⚡";
+                    mapBtn.setBackground(makeButtonBg());
+                }
+                else if (type.equals("MOUSE_LOCK")) {
+                    label = "🖱️";
+                    mapBtn.setBackground(makeButtonBg());
+                }
+                else if (type.equals("FIRE")) {
+                    int fireRes = getDrawableId("btn_fire", 0);
+                    if (fireRes != 0) {
+                        mapBtn.setBackgroundResource(fireRes);
+                        label = "";
+                    } else {
+                        label = "Fire";
+                        mapBtn.setBackground(makeButtonBg());
+                    }
+                }
+                else if (type.equals("NORMAL")) {
+                    int tapRes = getDrawableId("btn_circle_outline", 0);
+                    if (tapRes != 0) {
+                        mapBtn.setBackgroundResource(tapRes);
+                        label = "";
+                    } else {
+                        label = "?";
+                        mapBtn.setBackground(makeButtonBg());
+                    }
+                }
+                else {
+                    label = "?";
+                    mapBtn.setBackground(makeButtonBg());
+                }
+                mapBtn.setText(label);
+            }
+
+            FrameLayout.LayoutParams mainParams = new FrameLayout.LayoutParams(mainSize, mainSize);
+            mainParams.gravity = Gravity.CENTER;
+            mapBtn.setLayoutParams(mainParams);
+            mapBtnContainer.addView(mapBtn);
+
+            buttonTextViewMap.put(mapBtnContainer, mapBtn);
+
+            ImageView btnClose = new ImageView(this);
+            btnClose.setImageResource(getDrawableId("ic_close", android.R.drawable.ic_menu_close_clear_cancel));
+            btnClose.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            btnClose.setTag("BTN_CLOSE");
+            btnClose.setVisibility(isEditModeActive() ? View.VISIBLE : View.GONE);
+            FrameLayout.LayoutParams closeParams = new FrameLayout.LayoutParams(subSize, subSize);
+            closeParams.gravity = Gravity.TOP | Gravity.END;
+            btnClose.setLayoutParams(closeParams);
+            btnClose.setClickable(true); btnClose.setFocusable(true);
+            btnClose.setOnClickListener(v -> {
+                try {
+                    if (pendingMappingButton == mapBtnContainer) cancelKeyWait();
+                    if ("DPAD".equals(mapBtnContainer.getTag())) {
+                        if (dPadController != null) dPadController.release();
+                        dPadController = null;
+                    }
+                    removeRapidData(mapBtnContainer);
+                    windowManager.removeView(mapBtnContainer);
+                    mappingButtons.remove(mapBtnContainer);
+                    buttonKeyMap.remove(mapBtnContainer);
+                    buttonTextViewMap.remove(mapBtnContainer);
+                    buttonSizeDpMap.remove(mapBtnContainer);
+                    buttonAlphaMap.remove(mapBtnContainer);
+                    buttonSensXMap.remove(mapBtnContainer);
+                    buttonSensYMap.remove(mapBtnContainer);
+                    buttonHzMap.remove(mapBtnContainer);
+                    buttonFlickMap.remove(mapBtnContainer);
+                    savePresetToCloud();
+                } catch (Exception ignored) {}
+            });
+            mapBtnContainer.addView(btnClose);
+
+            mapBtn.setOnTouchListener(new View.OnTouchListener() {
+                private int initialX, initialY;
+                private float initialTouchX, initialTouchY;
+                private boolean isMoved = false;
+                private boolean handledAsDouble = false;
+                private long lastTapTime = 0;
+
+                @Override
+                public boolean onTouch(View v, MotionEvent event) {
+                    if (!isEditModeActive()) return false;
+
+                    switch (event.getAction()) {
+                        case MotionEvent.ACTION_DOWN: {
+                            initialX = btnParams.x; initialY = btnParams.y;
+                            initialTouchX = event.getRawX(); initialTouchY = event.getRawY();
+                            isMoved = false;
+                            handledAsDouble = false;
+
+                            long downNow = android.os.SystemClock.uptimeMillis();
+                            if (lastTapTime != 0 && downNow - lastTapTime < DOUBLE_CLICK_TIME_DELTA) {
+                                lastTapTime = 0;
+                                handledAsDouble = true;
+                                if (isWaitingForKey) cancelKeyWait();
+                                openButtonSettings(mapBtnContainer);
+                            }
+                            return true;
+                        }
+
+                        case MotionEvent.ACTION_MOVE: {
+                            if (handledAsDouble) return true;
+                            int deltaX = (int) (event.getRawX() - initialTouchX);
+                            int deltaY = (int) (event.getRawY() - initialTouchY);
+                            if (Math.abs(deltaX) > dpToPx(5) || Math.abs(deltaY) > dpToPx(5)) {
+                                isMoved = true;
+                                btnParams.x = initialX + deltaX;
+                                btnParams.y = initialY + deltaY;
+                                windowManager.updateViewLayout(mapBtnContainer, btnParams);
+                            }
+                            return true;
+                        }
+
+                        case MotionEvent.ACTION_UP:
+                        case MotionEvent.ACTION_CANCEL: {
+                            if (handledAsDouble) { handledAsDouble = false; return true; }
+                            if (isMoved) {
+                                lastTapTime = 0;
+                                savePresetToCloud();
+                            } else {
+                                lastTapTime = android.os.SystemClock.uptimeMillis();
+                                if (!"DPAD".equals(mapBtnContainer.getTag())) startKeyWait(mapBtnContainer);
+                            }
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+            });
+
+            windowManager.addView(mapBtnContainer, btnParams);
+            bringCursorToFront();
+            mappingButtons.add(mapBtnContainer);
+            if (!isTargetInForeground) mapBtnContainer.setVisibility(View.GONE);
+
+            if ("FIRE".equals(type) && savedKey == -1) {
+                savedKey = makeKeyId(60001, 0);
+            }
+
+            if (savedKey != -1) {
+                buttonKeyMap.put(mapBtnContainer, savedKey);
+                restoreLabel(mapBtnContainer);
+            }
+            if (!batchLoading) updateEditModeUI();
+
+            if (askKey || useStagger) savePresetToCloud();
+        } catch (Exception e) {}
+    }
+
+    private void applyButtonSize(View container, int sizeDp) {
+        try {
+            int main = dpToPx(sizeDp);
+            int total = main + dpToPx(10) * 2;
+            WindowManager.LayoutParams lp = (WindowManager.LayoutParams) container.getLayoutParams();
+            if (lp != null) {
+                lp.x += (lp.width - total) / 2;
+                lp.y += (lp.height - total) / 2;
+                lp.width = total;
+                lp.height = total;
+                windowManager.updateViewLayout(container, lp);
+            }
+            TextView tv = buttonTextViewMap.get(container);
+            if (tv != null) {
+                android.view.ViewGroup.LayoutParams p = tv.getLayoutParams();
+                p.width = main;
+                p.height = main;
+                tv.setLayoutParams(p);
+            }
+            buttonSizeDpMap.put(container, sizeDp);
+        } catch (Exception ignored) {}
+    }
+
+    private void applyGlobalButtonSize(int dp) {
+        globalBtnSizeDp = dp;
+        for (View b : new ArrayList<>(mappingButtons)) {
+            if (b == null || "DPAD".equals(b.getTag())) continue;
+            applyButtonSize(b, dp);
+        }
+    }
+
+    private void applyButtonAlpha(View container, float a) {
+        try {
+            container.setAlpha(a);
+            buttonAlphaMap.put(container, a);
+        } catch (Exception ignored) {}
+    }
+
+    private void applyGlobalButtonAlpha(float a) {
+        globalBtnAlpha = Math.max(BTN_MIN_ALPHA, Math.min(1.0f, a));
+        for (View b : new ArrayList<>(mappingButtons)) {
+            if (b == null) continue;
+            applyButtonAlpha(b, globalBtnAlpha);
+        }
+    }
+
+    private android.widget.ScrollView makeCappedScrollView(final int reservePx) {
+        android.widget.ScrollView sv = new android.widget.ScrollView(this) {
+            @Override
+            protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+                int maxH = Math.max(dpToPx(120), realScreenSize()[1] - reservePx);
+                super.onMeasure(widthMeasureSpec,
+                        View.MeasureSpec.makeMeasureSpec(maxH, View.MeasureSpec.AT_MOST));
+            }
+        };
+        sv.setFillViewport(false);
+        sv.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        return sv;
+    }
+
+    private String buttonTypeName(String type) {
+        if ("DPAD".equals(type)) return "จอยสติ๊ก";
+        if ("HIDE_MOUSE".equals(type)) return "มุมมอง";
+        if ("RAPID_FIRE".equals(type)) return "แตะซ้ำ";
+        if ("MOUSE_LOCK".equals(type)) return "ล็อกเมาส์";
+        if ("SWIPE".equals(type)) return "ปัด";
+        if ("ZOOM".equals(type)) return "ซูม";
+        if ("FIRE".equals(type)) return "ยิง";
+        return "แตะ";
+    }
+
+    private void closeButtonSettings() {
+        try {
+            if (buttonSettingsView != null && buttonSettingsView.getParent() != null) {
+                windowManager.removeView(buttonSettingsView);
+            }
+        } catch (Exception ignored) {}
+        buttonSettingsView = null;
+        // [KB] ปิดหน้าตั้งค่าปุ่มขณะกำลังพิมพ์ตัวเลข -> กลับมา grab ต่อ
+        if (settingsTextEditing) {
+            settingsTextEditing = false;
+            updateKbGrab();
+        }
+    }
+
+    private void openButtonSettings(final View container) {
+        if (destroyed || container == null) return;
+        closeButtonSettings();
+        try {
+            final boolean isDpad = "DPAD".equals(container.getTag());
+            final String type = container.getTag() != null ? container.getTag().toString() : "NORMAL";
+
+            final LinearLayout outer = new LinearLayout(this);
+            outer.setOrientation(LinearLayout.VERTICAL);
+            outer.setPadding(dpToPx(24), dpToPx(14), dpToPx(24), dpToPx(20));
+
+            int bgRes = getDrawableId("bg_settings", 0);
+            if (bgRes != 0) {
+                outer.setBackgroundResource(bgRes);
+            } else {
+                GradientDrawable bg = new GradientDrawable();
+                bg.setColor(Color.parseColor("#1B1E2E"));
+                bg.setCornerRadius(dpToPx(16));
+                bg.setStroke(dpToPx(2), Color.parseColor("#44496B"));
+                outer.setBackground(bg);
+            }
+
+            TextView tvTitle = new TextView(this);
+            tvTitle.setText("ตั้งค่าปุ่ม (Button Settings)");
+            tvTitle.setTextColor(Color.WHITE);
+            tvTitle.setTextSize(18f);
+            tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+            tvTitle.setGravity(Gravity.CENTER);
+            tvTitle.setPadding(0, 0, 0, dpToPx(4));
+            outer.addView(tvTitle);
+
+            Integer keyId = buttonKeyMap.get(container);
+            String keyText = isDpad ? "W A S D"
+                    : (keyId != null ? labelOfId(keyId) : "ยังไม่ได้กำหนด");
+            TextView tvSub = new TextView(this);
+            tvSub.setText(buttonTypeName(type) + "  •  ปุ่ม: " + keyText);
+            tvSub.setTextColor(Color.parseColor("#8BE9FD"));
+            tvSub.setTextSize(13f);
+            tvSub.setGravity(Gravity.CENTER);
+            tvSub.setPadding(0, 0, 0, dpToPx(6));
+            outer.addView(tvSub);
+
+            android.widget.ScrollView sv = makeCappedScrollView(dpToPx(190));
+            final LinearLayout layout = new LinearLayout(this);
+            layout.setOrientation(LinearLayout.VERTICAL);
+            layout.setPadding(dpToPx(6), 0, dpToPx(6), 0);
+            sv.addView(layout, new android.widget.ScrollView.LayoutParams(
+                    android.widget.ScrollView.LayoutParams.MATCH_PARENT,
+                    android.widget.ScrollView.LayoutParams.WRAP_CONTENT));
+            outer.addView(sv, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+            if ("HIDE_MOUSE".equals(type)) {
+                addSensRow(layout, container, true);
+                addSensRow(layout, container, false);
+                addHzRow(layout, container);
+                addFlickSettings(layout, container);
+            }
+
+            if ("RAPID_FIRE".equals(type)) {
+                layout.addView(createSettingsLabel("โหมดแตะรัว"));
+                LinearLayout rapidModeRow = new LinearLayout(this);
+                rapidModeRow.setOrientation(LinearLayout.HORIZONTAL);
+                rapidModeRow.setGravity(Gravity.CENTER);
+                final Button btnRapidHold = createSubMenuOption("กดค้างเพื่อรัว", "#2E3447", null);
+                final Button btnRapidToggle = createSubMenuOption("กดเริ่ม/กดหยุด", "#2E3447", null);
+                rapidModeRow.addView(btnRapidHold);
+                rapidModeRow.addView(btnRapidToggle);
+                layout.addView(rapidModeRow);
+                final Runnable refreshRapidMode = () -> {
+                    boolean tg = isRapidToggle(container);
+                    styleModeButton(btnRapidHold, !tg);
+                    styleModeButton(btnRapidToggle, tg);
+                };
+                btnRapidHold.setOnClickListener(v -> {
+                    buttonRapidToggleMap.put(container, false);
+                    rapidStop(container);
+                    refreshRapidMode.run();
+                    savePresetToCloud();
+                });
+                btnRapidToggle.setOnClickListener(v -> {
+                    buttonRapidToggleMap.put(container, true);
+                    refreshRapidMode.run();
+                    savePresetToCloud();
+                });
+                refreshRapidMode.run();
+
+                Integer r = buttonIntervalMap.get(container);
+                addIntRow(layout, "ช่วงห่างระหว่างแตะ Interval (ms): ", 2, 500, r != null ? r : 100,
+                        v -> buttonIntervalMap.put(container, v));
+                Integer p = buttonPressMsMap.get(container);
+                addIntRow(layout, "เวลากดต่อครั้ง Click duration (ms): ", 2, 100, p != null ? p : 25,
+                        v -> buttonPressMsMap.put(container, v));
+            }
+
+            Button btnClose = new Button(this);
+            btnClose.setText("CLOSE");
+            btnClose.setTextColor(Color.parseColor("#1B1E2E"));
+            btnClose.setBackgroundColor(Color.WHITE);
+            btnClose.setTextSize(12f);
+            LinearLayout.LayoutParams btnP = new LinearLayout.LayoutParams(dpToPx(100), dpToPx(40));
+            btnP.gravity = Gravity.END;
+            btnP.topMargin = dpToPx(18);
+            btnClose.setLayoutParams(btnP);
+            btnClose.setOnClickListener(v -> {
+                savePresetToCloud();
+                closeButtonSettings();
+                updateEditModeUI();
+            });
+            outer.addView(btnClose);
+
+            buttonSettingsParams = new WindowManager.LayoutParams(
+                    dpToPx(360), WindowManager.LayoutParams.WRAP_CONTENT, overlayType(),
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT);
+            buttonSettingsParams.gravity = Gravity.CENTER;
+
+            buttonSettingsView = outer;
+            windowManager.addView(buttonSettingsView, buttonSettingsParams);
+            bringCursorToFront();
+            updateEditModeUI();
+        } catch (Exception e) {}
+    }
+
+    private void savePresetToCloud() {
+        if (batchLoading) return;
+        final String key = presetKey(onExternalDisplay());
+        final String json;
+        try {
+            JSONArray jsonArray = new JSONArray();
+            for (View btn : new ArrayList<>(mappingButtons)) {
+                if (btn == null) continue;
+                WindowManager.LayoutParams p = (WindowManager.LayoutParams) btn.getLayoutParams();
+                if (p == null) continue;
+
+                JSONObject obj = new JSONObject();
+                obj.put("x", p.x);
+                obj.put("y", p.y);
+                obj.put("type", btn.getTag() != null ? btn.getTag().toString() : "NORMAL");
+                Integer kc = buttonKeyMap.get(btn);
+                obj.put("key", kc != null ? kc : -1);
+                Integer sz = buttonSizeDpMap.get(btn);
+                if (sz != null) obj.put("size", sz);
+                Float sxv = buttonSensXMap.get(btn);
+                if (sxv != null) obj.put("sx", (double) sxv);
+                Float syv = buttonSensYMap.get(btn);
+                if (syv != null) obj.put("sy", (double) syv);
+                Integer hzv = buttonHzMap.get(btn);
+                if (hzv != null) obj.put("hz", (int) hzv);
+                float[] fc = buttonFlickMap.get(btn);
+                if (fc != null) {
+                    obj.put("fm", (int) fc[0]);
+                    obj.put("lm", (double) fc[1]);
+                    obj.put("br", (double) fc[2]);
+                    obj.put("bg", (double) fc[3]);
+                    obj.put("bm", (double) fc[4]);
+                }
+                Integer rr = buttonIntervalMap.get(btn);
+                if (rr != null) obj.put("ims", (int) rr);
+                Boolean tgv = buttonRapidToggleMap.get(btn);
+                if (tgv != null) obj.put("tg", tgv ? 1 : 0);
+                Integer pp = buttonPressMsMap.get(btn);
+                if (pp != null) obj.put("pms", (int) pp);
+                jsonArray.put(obj);
+            }
+            json = jsonArray.toString();
+        } catch (Exception e) {
+            return;
+        }
+        try {
+            SharedPreferences prefs = getSharedPreferences(mappingPrefsName(), MODE_PRIVATE);
+            prefs.edit()
+                    .putString(key, json)
+                    .putString(key + "_size", (int) maxScreenWidth + "," + (int) maxScreenHeight)
+                    .apply();
+        } catch (Exception ignored) {}
+    }
+
+    private void loadPresetFromCloud() {
+        handler.post(() -> {
+            if (destroyed) return;
+            batchLoading = true;
+            try {
+                stopAllRapidTaps();
+                for (View btn : mappingButtons) {
+                    try { windowManager.removeView(btn); } catch (Exception ignored) {}
+                }
+                mappingButtons.clear();
+                buttonKeyMap.clear();
+                buttonTextViewMap.clear();
+                buttonSizeDpMap.clear();
+                buttonAlphaMap.clear();
+                buttonSensXMap.clear();
+                buttonSensYMap.clear();
+                buttonHzMap.clear();
+                buttonFlickMap.clear();
+                clearAllRapidData();
+                if (dPadController != null) dPadController.release();
+                dPadController = null;
+
+                SharedPreferences prefs = getSharedPreferences(mappingPrefsName(), MODE_PRIVATE);
+                String jsonStr = prefs.getString(presetKey(onExternalDisplay()), "");
+
+                if (!jsonStr.isEmpty()) {
+                    JSONArray jsonArray = new JSONArray(jsonStr);
+                    for (int i = 0; i < jsonArray.length(); i++) {
+                        JSONObject obj = jsonArray.getJSONObject(i);
+                        int x = obj.getInt("x");
+                        int y = obj.getInt("y");
+                        String type = obj.has("type") ? obj.getString("type") : "NORMAL";
+                        // ข้ามปุ่ม "ซ่อนปุ่ม" ที่ค้างอยู่ในพรีเซ็ตเก่า (ฟังก์ชันนี้ถูกลบออกแล้ว)
+                        if ("HIDE_BTNS".equals(type)) continue;
+                        int key = obj.has("key") ? obj.getInt("key") : -1;
+                        if ("FIRE".equals(type) && key == -1) {
+                            key = makeKeyId(60001, 0);
+                        }
+                        int before = mappingButtons.size();
+                        addNewMappingButton(type, x, y, false, key, false);
+                        if (mappingButtons.size() > before) {
+                            View added = mappingButtons.get(mappingButtons.size() - 1);
+                            if (obj.has("sx")) buttonSensXMap.put(added, (float) obj.getDouble("sx"));
+                            if (obj.has("sy")) buttonSensYMap.put(added, (float) obj.getDouble("sy"));
+                            if (obj.has("hz")) buttonHzMap.put(added, obj.getInt("hz"));
+                            if (obj.has("fm")) {
+                                buttonFlickMap.put(added, new float[]{
+                                        obj.getInt("fm"),
+                                        (float) obj.optDouble("lm", 0.8),
+                                        (float) obj.optDouble("br", 0.8),
+                                        (float) obj.optDouble("bg", 0.0),
+                                        (float) obj.optDouble("bm", 4.0)});
+                            }
+                            if (obj.has("ims")) {
+                                buttonIntervalMap.put(added, obj.getInt("ims"));
+                            } else if (obj.has("rate")) {
+                                // พรีเซ็ตเก่าเก็บเป็นครั้ง/วิ แปลงเป็น ms
+                                int oldRate = Math.max(1, obj.getInt("rate"));
+                                buttonIntervalMap.put(added, Math.max(2, Math.round(1000f / oldRate)));
+                            }
+                            if (obj.has("tg")) buttonRapidToggleMap.put(added, obj.getInt("tg") == 1);
+                            if (obj.has("pms")) buttonPressMsMap.put(added, obj.getInt("pms"));
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+            } finally {
+                batchLoading = false;
+            }
+            bringCursorToFront();
+            updateEditModeUI();
+        });
+    }
+
+    private void startAppMonitor() {
+        if (isChecking || monitorHandler == null) return;
+        isChecking = true;
+        monitorHandler.post(checkAppRunnable);
+        handler.removeCallbacks(focusGuardRunnable);
+        handler.post(focusGuardRunnable);
+    }
+
+    private Runnable checkAppRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (destroyed) return;
+            try {
+                String cur0 = getForegroundAppRobust();
+                if (probeActive && !targetPackage.isEmpty() && getPackageName().equals(cur0)) {
+                    cur0 = targetPackage;
+                }
+                final String currentApp = cur0;
+
+                final boolean nowForeground =
+                        targetPackage.isEmpty() || targetPackage.equals(currentApp);
+
+                // [แก้ไข] เช็กทุกครั้ง (เดิมเช็กเฉพาะ gameDisplayId >= 0 ทำให้ย้ายกลับมาจอมือถือไม่ได้)
+                handler.post(() -> {
+                    if (destroyed || targetDisplay == null || pendingDisplaySwitch != null) return;
+                    android.view.Display want = findTargetDisplay();
+                    if (want != null && want.getDisplayId() != targetDisplay.getDisplayId()) {
+                        scheduleDisplayReevaluation();
+                    }
+                });
+
+                if (!targetPackage.isEmpty()) {
+                    if (targetPackage.equals(currentApp)) {
+                        targetSeen = true;
+                        ownAppCount = 0;
+                        awaySince = 0;
+                    } else if (pickerOpen) {
+                        // กำลังเปิดตัวเลือกไฟล์ ห้ามคิดว่าออกจากเกมแล้วปิดระบบ
+                        awaySince = 0;
+                        ownAppCount = 0;
+                    } else if (targetSeen) {
+                        long nowMs = android.os.SystemClock.uptimeMillis();
+                        if (awaySince == 0) awaySince = nowMs;
+                        boolean inOwnApp = getPackageName().equals(currentApp);
+                        ownAppCount = inOwnApp ? ownAppCount + 1 : 0;
+                        boolean stopNow = false;
+                        if (inOwnApp && ownAppCount >= 2) {
+                            stopNow = true;
+                        } else if (!inOwnApp && nowMs - awaySince >= AWAY_STOP_MS) {
+                            killOnDestroy = true;
+                            stopNow = true;
+                        }
+                        if (stopNow) {
+                            isChecking = false;
+                            handler.post(() -> { if (!destroyed) stopSelf(); });
+                            return;
+                        }
+                    }
+                }
+
+                if (nowForeground != isTargetInForeground) {
+                    handler.post(() -> {
+                        if (!destroyed) applyForegroundChange(nowForeground);
+                    });
+                }
+            } catch (Exception e) {}
+            if (isChecking && !destroyed && monitorHandler != null) monitorHandler.postDelayed(this, 250);
+        }
+    };
+
+    private void applyForegroundChange(boolean nowForeground) {
+        releaseAllTapHolds();
+        boolean prevForeground = isTargetInForeground;
+        isTargetInForeground = nowForeground;
+        blockMetaKey = nowForeground;
+
+        if (!prevForeground && nowForeground) {
+            activeTouchPointers.clear();
+            TouchSimulator.releaseTouch();
+            mouseLeftToken = 0;
+            kbEscaped = false; // [KB] กลับเข้าเกมแล้ว จับคีย์บอร์ดอีกครั้ง
+        }
+        updateKbGrab(); // [KB] ออกจากเกม = ปล่อยคีย์บอร์ดคืนระบบ
+
+        if (floatingView == null) return;
+
+        if (nowForeground) {
+            if (!isEditModeActive() && floatingView.getVisibility() != View.VISIBLE) {
+                floatingView.setVisibility(View.VISIBLE);
+            }
+            for (View btn : mappingButtons) btn.setVisibility(View.VISIBLE);
+            applyButtonsHiddenState();
+            if (mouseController != null) mouseController.resume();
+        } else {
+            if (dPadController != null) dPadController.release();
+            stopAllRapidTaps();
+            TouchSimulator.releaseTouch();
+            mouseLeftToken = 0;
+            for (Runnable r : rapidFireRunnables.values()) handler.removeCallbacks(r);
+            rapidFireRunnables.clear();
+            activeTouchPointers.clear();
+
+            if (isTypingMode) setTypingMode(false);
+
+            if (mouseController != null) {
+                mouseController.pause();
+                isMouseMode = false;
+            }
+
+            if (menuView != null) menuView.setVisibility(View.GONE);
+            closeSubWindows();
+            updateEditModeUI();
+            for (View btn : mappingButtons) btn.setVisibility(View.GONE);
+            floatingView.setVisibility(View.GONE);
+        }
+    }
+
+    private Runnable focusGuardRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (destroyed) return;
+            try {
+                if (isTargetInForeground && !isEditModeActive() && mouseController != null) {
+                    mouseController.checkAndRegainFocus();
+                }
+                // [KB] ต้องการ grab อยู่แต่ยังไม่ได้เชื่อม InputServer (เช่นรัน activate.sh ทีหลัง) -> ลองเชื่อมใหม่
+                // [แก้ lag] เดิมลองทุก 400ms ตลอดเวลา เปลี่ยนเป็นทุก 3 วินาที
+                if (kbGrabRequested && !ShellServerClient.isConnected()) {
+                    long nowMs = android.os.SystemClock.uptimeMillis();
+                    if (nowMs - lastKbReconnectAt >= 3000) {
+                        lastKbReconnectAt = nowMs;
+                        ShellServerClient.ensureConnectedAsync();
+                        refreshKbGrabButton();
+                    }
+                }
+            } catch (Exception ignored) {}
+            if (isChecking && !destroyed) handler.postDelayed(this, 400);
+        }
+    };
+
+    private java.lang.reflect.Method shizukuNewProcess = null;
+    private long lastShizukuCheck = 0;
+    private String fgSource = "usage";
+
+    // [แก้ไข] เกมรันอยู่จอไหนจริง -> เป็นตัวตัดสินสุดท้าย (ไม่ล็อกตาม GAME_DISPLAY อีก)
+    // ต้องเห็นตรงกัน 2 รอบติดกันก่อนถึงจะสลับจอ เพื่อกันกะพริบ
+    private void applyObservedGameDisplay(int observed) {
+        lastObservedReal = observed;
+        int real = mapDisplay(observed);
+        int desired = gameDisplayId > 0 ? gameDisplayId : 0;
+        if (real == desired) {
+            pendingExtId = -1;
+            pendingExtCount = 0;
+            return;
+        }
+        if (pendingExtId == real) pendingExtCount++;
+        else { pendingExtId = real; pendingExtCount = 1; }
+
+        if (pendingExtCount >= 2) {
+            pendingExtId = -1;
+            pendingExtCount = 0;
+            if (real > 0) ensureDisplayAccessible(real);
+            gameDisplayId = (real > 0) ? real : -1;
+            displayConfirmed = true;
+        }
+    }
+
+    private String getTopAppViaShizuku() {
+        try {
+            if (!Shizuku.pingBinder()) return null;
+            if (shizukuNewProcess == null) {
+                shizukuNewProcess = Shizuku.class.getDeclaredMethod("newProcess", String[].class, String[].class, String.class);
+                shizukuNewProcess.setAccessible(true);
+            }
+            Process proc = (Process) shizukuNewProcess.invoke(null, new Object[]{
+                    new String[]{"sh", "-c", "dumpsys activity activities | grep -E 'Display #|ResumedActivity'"}, null, null});
+            java.util.regex.Pattern pat = java.util.regex.Pattern.compile("u\\d+\\s+([A-Za-z0-9_.]+)/");
+            java.util.regex.Pattern dispPat = java.util.regex.Pattern.compile("Display #(\\d+)");
+            String top = null, fallback = null;
+            boolean targetResumed = false;
+            boolean onDefault = false;
+            int otherId = -1;
+            int curDisplay = -1;
+            java.io.BufferedReader reader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(proc.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                java.util.regex.Matcher dm2 = dispPat.matcher(line);
+                if (dm2.find()) {
+                    curDisplay = Integer.parseInt(dm2.group(1));
+                    continue;
+                }
+                java.util.regex.Matcher m = pat.matcher(line);
+                if (!m.find()) continue;
+
+                boolean isGlobalLine = line.contains("topResumedActivity") || line.contains("mLastResumed");
+
+                if (!targetPackage.isEmpty() && targetPackage.equals(m.group(1))) {
+                    targetResumed = true;
+                    if (!isGlobalLine && curDisplay >= 0) {
+                        if (curDisplay == android.view.Display.DEFAULT_DISPLAY) onDefault = true;
+                        else otherId = curDisplay;
+                    }
+                }
+                if (line.contains("topResumedActivity")) { if (top == null) top = m.group(1); }
+                else if (fallback == null) fallback = m.group(1);
+            }
+            try { reader.close(); } catch (Exception ignored) {}
+            try { proc.waitFor(); } catch (Exception ignored) {}
+
+            if (targetResumed) {
+                // [แก้ lag] ผลจาก activities ชัดเจนและตรงกับจอปัจจุบันอยู่แล้ว -> ไม่ต้องรัน
+                // "dumpsys window displays" ซ้ำ (หนักมาก) ใช้เฉพาะตอนกำกวมหรือจอเปลี่ยน
+                int quick = -1;
+                if (onDefault && otherId <= 0) quick = 0;
+                else if (!onDefault && otherId > 0) quick = otherId;
+                int desired = gameDisplayId > 0 ? gameDisplayId : 0;
+
+                int real;
+                if (displayConfirmed && quick >= 0 && quick == desired) {
+                    real = quick;
+                } else {
+                    real = queryDisplayViaWindow(targetPackage);
+                    if (real < 0) real = quick;
+                }
+                if (real >= 0) applyObservedGameDisplay(real);
+                return targetPackage;
+            }
+            return top != null ? top : fallback;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private volatile String shizukuTopApp = null;
+    private volatile long shizukuAt = 0;
+    private volatile boolean shizukuBusy = false;
+    private long usageChangedAt = 0;
+    private String prevUsage = "";
+
+    private String getForegroundAppRobust() {
+        String usage = getForegroundApp();
+        long now = android.os.SystemClock.uptimeMillis();
+        if (!usage.equals(prevUsage)) { prevUsage = usage; usageChangedAt = now; }
+
+        // [แก้ lag] เดิมสั่ง dumpsys ผ่าน Shizuku ทุก 1 วินาทีตลอดเวลา (หนักมาก ทำให้เกม/ระบบกระตุก)
+        // ตอนนี้: ถ้า UsageStats บอกว่าเกมอยู่หน้าจอนิ่ง ๆ แล้ว ให้เช็กห่างขึ้นเป็น 2.5 วินาที
+        // ถ้ามีการเปลี่ยนแอปเมื่อไม่นานนี้ หรือไม่ใช่เกม ให้เช็กถี่ 1 วินาทีเหมือนเดิม
+        boolean stableOnTarget = !targetPackage.isEmpty()
+                && targetPackage.equals(usage)
+                && now - usageChangedAt > 3000
+                && displayConfirmed;
+        long shizukuInterval = stableOnTarget ? 2500 : 1000;
+
+        if (!shizukuBusy && now - lastShizukuCheck >= shizukuInterval) {
+            lastShizukuCheck = now;
+            shizukuBusy = true;
+            new Thread(() -> {
+                try {
+                    String r = getTopAppViaShizuku();
+                    if (r != null) { shizukuTopApp = r; shizukuAt = android.os.SystemClock.uptimeMillis(); }
+                } finally { shizukuBusy = false; }
+            }).start();
+        }
+        String sz = shizukuTopApp;
+        // [แก้ lag] ขยายอายุผล Shizuku ให้สอดคล้องกับช่วงเช็กที่ห่างขึ้น
+        if (sz != null && shizukuAt > usageChangedAt && now - shizukuAt < 6000) {
+            fgSource = "shizuku";
+            return sz;
+        }
+        fgSource = "usage";
+        return usage;
+    }
+
+    private String lastForegroundApp = "None";
+    private long lastUsageQueryTime = 0;
+    private final java.util.LinkedHashMap<String, String> openActivities = new java.util.LinkedHashMap<>();
+
+    private String getForegroundApp() {
+        try {
+            UsageStatsManager usm = (UsageStatsManager) getSystemService(Context.USAGE_STATS_SERVICE);
+            long now = System.currentTimeMillis();
+            long from = (lastUsageQueryTime == 0) ? now - 1000L * 3600 : lastUsageQueryTime - 1000L;
+            UsageEvents usageEvents = usm.queryEvents(from, now);
+            UsageEvents.Event event = new UsageEvents.Event();
+            while (usageEvents.hasNextEvent()) {
+                usageEvents.getNextEvent(event);
+                int type = event.getEventType();
+                String pkg = event.getPackageName();
+                String cls = event.getClassName();
+                if (pkg == null) continue;
+                String key = pkg + "/" + (cls != null ? cls : "");
+                if (type == UsageEvents.Event.ACTIVITY_RESUMED) {
+                    openActivities.remove(key);
+                    openActivities.put(key, pkg);
+                } else if (type == 23 || type == 24) {
+                    openActivities.remove(key);
+                }
+            }
+            lastUsageQueryTime = now;
+
+            String top = "None";
+            for (String p : openActivities.values()) top = p;
+            if (!targetPackage.isEmpty() && openActivities.containsValue(targetPackage)) top = targetPackage;
+            lastForegroundApp = top;
+            return top;
+        } catch (Exception e) { return lastForegroundApp; }
+    }
+
+    @Override
+    public void onDestroy() {
+        destroyed = true;
+        blockMetaKey = false;
+        pickerOpen = false;
+        instance = null;
+        isChecking = false;
+        probeActive = false;
+
+        // [KB] ปล่อยคีย์บอร์ดคืนระบบและเลิกรับเฟรมคีย์
+        try {
+            kbGrabRequested = false;
+            ShellServerClient.setKeyListener(null);
+            ShellServerClient.requestKbGrab(false);
+        } catch (Throwable ignored) {}
+
+        // [FPS] หยุด monitor และซ่อน overlay
+        try {
+            if (realFpsMonitor != null) { realFpsMonitor.stop(); realFpsMonitor = null; }
+            if (fpsOverlay != null) { fpsOverlay.hide(); fpsOverlay = null; }
+        } catch (Throwable ignored) {}
+
+        try {
+            final DisplayProbeActivity probe = DisplayProbeActivity.instance;
+            if (probe != null) probe.runOnUiThread(probe::finish);
+        } catch (Exception ignored) {}
+
+        try {
+            if (pendingDisplaySwitch != null) handler.removeCallbacks(pendingDisplaySwitch);
+            if (displayListener != null) {
+                android.hardware.display.DisplayManager dm =
+                        (android.hardware.display.DisplayManager) getSystemService(DISPLAY_SERVICE);
+                if (dm != null) dm.unregisterDisplayListener(displayListener);
+            }
+        } catch (Exception ignored) {}
+
+        if (killOnDestroy) {
+            final int pid = android.os.Process.myPid();
+            new Thread(() -> {
+                try { TouchSimulator.releaseTouch(); } catch (Exception ignored) {}
+                try { restoreNavBlocking(); } catch (Exception ignored) {}
+                try { Thread.sleep(150); } catch (Exception ignored) {}
+                android.os.Process.killProcess(pid);
+            }).start();
+        }
+
+        try { handler.removeCallbacksAndMessages(null); } catch (Exception ignored) {}
+        try {
+            if (monitorHandler != null) monitorHandler.removeCallbacksAndMessages(null);
+            if (overlayBuilt) monitorThread.quitSafely();
+        } catch (Exception ignored) {}
+
+        try { closeWarningDialog(); } catch (Exception ignored) {}
+        try { closeButtonSettings(); } catch (Exception ignored) {}
+
+        try {
+            if (mouseController != null) {
+                mouseController.destroy();
+                mouseController = null;
+            }
         } catch (Exception ignored) {}
 
         try { stopAllRapidTaps(); } catch (Exception ignored) {}
