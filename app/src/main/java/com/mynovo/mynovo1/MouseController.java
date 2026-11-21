@@ -183,6 +183,72 @@ public class MouseController {
     // 0 = ซิงค์เฟรมจอ (อาจดีเลย์ได้ ~16ms บนจอ 60Hz) / 250 = ส่งทันทีที่พ้น interval ตอบสนองไวกว่า
     private static final int DEFAULT_VIEW_HZ = 250;
 
+    // ===== ตัวกรองสัญญาณเมาส์ (โหมดมุมมองเท่านั้น) =====
+    private volatile boolean filterEnabled = true;
+    // ความแรงปรับเรียบตอนขยับช้า: 0 = ไม่เรียบ, 1 = เรียบสุด
+    private volatile float filterSmooth = 0.5f;
+    // เดดโซน (px ต่อ event) สะสมจนเกินค่านี้ถึงปล่อยออก 0 = ปิด
+    private volatile float filterDeadzonePx = 0.25f;
+
+    // ความเร็ว (px/ms) ที่ถือว่า "สบัดเร็ว" ปรับเรียบเหลือ 0 ไม่มีหน่วง
+    private static final float FILTER_FAST_SPEED = 0.6f;
+    // กันสไปค์: เพดาน = max(MIN_PX, ค่าเฉลี่ย x RATIO)
+    private static final float FILTER_SPIKE_RATIO = 6f;
+    private static final float FILTER_SPIKE_MIN_PX = 120f;
+    // เงียบเกินนี้ (ms) ล้างสถานะตัวกรอง
+    private static final float FILTER_RESET_GAP_MS = 120f;
+
+    private float fPrevX, fPrevY, fAccX, fAccY, fAvgMag;
+    private final float[] fOut = new float[2];
+
+    private void resetMouseFilter() {
+        fPrevX = fPrevY = fAccX = fAccY = fAvgMag = 0f;
+    }
+
+    // ผลลัพธ์อยู่ใน fOut[0], fOut[1]
+    private void applyMouseFilter(float dx, float dy, float dtMs) {
+        final float dt = Math.max(1f, Math.min(32f, dtMs));
+        if (dtMs > FILTER_RESET_GAP_MS) resetMouseFilter();
+
+        // 1) กันสไปค์ (บีบ ไม่ทิ้ง)
+        float mag = (float) Math.hypot(dx, dy);
+        float cap = Math.max(FILTER_SPIKE_MIN_PX, fAvgMag * FILTER_SPIKE_RATIO);
+        if (mag > cap && mag > 0f) {
+            float s = cap / mag;
+            dx *= s; dy *= s; mag = cap;
+        }
+        fAvgMag += 0.2f * (mag - fAvgMag);
+
+        // 2) ปรับเรียบตามความเร็ว: ช้า = เรียบ, เร็ว = alpha 1 (ไม่หน่วง)
+        float t = Math.max(0f, Math.min(1f, (mag / dt) / FILTER_FAST_SPEED));
+        float minAlpha = 1f - 0.85f * Math.max(0f, Math.min(1f, filterSmooth));
+        float alpha = minAlpha + (1f - minAlpha) * t;
+        fPrevX += alpha * (dx - fPrevX);
+        fPrevY += alpha * (dy - fPrevY);
+        float ox = fPrevX, oy = fPrevY;
+
+        // 3) เดดโซนแบบสะสม
+        float dz = filterDeadzonePx;
+        if (dz > 0f) {
+            fAccX += ox; fAccY += oy;
+            if (Math.hypot(fAccX, fAccY) < dz) {
+                ox = 0f; oy = 0f;
+            } else {
+                ox = fAccX; oy = fAccY;
+                fAccX = 0f; fAccY = 0f;
+            }
+        }
+        fOut[0] = ox;
+        fOut[1] = oy;
+    }
+
+    public void setMouseFilter(boolean enabled, float smooth, float deadzonePx) {
+        filterEnabled = enabled;
+        filterSmooth = Math.max(0f, Math.min(1f, smooth));
+        filterDeadzonePx = Math.max(0f, deadzonePx);
+        resetMouseFilter();
+    }
+
     // ตัวคูณความเร็วตามระยะที่นิ้วเสมือนเลยขอบจอ แกน X (ลดต่อเนื่อง ไม่มีเพดาน)
     // (v = พิกัดบนแกนนั้น, max = ขนาดจอแกนนั้น)
     private float offscreenFactor(float v, float max, float gainOut) {
@@ -998,8 +1064,16 @@ public class MouseController {
                     // ระบบคงที่: แกน X ไม่ตัดระยะเลย / แกน Y และระบบบิตใช้ 1500
                     final float MAX_FRAME_DELTA = 1500f;
                     final float MAX_FRAME_DELTA_X = viewFlickAccel ? MAX_FRAME_DELTA : 1_000_000f;
-                    float dx = Math.max(-MAX_FRAME_DELTA_X, Math.min(MAX_FRAME_DELTA_X, sumDx));
-                    float dy = Math.max(-MAX_FRAME_DELTA, Math.min(MAX_FRAME_DELTA, sumDy));
+
+                    // [เพิ่ม] ตัวกรองสัญญาณเมาส์ (กรองก่อนเข้าสูตรความเร็วเดิม)
+                    float inDx = sumDx, inDy = sumDy;
+                    if (filterEnabled) {
+                        applyMouseFilter(sumDx, sumDy, dtMsFull);
+                        inDx = fOut[0];
+                        inDy = fOut[1];
+                    }
+                    float dx = Math.max(-MAX_FRAME_DELTA_X, Math.min(MAX_FRAME_DELTA_X, inDx));
+                    float dy = Math.max(-MAX_FRAME_DELTA, Math.min(MAX_FRAME_DELTA, inDy));
 
                     // ระบบคงที่เท่านั้น: event แรกหลัง "ช่วงเงียบ" (ยกเมาส์แล้ววางใหม่)
                     // [แก้ไข] ถ้าก้อนใหญ่เกินเพดาน ให้ "บีบ" ให้เท่าเพดาน (ไม่ทิ้งทั้งก้อนเหมือนเดิม)
@@ -1286,6 +1360,8 @@ public class MouseController {
                 smoothedLeftSpeedPxMs = 0f;
                 // รีเซ็ตตัวนับ flicker ของการเช็ค isPointerDown
                 lostPointerStreak = 0;
+                // [เพิ่ม] ล้างสถานะตัวกรองสัญญาณเมาส์
+                resetMouseFilter();
 
                 if (mouseMoveToken != 0) {
                     TouchSimulator.simulateUp(mouseMoveToken, 2, (int) cursorX, (int) cursorY);
@@ -1393,6 +1469,8 @@ public class MouseController {
         rightDown = false;
         prevSecondary = false;
         lostPointerStreak = 0;
+        // [เพิ่ม] ล้างสถานะตัวกรองสัญญาณเมาส์
+        resetMouseFilter();
         // ปล่อยนิ้วคลิกซ้ายที่กดค้างอยู่ (ถ้ามี)
         if (pressing && isMouseMode) {
             pressing = false;
