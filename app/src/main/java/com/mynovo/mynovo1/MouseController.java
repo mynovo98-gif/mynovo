@@ -153,8 +153,8 @@ public class MouseController {
     // false = ปิดตัวชดเชย ความเร็ว = ระยะเมาส์ x ความไว เป็นเส้นตรงจริงๆ
     private static final boolean OFFSCREEN_COMPENSATE = false;
 
-    private static final float OFFSCREEN_GAIN_X = 0.30f;
-    private static final float OFFSCREEN_MIN_X = 030f;
+    private static final float OFFSCREEN_GAIN_X = 0.35f;
+    private static final float OFFSCREEN_MIN_X = 035f;
     // แกน Y กลับไปใช้ค่าเดิม (1.0 = ไม่ชดเชย)
     private static final float OFFSCREEN_GAIN_Y = 1.0f;
     private static final float OFFSCREEN_BAND = 0.9f;
@@ -625,7 +625,7 @@ public class MouseController {
         this.eventListener = listener;
 
         this.targetBtnX = maxWidth * 0.79f;
-        this.targetBtnY = maxHeight * 0.55f;
+        this.targetBtnY = maxHeight * 0.66f;
         this.hasCustomTarget = true;
 
         initView();
@@ -638,7 +638,7 @@ public class MouseController {
     }
 
     // ความชันของค่าความไว (ตั้งจากหน้าตั้งค่า): 1.0 = เส้นตรง
-    private static final float VIEW_SENS_CURVE = 0.9f;
+    private static final float VIEW_SENS_CURVE = 1.0f;
     // ค่าความไวที่ตอนนี้รู้สึกพอดี แยกแกน (ตรงค่านี้ความเร็วเท่าเดิมเป๊ะ)
     private static final float VIEW_SENS_PIVOT_X = 0.02f;
     private static final float VIEW_SENS_PIVOT_Y = 0.04f;
@@ -646,8 +646,8 @@ public class MouseController {
     // ตัวคูณความเร็วโหมดมุมมอง แยกแกน X / Y
     // [แก้ไข] X ลดจาก 0.45 เป็น 0.40 (ช้าลง ~11%)
     // ถ้ายังเร็วไปให้ลด X ทีละ 0.03-0.05 (เช่น 0.36) / ถ้าช้าไปให้เพิ่ม (เช่น 0.42)
-    private static final float VIEW_SPEED_SCALE_X = 0.30f;
-    private static final float VIEW_SPEED_SCALE_Y = 0.35f;
+    private static final float VIEW_SPEED_SCALE_X = 0.35f;
+    private static final float VIEW_SPEED_SCALE_Y = 0.30f;
 
     private float softenViewSens(float s, float pivot, float scale) {
         if (s <= 0f) return 0f;
