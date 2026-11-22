@@ -30,6 +30,21 @@ public class TouchSimulator {
     // เปิดเมื่อต้องการ debug (Log ทุก DOWN/UP ทำให้ช้าลงนิดหน่อย)
     private static final boolean DEBUG_LOG = false;
 
+    // [เพิ่ม] วัดเวลาจริงที่ใช้ "ต่อการยิง event หนึ่งครั้ง" (ตั้งแต่เริ่มเรียก send/invoke จนกลับมา)
+    // เปิดไว้ชั่วคราวเพื่อหาสาเหตุหน่วงคงที่ (เท่ากันทั้งหันช้า-หันเร็ว) ว่าฝั่งไหนกินเวลา
+    // ไม่ log ทุกครั้ง (รัว log เองก็ทำให้ช้า) แค่ log เฉพาะครั้งที่ช้าเกิน LOG_SLOW_INJECT_MS
+    private static final boolean LOG_INJECT_TIMING = true;
+    private static final long LOG_SLOW_INJECT_MS = 3L;
+
+    // [เพิ่ม] บังคับใช้เฉพาะเส้นทาง Shizuku ชั่วคราว (ข้าม ShellServerClient แม้เชื่อมต่ออยู่)
+    // ไว้เทียบความหน่วงระหว่าง 2 เส้นทาง: ลอง true ดูว่าหน่วงที่เจอหายไหม ถ้าหายแปลว่า ShellServerClient ช้ากว่า
+    private static volatile boolean forceShizukuOnly = false;
+    public static void setForceShizukuOnly(boolean v) {
+        forceShizukuOnly = v;
+        Log.i(TAG, "forceShizukuOnly=" + v);
+    }
+    public static boolean isForceShizukuOnly() { return forceShizukuOnly; }
+
     // เวลาค้างนิ้วของ simulateClick (ms) เกมที่รับปุ่มไม่ติดให้เพิ่ม (เช่น 40-60) ถ้าอยากให้ไวสุดให้ลด (เช่น 10-15)
     private static final long CLICK_HOLD_MS = 20L;
 
@@ -377,7 +392,8 @@ public class TouchSimulator {
 
                 // ถ้าเชื่อม shell server อยู่ใช้ทางนั้นก่อน ไม่งั้นใช้ Shizuku
                 // (อยากให้ Shizuku มาก่อน ให้สลับลำดับตรงนี้)
-                final boolean viaServer = ShellServerClient.isConnected();
+                // [แก้ไข] forceShizukuOnly = true จะข้าม shell server ไปใช้ Shizuku เสมอ (ไว้เทียบความหน่วง 2 เส้นทาง)
+                final boolean viaServer = !forceShizukuOnly && ShellServerClient.isConnected();
                 final Object im = iInputManager;
                 final Method m = injectInputEventMethod;
                 if (!viaServer && (im == null || m == null)) {
@@ -390,6 +406,9 @@ public class TouchSimulator {
                 boolean threw = false;
                 boolean serverFailed = false;
                 Throwable err = null;
+                // [เพิ่ม] จับเวลาต่อการยิง event หนึ่งครั้ง (เฉพาะตอน LOG_INJECT_TIMING เปิด) เพื่อหาว่า
+                // เส้นทางไหน (server/shizuku) เป็นตัวกินเวลาแบบคงที่ ไม่ว่าจะหันช้าหรือหันเร็ว
+                final long t0 = LOG_INJECT_TIMING ? System.nanoTime() : 0L;
                 try {
                     if (viaServer) {
                         serverFailed = !ShellServerClient.send(ev);
@@ -402,6 +421,14 @@ public class TouchSimulator {
                     err = rootCause(t);
                     Log.e(TAG, "Shizuku multi-touch injection error", err);
                 } finally {
+                    if (LOG_INJECT_TIMING) {
+                        long elapsedMs = (System.nanoTime() - t0) / 1_000_000L;
+                        if (elapsedMs >= LOG_SLOW_INJECT_MS) {
+                            Log.w(TAG, "inject slow: " + elapsedMs + "ms via="
+                                    + (viaServer ? "server" : "shizuku")
+                                    + " action=" + MotionEvent.actionToString(action));
+                        }
+                    }
                     ev.recycle();
                 }
 

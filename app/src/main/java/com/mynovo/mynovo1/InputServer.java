@@ -20,6 +20,7 @@ import java.net.BindException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.ArrayDeque;
 
 /**
  * เซิร์ฟเวอร์ที่รันด้วยสิทธิ์ shell (UID 2000) เริ่มจาก activate.sh ด้วย app_process
@@ -35,6 +36,14 @@ import java.net.Socket;
  *     (เดิมนิ้วจะค้างในระบบ ทำให้เกม/หน้าจอเหมือนค้าง)
  *  3) ถ้าได้ ACTION_DOWN ซ้อนตอนที่นิ้วเก่ายังไม่ปล่อย จะ CANCEL ของเก่าก่อน
  *  4) handshake มี timeout กันการเชื่อมต่อเปล่าบล็อก server
+ *  5) [แก้ไข - แก้หน่วงคงที่ทุกความเร็ว] เดิม thread ที่อ่าน socket ของแต่ละ client เรียก
+ *     inject.invoke() (binder call เข้า system_server) ตรงๆ แบบ inline สลับกับการอ่าน event ถัดไป
+ *     ถ้า binder call ครั้งไหนช้า (system_server ไม่ว่าง/GC/scheduler) จะไปบล็อกการอ่าน socket
+ *     event ถัดไปทันที กลายเป็นดีเลย์สะสมที่เกิดเท่ากันไม่ว่าจะขยับช้าหรือเร็ว
+ *     ตอนนี้แยกเป็นเธรด inject เฉพาะ (เหมือนฝั่ง TouchSimulator ของแอป): thread อ่าน socket แค่
+ *     parse แล้วส่งต่อเข้าคิว ไม่เรียก inject ตรงๆ เอง จึงไม่มีทางถูก binder call บล็อกอีกต่อไป
+ *     คิวนี้ coalesce เฉพาะ MOVE ติดกันของ client เดียวกัน (เก็บแค่ตำแหน่งล่าสุด) เหมือนฝั่งแอป
+ *     ส่วน DOWN/UP/CANCEL ยังคงถูกประมวลผลครบทุกตัวตามลำดับเดิม ไม่ถูกข้าม
  *
  * [KB] เพิ่มระบบจับคีย์บอร์ดแบบ exclusive (EVIOCGRAB):
  *  - args[1] (ไม่บังคับ) = path ของตัวช่วย native (/data/local/tmp/mynovo_kbgrab) ที่ activate.sh คัดลอกไว้
@@ -48,6 +57,13 @@ import java.net.Socket;
 public class InputServer {
     public static final int PORT = 38417;
 
+    // [เพิ่ม] วัดเวลาจริงของ binder call injectInputEvent() ล้วนๆ (ไม่ปนกับ network/parcel แล้ว)
+    // เพื่อหาว่า OS-level binder call เองเป็นคอขวดของดีเลย์คงที่หรือไม่
+    private static final boolean LOG_INJECT_TIMING = true;
+    private static final long LOG_SLOW_INJECT_MS = 3L;
+    // [เพิ่ม] แจ้งเตือนถ้าคิวเริ่มค้าง (อ่านเร็วกว่ายิง inject ทัน) จะได้รู้ว่ามี backlog สะสม
+    private static final int QUEUE_WARN_SIZE = 5;
+
     private static final Object injectLock = new Object();
     private static Object im;
     private static Method inject;
@@ -57,6 +73,60 @@ public class InputServer {
     private static Socket current;
     private static MotionEvent lastEvent;
     private static boolean active;
+
+    // ===== [แก้ไข] คิว inject แยกออกจาก thread อ่าน socket =====
+    private static final class QueuedEvent {
+        final Socket socket;
+        final MotionEvent event;
+        QueuedEvent(Socket s, MotionEvent e) { socket = s; event = e; }
+    }
+    private static final Object queueLock = new Object();
+    private static final ArrayDeque<QueuedEvent> pendingInject = new ArrayDeque<>();
+    private static final Thread injectWorker = new Thread(InputServer::injectWorkerLoop, "inject-worker");
+    static {
+        injectWorker.setDaemon(true);
+        try { injectWorker.setPriority(Thread.MAX_PRIORITY); } catch (Throwable ignored) {}
+        injectWorker.start();
+    }
+
+    // เรียกจาก thread อ่านของแต่ละ client แทนการ inject ตรงๆ (กันอ่าน socket ถูกบล็อกโดย binder call)
+    // coalesce เฉพาะ MOVE ติดกันของ socket เดียวกัน เก็บไว้แค่ตำแหน่งล่าสุด เหมือนฝั่งแอป (TouchSimulator.enqueue)
+    private static void enqueueInject(Socket s, MotionEvent ev) {
+        synchronized (queueLock) {
+            QueuedEvent last = pendingInject.peekLast();
+            if (last != null && last.socket == s
+                    && last.event.getActionMasked() == MotionEvent.ACTION_MOVE
+                    && ev.getActionMasked() == MotionEvent.ACTION_MOVE) {
+                pendingInject.pollLast();
+                last.event.recycle();
+            }
+            pendingInject.addLast(new QueuedEvent(s, ev));
+            int size = pendingInject.size();
+            queueLock.notifyAll();
+            if (size >= QUEUE_WARN_SIZE) {
+                System.out.println("inject queue backlog: " + size + " pending");
+            }
+        }
+    }
+
+    private static void injectWorkerLoop() {
+        while (true) {
+            QueuedEvent qe;
+            synchronized (queueLock) {
+                while (pendingInject.isEmpty()) {
+                    try { queueLock.wait(); } catch (InterruptedException ignored) {}
+                }
+                qe = pendingInject.pollFirst();
+            }
+            try {
+                synchronized (injectLock) {
+                    if (current == qe.socket) injectTracked(qe.event);
+                }
+            } finally {
+                qe.event.recycle();
+            }
+        }
+    }
 
     // ===== [KB] จับคีย์บอร์ด =====
     private static String kbPath;
@@ -183,16 +253,10 @@ public class InputServer {
                     p.unmarshall(buf, 0, len);
                     p.setDataPosition(0);
                     MotionEvent ev = MotionEvent.CREATOR.createFromParcel(p);
-                    boolean stale;
-                    try {
-                        synchronized (injectLock) {
-                            stale = current != s;
-                            if (!stale) injectTracked(ev);
-                        }
-                    } finally {
-                        ev.recycle();
-                    }
-                    if (stale) break;
+                    // [แก้ไข] ไม่เรียก inject ตรงนี้ (จะบล็อก thread อ่าน socket ถ้า binder call ช้า)
+                    // ส่งต่อให้เธรด inject แยกทำแทน (coalesce MOVE ให้เองใน enqueueInject)
+                    // ความ "stale" (current != s) เช็คตอน dequeue แทน ไม่เช็คตรงนี้แล้ว
+                    enqueueInject(s, ev);
                 } catch (Throwable t) {
                     System.out.println("inject error: " + t);
                 } finally {
@@ -267,10 +331,19 @@ public class InputServer {
     }
 
     private static void doInject(MotionEvent ev) {
+        final long t0 = LOG_INJECT_TIMING ? System.nanoTime() : 0L;
         try {
             inject.invoke(im, ev, 0); // 0 = ASYNC
         } catch (Throwable t) {
             System.out.println("inject error: " + t);
+        } finally {
+            if (LOG_INJECT_TIMING) {
+                long ms = (System.nanoTime() - t0) / 1_000_000L;
+                if (ms >= LOG_SLOW_INJECT_MS) {
+                    System.out.println("inject slow (binder call): " + ms + "ms action="
+                            + MotionEvent.actionToString(ev.getActionMasked()));
+                }
+            }
         }
     }
 
