@@ -349,7 +349,12 @@ public class MouseController {
     private float maxScreenWidth;
     private float maxScreenHeight;
 
+    // ความไวของ "โหมดเคอร์เซอร์" เท่านั้น ปรับได้จากสไลเดอร์ "ความเร็วเมาส์ (Sensitivity)" ในหน้าตั้งค่าระบบ
     private float mouseSensitivity;
+    // [เพิ่ม] ความไวของ "โหมดมุมมอง/เล็ง" แยกออกมาต่างหาก ล็อกค่าตอนสร้าง MouseController
+    // ไม่ถูกเปลี่ยนโดยสไลเดอร์ Sensitivity อีกต่อไป (กันสไลเดอร์เคอร์เซอร์ไปกระทบความเร็วเล็ง)
+    // ถ้าต้องการปรับความเร็วเล็ง ให้ใช้ setViewSensitivity() ผ่านเมนู "ความเร็วแกน X/Y" ของปุ่มมุมมองแทน
+    private float viewGain;
     private int cursorSize;
 
     private long mouseMoveToken = 0;
@@ -615,6 +620,8 @@ public class MouseController {
         this.maxScreenHeight = maxHeight;
         this.cursorSize = cursorSize;
         this.mouseSensitivity = sensitivity;
+        // [เพิ่ม] เก็บค่าความไวตั้งต้นแยกไว้ให้ "โหมดมุมมอง" ใช้เอง ไม่ยุ่งกับสไลเดอร์ Sensitivity อีกต่อไป
+        this.viewGain = sensitivity;
         this.eventListener = listener;
 
         this.targetBtnX = maxWidth * 0.79f;
@@ -639,7 +646,7 @@ public class MouseController {
     // ตัวคูณความเร็วโหมดมุมมอง แยกแกน X / Y
     // [แก้ไข] X ลดจาก 0.45 เป็น 0.40 (ช้าลง ~11%)
     // ถ้ายังเร็วไปให้ลด X ทีละ 0.03-0.05 (เช่น 0.36) / ถ้าช้าไปให้เพิ่ม (เช่น 0.42)
-    private static final float VIEW_SPEED_SCALE_X = 0.35f;
+    private static final float VIEW_SPEED_SCALE_X = 0.30f;
     private static final float VIEW_SPEED_SCALE_Y = 0.35f;
 
     private float softenViewSens(float s, float pivot, float scale) {
@@ -1024,10 +1031,11 @@ public class MouseController {
                 }
 
                 float speed = (float) Math.hypot(sumDx, sumDy);
-                // โหมดมุมมอง (ล็อคเมาส์): ใช้ความเร็วคงที่ ไม่มีความเร่ง
-                // โหมดเคอร์เซอร์ปกติ: ยังมีความเร่งเหมือนเดิม
+                // [แก้ไข] โหมดมุมมอง (ล็อคเมาส์): ใช้ viewGain ที่ล็อกค่าไว้ตอนเริ่มแอป
+                // ไม่ขึ้นกับสไลเดอร์ "ความเร็วเมาส์ (Sensitivity)" ในหน้าตั้งค่าอีกต่อไป
+                // โหมดเคอร์เซอร์ปกติ: ยังใช้ mouseSensitivity ที่ปรับได้จากสไลเดอร์ตามเดิม พร้อมความเร่ง
                 float gain = isMouseMode
-                        ? mouseSensitivity
+                        ? viewGain
                         : mouseSensitivity * (0.5f + Math.min(speed, 1f) * 0.0625f);
 
                 if (isMouseMode) {
@@ -1489,6 +1497,8 @@ public class MouseController {
     }
 
     public void updateSensitivity(float sensitivity) {
+        // [แก้ไข] สไลเดอร์ Sensitivity ในหน้าตั้งค่า ตอนนี้ปรับแค่ความเร็ว "เคอร์เซอร์" เท่านั้น
+        // ไม่แตะ viewGain (ความเร็วโหมดมุมมอง/เล็ง) อีกต่อไป
         this.mouseSensitivity = sensitivity;
     }
 
