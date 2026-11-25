@@ -269,7 +269,7 @@ public class MainActivity extends AppCompatActivity {
         btnCardActivation.setFocusable(true);
 
         TextView tvActTitle = new TextView(this);
-        tvActTitle.setText("🛡️ Activation Center");
+        tvActTitle.setText("Activation Center");
         tvActTitle.setTextColor(Color.WHITE);
         tvActTitle.setTextSize(13f);
         tvActTitle.setTypeface(null, android.graphics.Typeface.BOLD);
@@ -476,7 +476,7 @@ public class MainActivity extends AppCompatActivity {
         layout.setPadding(40, 32, 40, 32);
 
         TextView tvTitle = new TextView(this);
-        tvTitle.setText("👤 Account & Cloud Sync");
+        tvTitle.setText("Account & Cloud Sync");
         tvTitle.setTextColor(Color.parseColor("#8BE9FD"));
         tvTitle.setTextSize(18f);
         tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
@@ -547,7 +547,7 @@ public class MainActivity extends AppCompatActivity {
                     .addOnCompleteListener(task -> {
                         if (isFinishing()) return;
                         Toast.makeText(this, task.isSuccessful()
-                                ? "📧 ส่งลิงก์รีเซ็ตรหัสผ่านแล้ว"
+                                ? "ส่งลิงก์รีเซ็ตรหัสผ่านแล้ว✅️"
                                 : "❌ ส่งไม่สำเร็จ", Toast.LENGTH_LONG).show();
                     });
         });
@@ -565,7 +565,7 @@ public class MainActivity extends AppCompatActivity {
         layout.setPadding(40, 32, 40, 32);
 
         TextView tvTitle = new TextView(this);
-        tvTitle.setText("👤 Signed in");
+        tvTitle.setText("Signed in");
         tvTitle.setTextColor(Color.parseColor("#50FA7B"));
         tvTitle.setTextSize(18f);
         tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
@@ -632,7 +632,7 @@ public class MainActivity extends AppCompatActivity {
         layout.setGravity(Gravity.CENTER);
         layout.setPadding(32, 32, 32, 32);
         TextView tv = new TextView(this);
-        tv.setText("⚙️ Application Settings\nComing Soon...");
+        tv.setText("Application Settings\nComing Soon...");
         tv.setTextColor(Color.WHITE);
         tv.setTextSize(16f);
         tv.setGravity(Gravity.CENTER);
@@ -754,7 +754,7 @@ public class MainActivity extends AppCompatActivity {
         root.setPadding(24, 24, 24, 24);
 
         TextView tvTitle = new TextView(this);
-        tvTitle.setText("⌨️ Terminal (Shizuku)");
+        tvTitle.setText("Terminal (Shizuku)");
         tvTitle.setTextColor(Color.parseColor("#8BE9FD"));
         tvTitle.setTextSize(16f);
         tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
@@ -784,9 +784,9 @@ public class MainActivity extends AppCompatActivity {
         quickRow.setGravity(Gravity.CENTER_VERTICAL);
         quickRow.setPadding(0, 12, 0, 0);
 
-        final TextView btn169 = makeQuickButton("📺 16:9", "#8BE9FD", "#0F111A");
-        final TextView btnReset = makeQuickButton("↺ RESET", "#FF5555", "#FFFFFF");
-        final TextView btnClear = makeQuickButton("🧹 CLEAR", "#44475A", "#FFFFFF");
+        final TextView btn169 = makeQuickButton("16:9", "#8BE9FD", "#0F111A");
+        final TextView btnReset = makeQuickButton("RESET", "#FF5555", "#FFFFFF");
+        final TextView btnClear = makeQuickButton("CLEAR", "#44475A", "#FFFFFF");
         quickRow.addView(btn169);
         quickRow.addView(btnReset);
         quickRow.addView(btnClear);
@@ -855,7 +855,7 @@ public class MainActivity extends AppCompatActivity {
                 String result = runShizukuShell(cmd);
                 runOnUiThread(() -> {
                     if (result == null) {
-                        tvOutput.append("❌ ใช้งานไม่ได้ กรุณาเปิด Shizuku Service และขอสิทธิ์ก่อน (ดูที่ Activation)\n");
+                        tvOutput.append("ใช้งานไม่ได้ กรุณาเปิด Shizuku Service และขอสิทธิ์ก่อน (ดูที่ Activation)\n");
                     } else {
                         tvOutput.append(result.isEmpty() ? "(ไม่มีผลลัพธ์)\n" : result);
                     }
@@ -960,7 +960,7 @@ public class MainActivity extends AppCompatActivity {
 
         Matcher m = Pattern.compile("Physical size:\\s*(\\d+)x(\\d+)").matcher(sizeOut);
         if (!m.find()) {
-            return "❌ อ่านขนาดจอไม่ได้\n" + sizeOut;
+            return "อ่านขนาดจอไม่ได้\n" + sizeOut;
         }
         int w = Integer.parseInt(m.group(1));
         int h = Integer.parseInt(m.group(2));
@@ -971,7 +971,7 @@ public class MainActivity extends AppCompatActivity {
         target = target - (target % 2); // ทำให้เป็นเลขคู่
 
         if (target >= longSide) {
-            return "ℹ️ จอนี้เป็น 16:9 หรือกว้างกว่าอยู่แล้ว (" + w + "x" + h + ") ไม่ต้องปรับ\n";
+            return "จอนี้เป็น 16:9 หรือกว้างกว่าอยู่แล้ว (" + w + "x" + h + ") ไม่ต้องปรับ\n";
         }
 
         int nw, nh;
@@ -991,7 +991,7 @@ public class MainActivity extends AppCompatActivity {
         StringBuilder sb = new StringBuilder();
         sb.append("$ ").append(cmd).append("\n");
         if (!out.trim().isEmpty()) sb.append(out);
-        sb.append("✅ ตั้ง 16:9 แล้ว (").append(nw).append("x").append(nh).append(")\n");
+        sb.append("ตั้ง 16:9 แล้ว (").append(nw).append("x").append(nh).append(")\n");
         if (now != null) sb.append(now);
         sb.append("ถ้าจอแปลก กดปุ่ม RESET เพื่อคืนค่าเดิม\n");
         return sb.toString();
@@ -1023,23 +1023,22 @@ public class MainActivity extends AppCompatActivity {
         builder.setView(container);
         AlertDialog dialog = builder.create();
 
-        container.addView(createMethodButton("🛡️ Shizuku Activation", v -> {
+        container.addView(createMethodButton("Shizuku Activation", v -> {
             dialog.dismiss();
             showProShizukuActivationDialog();
         }));
 
-        container.addView(createMethodButton("⚡ Wireless Activation (ADB)", v -> {
+        container.addView(createMethodButton("Wireless Activation (ADB)", v -> {
             dialog.dismiss();
             showWirelessActivationGuide();
         }));
 
-        container.addView(createMethodButton("💻 Wired / Computer Activation", v -> {
+        container.addView(createMethodButton("Wired / Computer Activation", v -> {
             dialog.dismiss();
             showPcActivationGuideDialog();
         }));
 
-        // วิธีที่ 4: Quick Activation (Command) แบบ K2 Tap
-        container.addView(createMethodButton("⌨️ Quick Activation (Command)", v -> {
+        container.addView(createMethodButton("Quick Activation (Command)", v -> {
             dialog.dismiss();
             ShellActivationDialog.show(MainActivity.this);
         }));
@@ -1103,7 +1102,7 @@ public class MainActivity extends AppCompatActivity {
                 Intent intent = getPackageManager().getLaunchIntentForPackage("moe.shizuku.privileged.api");
                 if (intent != null) {
                     startActivity(intent);
-                    Toast.makeText(this, "👉 ไปเปิด Start ในแอป Shizuku แล้วกดกลับมาหน้านี้", Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, "ไปเปิด Start ในแอป Shizuku แล้วกดกลับมาหน้านี้", Toast.LENGTH_LONG).show();
                 } else {
                     Toast.makeText(this, "ไม่พบแอป Shizuku ในเครื่อง", Toast.LENGTH_SHORT).show();
                 }
@@ -1230,7 +1229,7 @@ public class MainActivity extends AppCompatActivity {
 
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         TextView tvTitle = new TextView(this);
-        tvTitle.setText("💻 Wired / Computer Activation");
+        tvTitle.setText("Wired / Computer Activation");
         tvTitle.setTextColor(Color.parseColor("#8BE9FD"));
         tvTitle.setTextSize(14f);
         tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
@@ -1264,7 +1263,7 @@ public class MainActivity extends AppCompatActivity {
     private void showDeactivationDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         TextView tvTitle = new TextView(this);
-        tvTitle.setText("🛡️ Activation Status");
+        tvTitle.setText("Activation Status");
         tvTitle.setTextColor(Color.parseColor("#8BE9FD"));
         tvTitle.setTextSize(14f);
         tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
@@ -1799,7 +1798,7 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            Toast.makeText(this, "🚀 กำลังเข้าเกมพร้อมระบบเซนเซอร์อัตโนมัติ...", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "ยินดีต้อนรับสู้Blue mouse pro", Toast.LENGTH_SHORT).show();
 
             final boolean dex = isDexModeActive();
             final int minePre = myDisplayId();
