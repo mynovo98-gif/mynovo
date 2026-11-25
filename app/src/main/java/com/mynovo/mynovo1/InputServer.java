@@ -52,6 +52,8 @@ import java.util.ArrayDeque;
  *      type 1 = ปุ่มคีย์บอร์ด  a = Linux scancode, b = 0 ปล่อย / 1 กด / 2 ค้าง
  *      type 2 = ผู้ใช้กด Ctrl+Esc ปล่อย grab (ทางหนีไฟ)
  *      type 3 = จำนวนคีย์บอร์ดที่ grab อยู่ (a = จำนวน, 0 = ไม่สำเร็จ)
+ *      type 4 = [MOUSE] เมาส์เลื่อน  a = dx, b = dy (ส่งเฉพาะตอน grab อยู่)
+ *      type 5 = [MOUSE] ปุ่มเมาส์    a = Linux code (BTN_LEFT=272, BTN_RIGHT=273, ...), b = 0 ปล่อย / 1 กด
  *  - ถ้า client หลุด/ถูกแทนที่ จะปล่อย grab ให้อัตโนมัติ คีย์บอร์ดจึงไม่ค้างตาย
  */
 public class InputServer {
@@ -442,6 +444,18 @@ public class InputServer {
                     } else if (c == 'S') {
                         String[] a = l.split(" ");
                         sendToClient(3, a.length >= 2 ? Integer.parseInt(a[1]) : 0, 0);
+                    } else if (c == 'M') {
+                        // [MOUSE] เมาส์เลื่อน: M <dx> <dy> -> type 4
+                        String[] a = l.split(" ");
+                        if (a.length >= 3) {
+                            sendToClient(4, Integer.parseInt(a[1]), Integer.parseInt(a[2]));
+                        }
+                    } else if (c == 'B') {
+                        // [MOUSE] ปุ่มเมาส์: B <code> <v> -> type 5
+                        String[] a = l.split(" ");
+                        if (a.length >= 3) {
+                            sendToClient(5, Integer.parseInt(a[1]), Integer.parseInt(a[2]));
+                        }
                     } else if (c == 'H') {
                         System.out.println("kb helper: " + l);
                     }
