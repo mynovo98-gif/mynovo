@@ -20,14 +20,18 @@ import java.util.function.Consumer;
 
 /**
  * ตัวเชื่อมต่อไปยัง InputServer (activate.sh) ผ่าน TCP 127.0.0.1
- *  - แอป -> server : [len:int][MotionEvent parcel]  /  -2 = เริ่ม grab คีย์บอร์ด  /  -3 = ปล่อย grab  /  -1 = ปิด server
+ *  - แอป -> server : [len:int][MotionEvent parcel]
+ *      -1 = ปิด server / -2 = เริ่ม grab / -3 = ปล่อย grab
+ *      -4 <displayId:int> = [DISPLAY] บังคับ displayId ให้ทุก MotionEvent ที่ server inject (-1 = ไม่บังคับ)
  *  - server -> แอป : เฟรมละ 9 ไบต์ [type:1][a:int][b:int]
  *      type 1 = ปุ่มคีย์บอร์ด (a = Linux scancode, b = 0 ปล่อย / 1 กด / 2 ค้าง)
  *      type 2 = ผู้ใช้กด Ctrl+Esc (ทางหนีไฟ ปล่อย grab)
  *      type 3 = จำนวนคีย์บอร์ดที่ grab อยู่ (a)
+ *      type 4 = [MOUSE] เมาส์เลื่อน (a = dx, b = dy)
+ *      type 5 = [MOUSE] ปุ่มเมาส์ (a = Linux code เช่น BTN_LEFT=272, b = 0 ปล่อย / 1 กด)
  *
  * InputServer รับ client ได้ทีละ 1 ตัว (ตัวใหม่แทนตัวเก่า) จึงต้องใช้การเชื่อมต่อเดียวนี้ร่วมกัน
- * ทั้งการส่งทัชและการรับคีย์บอร์ด
+ * ทั้งการส่งทัชและการรับคีย์บอร์ด/เมาส์
  */
 public final class ShellServerClient {
     private static final String TAG = "ShellServerClient";
@@ -39,6 +43,12 @@ public final class ShellServerClient {
         void onEscape();
         void onGrabState(int grabbedCount);
         void onDisconnected();
+
+        /** [MOUSE] เมาส์เลื่อนแบบสัมพัทธ์ (เรียกจากเธรดอ่าน ไม่ใช่ main thread) */
+        default void onMouseMove(int dx, int dy) {}
+
+        /** [MOUSE] ปุ่มเมาส์ code = Linux code (BTN_LEFT=272, BTN_RIGHT=273, BTN_MIDDLE=274) value = 0 ปล่อย / 1 กด */
+        default void onMouseButton(int code, int value) {}
     }
 
     private static final Object lock = new Object();
@@ -53,6 +63,8 @@ public final class ShellServerClient {
 
     private static volatile KeyListener keyListener;
     private static volatile boolean wantGrab = false;
+    // [DISPLAY] displayId ที่ต้องการให้ server บังคับใช้ (-1 = ไม่บังคับ)
+    private static volatile int wantDisplay = -1;
 
     // เธรดแยกสำหรับส่งคำสั่ง grab (ห้ามเขียน socket บน main thread)
     private static final HandlerThread cmdThread = new HandlerThread("ShellSrvCmd");
@@ -98,7 +110,7 @@ public final class ShellServerClient {
     }
 
     /**
-     * [เพิ่ม] เชื่อมต่อ InputServer แบบ async แล้วเรียก callback (บน main thread)
+     * เชื่อมต่อ InputServer แบบ async แล้วเรียก callback (บน main thread)
      * ว่าเชื่อมต่อสำเร็จหรือไม่ ลองซ้ำสูงสุดประมาณ 3 วินาที
      */
     public static void connectAsync(Consumer<Boolean> callback) {
@@ -153,7 +165,9 @@ public final class ShellServerClient {
             rt.setDaemon(true);
             rt.start();
 
-            // server เริ่มจากสถานะไม่ grab เสมอ ถ้าแอปต้องการ grab อยู่ให้ส่งซ้ำ
+            // server เริ่มจากสถานะเริ่มต้นเสมอ ถ้าแอปต้องการค่าใดอยู่ให้ส่งซ้ำ
+            int d = wantDisplay;
+            if (d >= 0) writeInts(-4, d);
             if (wantGrab) writeInt(-2);
         } catch (Throwable t) {
             closeQuietly(s);
@@ -173,6 +187,8 @@ public final class ShellServerClient {
                 if (type == 1) l.onKey(a, b);
                 else if (type == 2) l.onEscape();
                 else if (type == 3) l.onGrabState(a);
+                else if (type == 4) l.onMouseMove(a, b);   // [MOUSE]
+                else if (type == 5) l.onMouseButton(a, b); // [MOUSE]
             }
         } catch (Throwable ignored) {
         }
@@ -223,6 +239,23 @@ public final class ShellServerClient {
         }
     }
 
+    /** [DISPLAY] เขียน int สองตัวติดกันแบบ atomic (ใช้กับคำสั่งที่มีพารามิเตอร์ เช่น -4 <id>) */
+    private static boolean writeInts(int v1, int v2) {
+        try {
+            synchronized (writeLock) {
+                DataOutputStream o = out;
+                if (o == null) return false;
+                o.writeInt(v1);
+                o.writeInt(v2);
+                o.flush();
+            }
+            return true;
+        } catch (IOException e) {
+            dropConnection(null);
+            return false;
+        }
+    }
+
     /** ส่ง MotionEvent ไปให้ server inject (เรียกจากเธรดส่ง event ของ TouchSimulator) */
     public static boolean send(MotionEvent ev) {
         if (!connected) return false;
@@ -262,6 +295,23 @@ public final class ShellServerClient {
         return connected;
     }
 
+    /**
+     * [DISPLAY] ให้ InputServer (สิทธิ์ shell) ตั้ง displayId ให้ทุก MotionEvent ก่อน inject
+     * ใช้แทนการตั้งจากฝั่งแอป ซึ่งอาจโดนบล็อกโดย hidden API บางเครื่อง/บางเวอร์ชัน
+     * จำค่าไว้และส่งซ้ำให้เองทุกครั้งที่เชื่อมต่อใหม่
+     * @param displayId id ของจอปลายทาง (เช่น DeX ของบางเครื่องคือ 10) หรือ -1 = ไม่บังคับ
+     */
+    public static void setServerDisplayId(int displayId) {
+        wantDisplay = displayId;
+        if (!connected) {
+            ensureConnectedAsync();
+            return;
+        }
+        cmdHandler.post(() -> {
+            if (connected) writeInts(-4, wantDisplay);
+        });
+    }
+
     /** สั่งปิด InputServer */
     public static void stopServer() {
         cmdHandler.post(() -> {
@@ -270,7 +320,7 @@ public final class ShellServerClient {
     }
 
     /**
-     * [เพิ่ม] สั่งปิด InputServer แล้วเรียก callback (บน main thread) ว่าส่งคำสั่งสำเร็จหรือไม่
+     * สั่งปิด InputServer แล้วเรียก callback (บน main thread) ว่าส่งคำสั่งสำเร็จหรือไม่
      * ถ้าสำเร็จจะตัดการเชื่อมต่อฝั่งแอปทันที เพื่อให้ isConnected() เป็น false
      */
     public static void stopServerAsync(Consumer<Boolean> callback) {
