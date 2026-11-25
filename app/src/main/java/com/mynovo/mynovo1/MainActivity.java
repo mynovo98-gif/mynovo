@@ -643,7 +643,11 @@ public class MainActivity extends AppCompatActivity {
 
     // ===== ปุ่มปากกากลางแถบเมนูล่าง (แทรกระหว่าง Account กับ Activation) =====
     // แทรกจากโค้ด ไม่ต้องแก้ activity_main.xml
+<<<<<<< HEAD
     // ต้องมี res/drawable/ic_command_menu.png (รูปปากกา) และ res/drawable/ic_c_button.png (รูปตัว C)
+=======
+    // ต้องมี res/drawable/ic_command_menu.png (รูปปากกา) และ res/drawable/btn_pen.png (รูปตัว C)
+>>>>>>> C
     private void addCenterPenButton() {
         try {
             ViewGroup parent = (ViewGroup) navAccount.getParent();
@@ -709,7 +713,12 @@ public class MainActivity extends AppCompatActivity {
         ViewGroup content = findViewById(android.R.id.content);
         float d = getResources().getDisplayMetrics().density;
         int size = Math.round(44 * d);
+<<<<<<< HEAD
         int gap = Math.round(67 * d); // ระยะจากกลางปากกาขึ้นไปถึงกลางปุ่ม C ปรับได้
+=======
+        int gap = Math.round(110 * d);      // ระยะจากกลางปากกาขึ้นไปถึงกลางปุ่ม C (เพิ่ม = สูงขึ้น, ลด = ต่ำลง)
+        int offsetX = Math.round(-10 * d);  // เลื่อนซ้าย/ขวา (ลบ = ซ้าย, บวก = ขวา)
+>>>>>>> C
 
         int[] pl = new int[2];
         int[] cl = new int[2];
@@ -719,19 +728,31 @@ public class MainActivity extends AppCompatActivity {
         int cy = pl[1] - cl[1] + pen.getHeight() / 2;
 
         cButton = new ImageView(this);
+<<<<<<< HEAD
         cButton.setImageResource(R.drawable.ic_c_button); // รูปตัว C res/drawable/ic_c_button.png
+=======
+        cButton.setImageResource(R.drawable.btn_pen); // รูปตัว C res/drawable/btn_pen.png (ถ้าชื่อไฟล์อื่น แก้ตรงนี้)
+>>>>>>> C
         cButton.setScaleType(ImageView.ScaleType.FIT_CENTER);
         cButton.setContentDescription("C");
         cButton.setElevation(24 * d);
         cButton.setClickable(true);
         cButton.setOnClickListener(v -> {
             hideCButton();
+<<<<<<< HEAD
             showTerminalDialog(); // เปลี่ยนเป็นสิ่งที่อยากให้ปุ่ม C ทำได้
+=======
+            showTerminalDialog(); // ระบบคอมมานัด (Terminal)
+>>>>>>> C
         });
 
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                 size, size, Gravity.TOP | Gravity.START);
+<<<<<<< HEAD
         lp.leftMargin = cx - size / 2;
+=======
+        lp.leftMargin = cx - size / 2 + offsetX;
+>>>>>>> C
         lp.topMargin = cy - gap - size / 2;
         content.addView(cButton, lp);
     }
