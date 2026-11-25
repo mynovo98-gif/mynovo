@@ -739,7 +739,15 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // ===== Terminal: พิมพ์คำสั่ง shell เอง สั่งผ่าน Shizuku =====
+    // เพิ่มปุ่มลัด: 16:9 (ปรับสัดส่วนจอ), RESET (wm size reset), CLEAR (ล้างหน้าจอ log)
     private void showTerminalDialog() {
+        final float density = getResources().getDisplayMetrics().density;
+        final int screenH = getResources().getDisplayMetrics().heightPixels;
+
+        // ความสูงช่อง output ปรับตามหน้าจอ (แนวนอนจะไม่ล้นจนช่องพิมพ์/ปุ่ม RUN ถูกตัด)
+        int outputH = Math.round(screenH * 0.30f);
+        outputH = Math.max(Math.round(90 * density), Math.min(outputH, Math.round(240 * density)));
+
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Color.parseColor("#1E2230"));
@@ -750,32 +758,47 @@ public class MainActivity extends AppCompatActivity {
         tvTitle.setTextColor(Color.parseColor("#8BE9FD"));
         tvTitle.setTextSize(16f);
         tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
-        tvTitle.setPadding(0, 0, 0, 16);
+        tvTitle.setPadding(0, 0, 0, 12);
         root.addView(tvTitle);
 
         // พื้นที่แสดงผลลัพธ์ (output log) เลื่อนได้
-        ScrollView outputScroll = new ScrollView(this);
+        final ScrollView outputScroll = new ScrollView(this);
         LinearLayout.LayoutParams outputScrollParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 650);
+                ViewGroup.LayoutParams.MATCH_PARENT, outputH);
         outputScroll.setLayoutParams(outputScrollParams);
         outputScroll.setBackgroundColor(Color.parseColor("#0F111A"));
         outputScroll.setPadding(16, 16, 16, 16);
 
-        TextView tvOutput = new TextView(this);
-        tvOutput.setText("$ พร้อมรับคำสั่ง... (รัน Shizuku Service + ขอสิทธิ์ก่อนใช้งาน)\n");
+        final String readyText = "$ พร้อมรับคำสั่ง... (รัน Shizuku Service + ขอสิทธิ์ก่อนใช้งาน)\n";
+        final TextView tvOutput = new TextView(this);
+        tvOutput.setText(readyText);
         tvOutput.setTextColor(Color.parseColor("#50FA7B"));
         tvOutput.setTextSize(12f);
         tvOutput.setTypeface(android.graphics.Typeface.MONOSPACE);
         outputScroll.addView(tvOutput);
         root.addView(outputScroll);
 
+        // แถวปุ่มลัด: 16:9 / RESET / CLEAR
+        LinearLayout quickRow = new LinearLayout(this);
+        quickRow.setOrientation(LinearLayout.HORIZONTAL);
+        quickRow.setGravity(Gravity.CENTER_VERTICAL);
+        quickRow.setPadding(0, 12, 0, 0);
+
+        final TextView btn169 = makeQuickButton("📺 16:9", "#8BE9FD", "#0F111A");
+        final TextView btnReset = makeQuickButton("↺ RESET", "#FF5555", "#FFFFFF");
+        final TextView btnClear = makeQuickButton("🧹 CLEAR", "#44475A", "#FFFFFF");
+        quickRow.addView(btn169);
+        quickRow.addView(btnReset);
+        quickRow.addView(btnClear);
+        root.addView(quickRow);
+
         // แถวพิมพ์คำสั่ง + ปุ่ม Run
         LinearLayout inputRow = new LinearLayout(this);
         inputRow.setOrientation(LinearLayout.HORIZONTAL);
         inputRow.setGravity(Gravity.CENTER_VERTICAL);
-        inputRow.setPadding(0, 16, 0, 0);
+        inputRow.setPadding(0, 12, 0, 0);
 
-        EditText etCommand = new EditText(this);
+        final EditText etCommand = new EditText(this);
         etCommand.setHint("พิมพ์คำสั่ง shell เช่น ls, pwd, dumpsys ...");
         etCommand.setHintTextColor(Color.parseColor("#6272A4"));
         etCommand.setTextColor(Color.WHITE);
@@ -792,23 +815,32 @@ public class MainActivity extends AppCompatActivity {
         etCommand.setLayoutParams(etCommandParams);
         inputRow.addView(etCommand);
 
-        TextView btnRun = new TextView(this);
+        final TextView btnRun = new TextView(this);
         btnRun.setText("RUN");
         btnRun.setTextColor(Color.WHITE);
         btnRun.setTextSize(13f);
         btnRun.setTypeface(null, android.graphics.Typeface.BOLD);
+        btnRun.setGravity(Gravity.CENTER);
         btnRun.setPadding(28, 16, 28, 16);
         btnRun.setBackgroundColor(Color.parseColor("#BD93F9"));
         inputRow.addView(btnRun);
         root.addView(inputRow);
 
+        // ครอบด้วย ScrollView เผื่อจอเตี้ย (แนวนอน/มีคีย์บอร์ด) จะเลื่อนดูได้ ไม่โดนตัด
+        ScrollView dialogScroll = new ScrollView(this);
+        dialogScroll.setFillViewport(true);
+        dialogScroll.addView(root);
+
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setView(root);
+        builder.setView(dialogScroll);
         builder.setNegativeButton("Close", null);
         AlertDialog dialog = builder.create();
         if (dialog.getWindow() != null) {
             dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.parseColor("#1E2230")));
         }
+
+        // ตัวช่วยปิด/เปิดปุ่มทั้งหมดระหว่างรันคำสั่ง
+        final View[] lockables = new View[]{btnRun, btn169, btnReset};
 
         // รันคำสั่งที่พิมพ์ ผ่าน Shizuku (background thread) แล้วเอาผลลัพธ์มาต่อท้าย output log
         Runnable executeCommand = () -> {
@@ -817,7 +849,7 @@ public class MainActivity extends AppCompatActivity {
 
             tvOutput.append("\n$ " + cmd + "\n");
             etCommand.setText("");
-            btnRun.setEnabled(false);
+            setViewsEnabled(lockables, false);
 
             new Thread(() -> {
                 String result = runShizukuShell(cmd);
@@ -828,7 +860,7 @@ public class MainActivity extends AppCompatActivity {
                         tvOutput.append(result.isEmpty() ? "(ไม่มีผลลัพธ์)\n" : result);
                     }
                     outputScroll.post(() -> outputScroll.fullScroll(View.FOCUS_DOWN));
-                    btnRun.setEnabled(true);
+                    setViewsEnabled(lockables, true);
                 });
             }).start();
         };
@@ -842,11 +874,127 @@ public class MainActivity extends AppCompatActivity {
             return false;
         });
 
+        // ปุ่ม 16:9
+        btn169.setOnClickListener(v -> {
+            tvOutput.append("\n$ [16:9] ปรับสัดส่วนจอ...\n");
+            setViewsEnabled(lockables, false);
+            new Thread(() -> {
+                String result = applyAspect169();
+                runOnUiThread(() -> {
+                    if (result == null) {
+                        tvOutput.append("❌ ใช้งานไม่ได้ กรุณาเปิด Shizuku Service และขอสิทธิ์ก่อน (ดูที่ Activation)\n");
+                    } else {
+                        tvOutput.append(result);
+                    }
+                    outputScroll.post(() -> outputScroll.fullScroll(View.FOCUS_DOWN));
+                    setViewsEnabled(lockables, true);
+                });
+            }).start();
+        });
+
+        // ปุ่ม RESET (คืนขนาดจอเดิมของเครื่อง)
+        btnReset.setOnClickListener(v -> {
+            tvOutput.append("\n$ wm size reset\n");
+            setViewsEnabled(lockables, false);
+            new Thread(() -> {
+                String result = runShizukuShell("wm size reset");
+                String now = (result == null) ? null : runShizukuShell("wm size");
+                runOnUiThread(() -> {
+                    if (result == null) {
+                        tvOutput.append("❌ ใช้งานไม่ได้ กรุณาเปิด Shizuku Service และขอสิทธิ์ก่อน (ดูที่ Activation)\n");
+                    } else {
+                        if (!result.trim().isEmpty()) tvOutput.append(result);
+                        tvOutput.append("↺ คืนขนาดจอเดิมแล้ว\n" + (now == null ? "" : now));
+                    }
+                    outputScroll.post(() -> outputScroll.fullScroll(View.FOCUS_DOWN));
+                    setViewsEnabled(lockables, true);
+                });
+            }).start();
+        });
+
+        // ปุ่ม CLEAR (ล้าง log บนหน้าจอ ไม่กระทบการตั้งค่าจอ)
+        btnClear.setOnClickListener(v -> {
+            tvOutput.setText(readyText);
+            outputScroll.post(() -> outputScroll.fullScroll(View.FOCUS_UP));
+        });
+
         dialog.show();
         // ขยายความกว้าง dialog ให้เต็มจอ เพราะ terminal ต้องการพื้นที่เยอะ
         if (dialog.getWindow() != null) {
             dialog.getWindow().setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         }
+    }
+
+    private TextView makeQuickButton(String text, String bgHex, String textHex) {
+        TextView btn = new TextView(this);
+        btn.setText(text);
+        btn.setTextColor(Color.parseColor(textHex));
+        btn.setTextSize(12f);
+        btn.setTypeface(null, android.graphics.Typeface.BOLD);
+        btn.setGravity(Gravity.CENTER);
+        btn.setPadding(16, 14, 16, 14);
+        btn.setBackgroundColor(Color.parseColor(bgHex));
+        btn.setClickable(true);
+        btn.setFocusable(true);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        p.setMargins(0, 0, 10, 0);
+        btn.setLayoutParams(p);
+        return btn;
+    }
+
+    private void setViewsEnabled(View[] views, boolean enabled) {
+        for (View v : views) {
+            v.setEnabled(enabled);
+            v.setAlpha(enabled ? 1f : 0.5f);
+        }
+    }
+
+    // ปรับจอให้เป็น 16:9 ด้วย "wm size" (เรียกจากเธรดพื้นหลังเท่านั้น)
+    // คืนข้อความผลลัพธ์ หรือ null ถ้า Shizuku ใช้ไม่ได้
+    // หลักการ: คงด้านสั้นไว้ แล้วลดด้านยาวให้ได้ 16:9 (เช่น 1080x2400 -> 1080x1920)
+    // ถ้าอยากกลับ กดปุ่ม RESET (wm size reset)
+    private String applyAspect169() {
+        String sizeOut = runShizukuShell("wm size");
+        if (sizeOut == null) return null;
+
+        Matcher m = Pattern.compile("Physical size:\\s*(\\d+)x(\\d+)").matcher(sizeOut);
+        if (!m.find()) {
+            return "❌ อ่านขนาดจอไม่ได้\n" + sizeOut;
+        }
+        int w = Integer.parseInt(m.group(1));
+        int h = Integer.parseInt(m.group(2));
+        int shortSide = Math.min(w, h);
+        int longSide = Math.max(w, h);
+
+        int target = (shortSide * 16) / 9;
+        target = target - (target % 2); // ทำให้เป็นเลขคู่
+
+        if (target >= longSide) {
+            return "ℹ️ จอนี้เป็น 16:9 หรือกว้างกว่าอยู่แล้ว (" + w + "x" + h + ") ไม่ต้องปรับ\n";
+        }
+
+        int nw, nh;
+        if (w <= h) { // จอตั้งเป็นค่าเริ่มต้น (มือถือทั่วไป)
+            nw = w;
+            nh = target;
+        } else {      // จอแนวนอนเป็นค่าเริ่มต้น (แท็บเล็ต)
+            nw = target;
+            nh = h;
+        }
+
+        String cmd = "wm size " + nw + "x" + nh;
+        String out = runShizukuShell(cmd);
+        if (out == null) return null;
+
+        String now = runShizukuShell("wm size");
+        StringBuilder sb = new StringBuilder();
+        sb.append("$ ").append(cmd).append("\n");
+        if (!out.trim().isEmpty()) sb.append(out);
+        sb.append("✅ ตั้ง 16:9 แล้ว (").append(nw).append("x").append(nh).append(")\n");
+        if (now != null) sb.append(now);
+        sb.append("ถ้าจอแปลก กดปุ่ม RESET เพื่อคืนค่าเดิม\n");
+        return sb.toString();
     }
 
     private void handleActivationClick() {
