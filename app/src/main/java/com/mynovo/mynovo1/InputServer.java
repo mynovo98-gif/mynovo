@@ -31,23 +31,18 @@ import java.util.ArrayDeque;
  *
  * แก้จากเวอร์ชันเดิม:
  *  1) แต่ละการเชื่อมต่อใช้เธรดของตัวเอง และการเชื่อมต่อใหม่จะ "แทนที่" ของเก่าทันที
- *     (เดิมถ้าของเก่าค้างอยู่ ตัวใหม่จะต่อไม่ได้เพราะ server วนอ่านของเก่าอยู่)
  *  2) ถ้า client หลุดหรือถูกแทนที่ระหว่างที่นิ้วยังกดอยู่ จะ inject ACTION_CANCEL ให้
- *     (เดิมนิ้วจะค้างในระบบ ทำให้เกม/หน้าจอเหมือนค้าง)
  *  3) ถ้าได้ ACTION_DOWN ซ้อนตอนที่นิ้วเก่ายังไม่ปล่อย จะ CANCEL ของเก่าก่อน
  *  4) handshake มี timeout กันการเชื่อมต่อเปล่าบล็อก server
- *  5) [แก้ไข - แก้หน่วงคงที่ทุกความเร็ว] เดิม thread ที่อ่าน socket ของแต่ละ client เรียก
- *     inject.invoke() (binder call เข้า system_server) ตรงๆ แบบ inline สลับกับการอ่าน event ถัดไป
- *     ถ้า binder call ครั้งไหนช้า (system_server ไม่ว่าง/GC/scheduler) จะไปบล็อกการอ่าน socket
- *     event ถัดไปทันที กลายเป็นดีเลย์สะสมที่เกิดเท่ากันไม่ว่าจะขยับช้าหรือเร็ว
- *     ตอนนี้แยกเป็นเธรด inject เฉพาะ (เหมือนฝั่ง TouchSimulator ของแอป): thread อ่าน socket แค่
- *     parse แล้วส่งต่อเข้าคิว ไม่เรียก inject ตรงๆ เอง จึงไม่มีทางถูก binder call บล็อกอีกต่อไป
- *     คิวนี้ coalesce เฉพาะ MOVE ติดกันของ client เดียวกัน (เก็บแค่ตำแหน่งล่าสุด) เหมือนฝั่งแอป
- *     ส่วน DOWN/UP/CANCEL ยังคงถูกประมวลผลครบทุกตัวตามลำดับเดิม ไม่ถูกข้าม
+ *  5) แยกเธรด inject เฉพาะ (coalesce เฉพาะ MOVE ติดกันของ client เดียวกัน)
  *
- * [KB] เพิ่มระบบจับคีย์บอร์ดแบบ exclusive (EVIOCGRAB):
- *  - args[1] (ไม่บังคับ) = path ของตัวช่วย native (/data/local/tmp/mynovo_kbgrab) ที่ activate.sh คัดลอกไว้
- *  - แอป -> server: writeInt(-2) = เริ่ม grab, writeInt(-3) = ปล่อย grab (-1 เดิม = สั่งปิด server)
+ * [KB] ระบบจับคีย์บอร์ด/เมาส์แบบ exclusive (EVIOCGRAB):
+ *  - args[1] (ไม่บังคับ) = path ของตัวช่วย native (/data/local/tmp/mynovo_kbgrab)
+ *  - แอป -> server: writeInt(-2) = เริ่ม grab, writeInt(-3) = ปล่อย grab (-1 = สั่งปิด server)
+ *  - [DISPLAY] แอป -> server: writeInt(-4) ตามด้วย writeInt(displayId)
+ *      = บังคับ displayId ให้ทุก MotionEvent ก่อน inject (-1 = เลิกบังคับ)
+ *      ทำที่ server เพราะรันสิทธิ์ shell เรียก InputEvent.setDisplayId (hidden API) ได้
+ *      ส่วนฝั่งแอปบางเครื่อง/บางเวอร์ชัน Android โดนบล็อก
  *  - server -> แอป: เฟรมละ 9 ไบต์ = [type:1][a:int][b:int]
  *      type 1 = ปุ่มคีย์บอร์ด  a = Linux scancode, b = 0 ปล่อย / 1 กด / 2 ค้าง
  *      type 2 = ผู้ใช้กด Ctrl+Esc ปล่อย grab (ทางหนีไฟ)
@@ -59,11 +54,8 @@ import java.util.ArrayDeque;
 public class InputServer {
     public static final int PORT = 38417;
 
-    // [เพิ่ม] วัดเวลาจริงของ binder call injectInputEvent() ล้วนๆ (ไม่ปนกับ network/parcel แล้ว)
-    // เพื่อหาว่า OS-level binder call เองเป็นคอขวดของดีเลย์คงที่หรือไม่
     private static final boolean LOG_INJECT_TIMING = true;
     private static final long LOG_SLOW_INJECT_MS = 3L;
-    // [เพิ่ม] แจ้งเตือนถ้าคิวเริ่มค้าง (อ่านเร็วกว่ายิง inject ทัน) จะได้รู้ว่ามี backlog สะสม
     private static final int QUEUE_WARN_SIZE = 5;
 
     private static final Object injectLock = new Object();
@@ -76,7 +68,13 @@ public class InputServer {
     private static MotionEvent lastEvent;
     private static boolean active;
 
-    // ===== [แก้ไข] คิว inject แยกออกจาก thread อ่าน socket =====
+    // [DISPLAY] displayId ที่บังคับใช้ (-1 = ไม่บังคับ ใช้ค่าตามที่ event มาจากแอป)
+    private static volatile int forcedDisplay = -1;
+    private static Method setDispMethod;
+    private static boolean setDispResolved = false;
+    private static boolean setDispWarned = false;
+
+    // ===== คิว inject แยกออกจาก thread อ่าน socket =====
     private static final class QueuedEvent {
         final Socket socket;
         final MotionEvent event;
@@ -91,8 +89,6 @@ public class InputServer {
         injectWorker.start();
     }
 
-    // เรียกจาก thread อ่านของแต่ละ client แทนการ inject ตรงๆ (กันอ่าน socket ถูกบล็อกโดย binder call)
-    // coalesce เฉพาะ MOVE ติดกันของ socket เดียวกัน เก็บไว้แค่ตำแหน่งล่าสุด เหมือนฝั่งแอป (TouchSimulator.enqueue)
     private static void enqueueInject(Socket s, MotionEvent ev) {
         synchronized (queueLock) {
             QueuedEvent last = pendingInject.peekLast();
@@ -219,10 +215,12 @@ public class InputServer {
             }
             // [KB] client ใหม่เริ่มจากสถานะไม่ grab (ถ้าอยาก grab ให้ส่ง -2 มาเอง)
             kbSetGrab(false);
+            // [DISPLAY] client ใหม่เริ่มจากไม่บังคับ displayId (ถ้าต้องการให้ส่ง -4 มาเอง)
+            forcedDisplay = -1;
             s.setSoTimeout(0);
             s.getOutputStream().write(1);
             s.getOutputStream().flush();
-            // [KB] หลัง handshake เสร็จค่อยเปิดท่อส่งเฟรมคีย์บอร์ดกลับไปหา client
+            // หลัง handshake เสร็จค่อยเปิดท่อส่งเฟรมกลับไปหา client
             synchronized (outLock) {
                 currentOut = new DataOutputStream(new BufferedOutputStream(s.getOutputStream(), 256));
                 outSocket = s;
@@ -246,6 +244,20 @@ public class InputServer {
                     kbSetGrab(len == -2);
                     continue;
                 }
+                // [DISPLAY] -4 <displayId> = บังคับ displayId (รับเฉพาะจาก client ปัจจุบัน)
+                if (len == -4) {
+                    int id = in.readInt();
+                    boolean stale1;
+                    synchronized (injectLock) { stale1 = current != s; }
+                    if (stale1) break;
+                    synchronized (injectLock) {
+                        // เปลี่ยนจอกลางทาง: ปล่อยนิ้วที่ค้างบนจอเดิมก่อน
+                        if (id != forcedDisplay) cancelActive();
+                        forcedDisplay = id;
+                    }
+                    System.out.println("forced displayId=" + id);
+                    continue;
+                }
                 if (len <= 0 || len > 65536) break;
                 byte[] buf = new byte[len];
                 in.readFully(buf);
@@ -255,9 +267,6 @@ public class InputServer {
                     p.unmarshall(buf, 0, len);
                     p.setDataPosition(0);
                     MotionEvent ev = MotionEvent.CREATOR.createFromParcel(p);
-                    // [แก้ไข] ไม่เรียก inject ตรงนี้ (จะบล็อก thread อ่าน socket ถ้า binder call ช้า)
-                    // ส่งต่อให้เธรด inject แยกทำแทน (coalesce MOVE ให้เองใน enqueueInject)
-                    // ความ "stale" (current != s) เช็คตอน dequeue แทน ไม่เช็คตรงนี้แล้ว
                     enqueueInject(s, ev);
                 } catch (Throwable t) {
                     System.out.println("inject error: " + t);
@@ -278,7 +287,7 @@ public class InputServer {
                     wasCurrent = true;
                 }
             }
-            // [KB] client หลุด -> ปิดท่อส่งกลับ และปล่อย grab คีย์บอร์ดคืนให้ระบบ
+            // [KB] client หลุด -> ปิดท่อส่งกลับ และปล่อย grab คืนให้ระบบ
             synchronized (outLock) {
                 if (outSocket == s) {
                     currentOut = null;
@@ -310,7 +319,7 @@ public class InputServer {
             lastEvent = null;
         }
         if (active) {
-            lastEvent = MotionEvent.obtain(ev);
+            lastEvent = MotionEvent.obtain(ev); // สำเนานี้ติด displayId ที่ตั้งใน doInject ไปด้วย
         }
     }
 
@@ -332,9 +341,33 @@ public class InputServer {
         active = false;
     }
 
+    // [DISPLAY] ตั้ง displayId ให้ event ถ้ามีการบังคับไว้ (เรียกภายใน injectLock)
+    private static void applyForcedDisplay(MotionEvent ev) {
+        final int id = forcedDisplay;
+        if (id < 0) return;
+        try {
+            if (!setDispResolved) {
+                setDispResolved = true;
+                try {
+                    setDispMethod = InputEvent.class.getMethod("setDisplayId", int.class);
+                } catch (Throwable t) {
+                    setDispMethod = InputEvent.class.getDeclaredMethod("setDisplayId", int.class);
+                }
+                setDispMethod.setAccessible(true);
+            }
+            if (setDispMethod != null) setDispMethod.invoke(ev, id);
+        } catch (Throwable t) {
+            if (!setDispWarned) {
+                setDispWarned = true;
+                System.out.println("setDisplayId failed: " + t);
+            }
+        }
+    }
+
     private static void doInject(MotionEvent ev) {
         final long t0 = LOG_INJECT_TIMING ? System.nanoTime() : 0L;
         try {
+            applyForcedDisplay(ev); // [DISPLAY]
             inject.invoke(im, ev, 0); // 0 = ASYNC
         } catch (Throwable t) {
             System.out.println("inject error: " + t);
@@ -362,7 +395,7 @@ public class InputServer {
         }
     }
 
-    // ===================== [KB] จับคีย์บอร์ดแบบ exclusive =====================
+    // ===================== [KB] จับคีย์บอร์ด/เมาส์แบบ exclusive =====================
 
     // ส่งเฟรม 9 ไบต์กลับไปหา client ปัจจุบัน (ถ้าไม่มี client ก็ทิ้ง)
     private static void sendToClient(int type, int a, int b) {
@@ -387,7 +420,7 @@ public class InputServer {
                 if (kbProc == null) {
                     if (!on) return;
                     if (!kbStartHelper()) {
-                        sendToClient(3, 0, 0); // grab ไม่สำเร็จ แอปจะใช้ทางเดิม (รับปุ่มผ่านหน้าต่าง) ต่อไป
+                        sendToClient(3, 0, 0); // grab ไม่สำเร็จ แอปจะใช้ทางเดิมต่อไป
                         return;
                     }
                 }
