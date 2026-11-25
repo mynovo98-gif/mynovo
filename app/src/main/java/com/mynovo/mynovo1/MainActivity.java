@@ -81,6 +81,9 @@ public class MainActivity extends AppCompatActivity {
     private Dialog currentDialog;
     private String currentDialogType = "";
 
+    // ปุ่ม C ที่เด้งขึ้นมาเหนือปุ่มปากกา
+    private ImageView cButton;
+
     // wizard Wireless activation (ใช้ WirelessAdbWizardManager ภายใน)
     private WirelessActivationDialog wirelessDialog;
 
@@ -154,6 +157,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
+        hideCButton();
     }
 
     @Override
@@ -400,9 +404,9 @@ public class MainActivity extends AppCompatActivity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         tvCredit2.setLayoutParams(tvCredit2Params);
         creditsList.addView(tvCredit2);
-		
-		           TextView tvCredit3 = new TextView(this);
-        tvCredit3.setText("Kisper ครีเอเตอร์ bluemousepro");
+
+        TextView tvCredit3 = new TextView(this);
+        tvCredit3.setText("Kisper ครีเอเตอร์");
         tvCredit3.setTextColor(Color.parseColor("#8BE9FD"));
         tvCredit3.setTextSize(14f);
         tvCredit3.setTypeface(null, android.graphics.Typeface.BOLD);
@@ -637,8 +641,9 @@ public class MainActivity extends AppCompatActivity {
         fragmentContainer.addView(layout);
     }
 
-    // ===== ปุ่มคอมมานกลางแถบเมนูล่าง (แทรกระหว่าง Account กับ Activation) =====
-    // แทรกจากโค้ด ไม่ต้องแก้ activity_main.xml ต้องมี res/drawable/ic_command_menu.png (รูปโลโก้ C ที่จะใส่เอง)
+    // ===== ปุ่มปากกากลางแถบเมนูล่าง (แทรกระหว่าง Account กับ Activation) =====
+    // แทรกจากโค้ด ไม่ต้องแก้ activity_main.xml
+    // ต้องมี res/drawable/ic_command_menu.png (รูปปากกา) และ res/drawable/ic_c_button.png (รูปตัว C)
     private void addCenterPenButton() {
         try {
             ViewGroup parent = (ViewGroup) navAccount.getParent();
@@ -656,18 +661,20 @@ public class MainActivity extends AppCompatActivity {
             slot.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
 
             ImageView pen = new ImageView(this);
-            pen.setImageResource(R.drawable.ic_command_menu); // << วางไฟล์รูปโลโก้ C ไว้ที่ res/drawable/ic_command_menu.png
+            pen.setImageResource(R.drawable.ic_command_menu); // รูปปากกา res/drawable/ic_command_menu.png
             pen.setScaleType(ImageView.ScaleType.FIT_CENTER);
             pen.setContentDescription("Command Menu");
             pen.setClickable(true);
             pen.setFocusable(true);
             pen.setLayoutParams(new FrameLayout.LayoutParams(size, size, Gravity.CENTER));
-            pen.setOnClickListener(v -> onPenButtonClick());
 
-            // เอาเมาส์ไปชี้ (hover) ก็เปิดเมนูได้เลย ไม่ต้องคลิก (เผื่อใช้งานผ่านเมาส์จริงที่ต่อกับแอปนี้)
+            // กดปากกา -> ปุ่ม C เด้งขึ้นมาเหนือปากกา (กดซ้ำเพื่อซ่อน)
+            pen.setOnClickListener(v -> toggleCButton(pen));
+
+            // เอาเมาส์ไปชี้ (hover) ปากกา ก็ให้ปุ่ม C ขึ้นมาได้เลย ไม่ต้องคลิก (เผื่อใช้งานผ่านเมาส์จริงที่ต่อกับแอปนี้)
             pen.setOnHoverListener((v, event) -> {
                 if (event.getAction() == android.view.MotionEvent.ACTION_HOVER_ENTER) {
-                    onPenButtonClick();
+                    showCButton(pen);
                     return true;
                 }
                 return false;
@@ -683,6 +690,50 @@ public class MainActivity extends AppCompatActivity {
 
     private void onPenButtonClick() {
         showTerminalDialog();
+    }
+
+    // ===== ปุ่ม C ที่เด้งขึ้นมาเหนือปุ่มปากกา =====
+    private void toggleCButton(View pen) {
+        if (cButton != null && cButton.getParent() != null) hideCButton();
+        else showCButton(pen);
+    }
+
+    private void hideCButton() {
+        if (cButton != null && cButton.getParent() instanceof ViewGroup) {
+            ((ViewGroup) cButton.getParent()).removeView(cButton);
+        }
+    }
+
+    private void showCButton(View pen) {
+        if (cButton != null && cButton.getParent() != null) return;
+        ViewGroup content = findViewById(android.R.id.content);
+        float d = getResources().getDisplayMetrics().density;
+        int size = Math.round(44 * d);
+        int gap = Math.round(67 * d); // ระยะจากกลางปากกาขึ้นไปถึงกลางปุ่ม C ปรับได้
+
+        int[] pl = new int[2];
+        int[] cl = new int[2];
+        pen.getLocationInWindow(pl);
+        content.getLocationInWindow(cl);
+        int cx = pl[0] - cl[0] + pen.getWidth() / 2;
+        int cy = pl[1] - cl[1] + pen.getHeight() / 2;
+
+        cButton = new ImageView(this);
+        cButton.setImageResource(R.drawable.ic_c_button); // รูปตัว C res/drawable/ic_c_button.png
+        cButton.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        cButton.setContentDescription("C");
+        cButton.setElevation(24 * d);
+        cButton.setClickable(true);
+        cButton.setOnClickListener(v -> {
+            hideCButton();
+            showTerminalDialog(); // เปลี่ยนเป็นสิ่งที่อยากให้ปุ่ม C ทำได้
+        });
+
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                size, size, Gravity.TOP | Gravity.START);
+        lp.leftMargin = cx - size / 2;
+        lp.topMargin = cy - gap - size / 2;
+        content.addView(cButton, lp);
     }
 
     // ===== Terminal: พิมพ์คำสั่ง shell เอง สั่งผ่าน Shizuku =====
