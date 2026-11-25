@@ -87,6 +87,9 @@ public class MainActivity extends AppCompatActivity {
     // wizard Wireless activation (ใช้ WirelessAdbWizardManager ภายใน)
     private WirelessActivationDialog wirelessDialog;
 
+    // [lag fix] เก็บ animator เครดิตไว้ เพื่อ pause/cancel ได้ ไม่วนวาดเฟรมตลอดเวลา
+    private android.animation.ObjectAnimator creditsAnim;
+
     private final Shizuku.OnBinderReceivedListener BINDER_RECEIVED_LISTENER = new Shizuku.OnBinderReceivedListener() {
         @Override
         public void onBinderReceived() {
@@ -158,6 +161,10 @@ public class MainActivity extends AppCompatActivity {
     protected void onPause() {
         super.onPause();
         hideCButton();
+        // [lag fix] หยุด animation เครดิตตอนออกจากหน้าแอป
+        try {
+            if (creditsAnim != null && creditsAnim.isRunning()) creditsAnim.pause();
+        } catch (Exception ignored) {}
     }
 
     @Override
@@ -168,6 +175,11 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        // [lag fix] เลิก animation เครดิต ไม่ให้ค้างและทำ Activity รั่ว
+        try {
+            if (creditsAnim != null) creditsAnim.cancel();
+            creditsAnim = null;
+        } catch (Exception ignored) {}
         // ปิด wizard ถ้ายังเปิดอยู่ (จะหยุด mDNS + ล้าง notification ให้เอง)
         try {
             if (wirelessDialog != null && wirelessDialog.isShowing()) wirelessDialog.getDialog().dismiss();
@@ -182,6 +194,10 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        // [lag fix] เล่น animation เครดิตต่อ
+        try {
+            if (creditsAnim != null && creditsAnim.isPaused()) creditsAnim.resume();
+        } catch (Exception ignored) {}
         checkRealActivationStatus();
         checkInputDevicesStatus();
         refreshCurrentDialog();
@@ -434,6 +450,9 @@ public class MainActivity extends AppCompatActivity {
                         scrollAnim.setInterpolator(new android.view.animation.LinearInterpolator());
                         scrollAnim.setRepeatCount(android.animation.ObjectAnimator.INFINITE); // วนลูปไปเรื่อยๆ ไม่หยุด
                         scrollAnim.setRepeatMode(android.animation.ObjectAnimator.RESTART);
+                        // [lag fix] ยกเลิกตัวเก่าก่อน แล้วเก็บตัวใหม่ไว้ให้ pause/cancel ได้
+                        if (creditsAnim != null) creditsAnim.cancel();
+                        creditsAnim = scrollAnim;
                         scrollAnim.start();
                     }
                 });
@@ -1725,6 +1744,7 @@ public class MainActivity extends AppCompatActivity {
             while ((l = r.readLine()) != null) sb.append(l).append('\n');
             try { r.close(); } catch (Exception ignored) {}
             try { p.waitFor(); } catch (Exception ignored) {}
+            try { p.destroy(); } catch (Exception ignored) {}
             return sb.toString();
         } catch (Throwable t) {
             Log.w("DEX", "runShizukuShell failed: " + t);
