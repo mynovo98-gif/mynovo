@@ -7,6 +7,8 @@
 // S <n> จำนวนคีย์บอร์ดที่ grab อยู่ตอนนี้ (0 = grab ไม่สำเร็จ/ไม่มี)
 // K <code> <v> ปุ่ม Linux scancode, v = 0 ปล่อย / 1 กด / 2 ค้าง(repeat) (ส่งเฉพาะตอน grab อยู่)
 // R ผู้ใช้กด Ctrl+Esc = ปล่อย grab ทั้งหมด (ทางหนีไฟ)
+// [MOUSE] M <dx> <dy> เมาส์เลื่อน (REL_X/REL_Y รวมต่อ 1 SYN_REPORT) ส่งเฉพาะตอน grab อยู่
+// [MOUSE] B <code> <v> ปุ่มเมาส์ (BTN_LEFT=272, BTN_RIGHT=273, ...) v = 0 ปล่อย / 1 กด (ส่งเฉพาะตอน grab อยู่)
 //
 // ถ้า stdin ปิด (InputServer ตาย/ถูกปิด) ตัวนี้จะออกเอง และ kernel จะปล่อย grab ให้อัตโนมัติ
 
@@ -35,6 +37,9 @@ typedef struct {
     int fd;
     int g; // grab อยู่หรือไม่
     int rw; // เปิดแบบเขียนได้หรือไม่ (ใช้สั่งไฟ LED)
+    int kb; // [MOUSE] เป็นคีย์บอร์ดหรือไม่
+    int ms; // [MOUSE] เป็นเมาส์หรือไม่
+    int dx, dy; // [MOUSE] ค่าเลื่อนสะสมก่อนถึง SYN_REPORT
     char path[64];
 } Dev;
 
@@ -59,6 +64,7 @@ static void say(const char *s) {
 // สั่งเปิด/ดับไฟ Caps Lock ของคีย์บอร์ดตัวนี้ (ทำได้เฉพาะที่เปิดแบบ O_RDWR)
 static void set_caps_led(const Dev *d, int on) {
     if (!d->rw) return;
+    if (!d->kb) return; // [MOUSE] เมาส์ไม่มีไฟ Caps
     struct input_event ev[2];
     memset(ev, 0, sizeof ev);
     ev[0].type = EV_LED;
@@ -71,9 +77,16 @@ static void set_caps_led(const Dev *d, int on) {
     (void) r;
 }
 
+// [MOUSE] นับเฉพาะคีย์บอร์ด เพื่อให้ความหมายของ H / S เหมือนเดิม
 static int grabbed_count(void) {
     int n = 0;
-    for (int i = 0; i < ndev; i++) if (devs[i].g) n++;
+    for (int i = 0; i < ndev; i++) if (devs[i].g && devs[i].kb) n++;
+    return n;
+}
+
+static int keyboard_count(void) {
+    int n = 0;
+    for (int i = 0; i < ndev; i++) if (devs[i].kb) n++;
     return n;
 }
 
@@ -95,6 +108,22 @@ static int is_keyboard(int fd) {
     return TB(KEY_A, key) && TB(KEY_Z, key) && TB(KEY_SPACE, key) && TB(KEY_ENTER, key);
 }
 
+// [MOUSE] เมาส์จริง: มีแกนสัมพัทธ์ X/Y และปุ่มซ้าย
+static int is_mouse(int fd) {
+    unsigned char ev[(EV_MAX + 7) / 8 + 1];
+    unsigned char rel[(REL_MAX + 7) / 8 + 1];
+    unsigned char key[(KEY_MAX + 7) / 8 + 1];
+    memset(ev, 0, sizeof ev);
+    memset(rel, 0, sizeof rel);
+    memset(key, 0, sizeof key);
+    if (ioctl(fd, EVIOCGBIT(0, sizeof ev), ev) < 0) return 0;
+    if (!TB(EV_REL, ev) || !TB(EV_KEY, ev)) return 0;
+    if (ioctl(fd, EVIOCGBIT(EV_REL, sizeof rel), rel) < 0) return 0;
+    if (!TB(REL_X, rel) || !TB(REL_Y, rel)) return 0;
+    if (ioctl(fd, EVIOCGBIT(EV_KEY, sizeof key), key) < 0) return 0;
+    return TB(BTN_LEFT, key);
+}
+
 static void add_dev(const char *path) {
     if (ndev >= MAX_DEV) return;
     for (int i = 0; i < ndev; i++) {
@@ -108,7 +137,9 @@ static void add_dev(const char *path) {
         fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
     }
     if (fd < 0) return;
-    if (!is_keyboard(fd)) {
+    int kb = is_keyboard(fd);
+    int ms = is_mouse(fd); // [MOUSE]
+    if (!kb && !ms) {
         close(fd);
         return;
     }
@@ -116,6 +147,10 @@ static void add_dev(const char *path) {
     d->fd = fd;
     d->g = 0;
     d->rw = rw;
+    d->kb = kb;
+    d->ms = ms;
+    d->dx = 0;
+    d->dy = 0;
     snprintf(d->path, sizeof d->path, "%s", path);
     ndev++;
     if (want && ioctl(fd, EVIOCGRAB, 1) == 0) {
@@ -149,12 +184,16 @@ static void set_grab(int on) {
         if (on && !devs[i].g) {
             if (ioctl(devs[i].fd, EVIOCGRAB, 1) == 0) {
                 devs[i].g = 1;
+                devs[i].dx = 0; // [MOUSE]
+                devs[i].dy = 0;
                 set_caps_led(&devs[i], 0); // เริ่ม grab: ดับไฟ Caps
             }
         } else if (!on && devs[i].g) {
             set_caps_led(&devs[i], 0); // ปล่อย grab: ดับไฟ Caps ก่อนคืนให้ระบบ
             ioctl(devs[i].fd, EVIOCGRAB, 0);
             devs[i].g = 0;
+            devs[i].dx = 0; // [MOUSE]
+            devs[i].dy = 0;
             set_caps_led(&devs[i], 0); // ย้ำอีกรอบหลังปล่อย
         }
     }
@@ -186,8 +225,41 @@ static int read_dev(int i) {
     if (n == 0) return 0;
     int cnt = (int) (n / (ssize_t) sizeof(struct input_event));
     for (int k = 0; k < cnt; k++) {
+        // [MOUSE] เมาส์เลื่อน: สะสมไว้จนถึง SYN_REPORT แล้วส่งเป็นบรรทัดเดียว
+        if (ev[k].type == EV_REL) {
+            if (devs[i].ms && devs[i].g) {
+                if (ev[k].code == REL_X) devs[i].dx += ev[k].value;
+                else if (ev[k].code == REL_Y) devs[i].dy += ev[k].value;
+            }
+            continue;
+        }
+        if (ev[k].type == EV_SYN) {
+            if (ev[k].code == SYN_REPORT && devs[i].ms) {
+                if (devs[i].g && (devs[i].dx != 0 || devs[i].dy != 0)) {
+                    char b[48];
+                    snprintf(b, sizeof b, "M %d %d\n", devs[i].dx, devs[i].dy);
+                    say(b);
+                }
+                devs[i].dx = 0;
+                devs[i].dy = 0;
+            }
+            continue;
+        }
+
         if (ev[k].type != EV_KEY) continue;
         if (ev[k].value < 0 || ev[k].value > 2) continue;
+
+        // [MOUSE] ปุ่มเมาส์ (BTN_MOUSE..BTN_TASK) ส่งเฉพาะตอน grab อยู่ และไม่ส่ง repeat
+        if (devs[i].ms && ev[k].code >= BTN_MOUSE && ev[k].code <= BTN_TASK) {
+            if (devs[i].g && ev[k].value != 2) {
+                char b[48];
+                snprintf(b, sizeof b, "B %d %d\n", ev[k].code, ev[k].value);
+                say(b);
+            }
+            continue;
+        }
+
+        if (!devs[i].kb) continue; // [MOUSE] อุปกรณ์ที่ไม่ใช่คีย์บอร์ด ไม่เข้าทางคีย์
 
         // [แก้] ติดตามสถานะ Ctrl ตลอด แม้ไม่ได้ grab กันค้างหลังกด Ctrl+Esc
         if (ev[k].code == KEY_LEFTCTRL || ev[k].code == KEY_RIGHTCTRL)
@@ -231,7 +303,7 @@ int main(void) {
     scan_devices();
     {
         char b[32];
-        snprintf(b, sizeof b, "H %d\n", ndev);
+        snprintf(b, sizeof b, "H %d\n", keyboard_count());
         say(b);
     }
 
