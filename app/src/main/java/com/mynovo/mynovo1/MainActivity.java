@@ -379,7 +379,7 @@ public class MainActivity extends AppCompatActivity {
         sideBoxScrollArea.addView(creditsList);
 
         TextView tvCredit1 = new TextView(this);
-        tvCredit1.setText("สนับสนุนโดยมายโนโว");
+        tvCredit1.setText("ผู้พัฒนาแอปBluemouseproมายโนโว");
         tvCredit1.setTextColor(Color.parseColor("#8BE9FD"));
         tvCredit1.setTextSize(14f);
         tvCredit1.setTypeface(null, android.graphics.Typeface.BOLD);
@@ -400,6 +400,17 @@ public class MainActivity extends AppCompatActivity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         tvCredit2.setLayoutParams(tvCredit2Params);
         creditsList.addView(tvCredit2);
+		
+		   TextView tvCredit2 = new TextView(this);
+        tvCredit2.setText("Kisper ครีเอเตอร์");
+        tvCredit2.setTextColor(Color.parseColor("#8BE9FD"));
+        tvCredit2.setTextSize(14f);
+        tvCredit2.setTypeface(null, android.graphics.Typeface.BOLD);
+        tvCredit2.setGravity(Gravity.CENTER_HORIZONTAL);
+        LinearLayout.LayoutParams tvCredit2Params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tvCredit2.setLayoutParams(tvCredit2Params);
+        creditsList.addView(tvCredit3);
 
         // รอให้ layout วัดขนาดจริงเสร็จก่อน ค่อยเริ่มคำนวณระยะเลื่อน (ต้องรู้ความสูงกล่อง + ความสูงชุดเครดิตทั้งหมด)
         sideBoxScrollArea.getViewTreeObserver().addOnGlobalLayoutListener(
