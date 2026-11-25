@@ -15,192 +15,77 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 
 public class MouseController {
-    // ความทึบของหน้าต่างล็อคเมาส์ (รับ input การขยับ/คลิก) - ถ้าเพิ่มแล้ว D-pad/ปุ่มแตะกลับมากดไม่ลง ให้ลดลง
     private static final float MOUSE_LOCK_ALPHA = 0.05f;
-    // ความทึบของหน้าต่างเคอร์เซอร์ (ชั้นที่วาดไอคอนเมาส์) - ปรับแยกจากหน้าต่างล็อคเมาส์ได้อิสระ
     private static final float CURSOR_LAYER_ALPHA = 0.40f;
 
-    // true  = นิ้วเสมือนลากเลยขอบจอได้ (พิกัดติดลบ/เกินจอ) ไม่ต้องยกนิ้ว กล้องหมุนลื่น
-    // false = จำกัดในจอ แล้วยกนิ้ววางใหม่เมื่อถึงระยะ (กล้องจะกระตุกตอนรีเซ็ต)
-    // ถ้าเปิดแล้วกล้องไม่ขยับ/หยุดตอนเลยขอบ ให้ตั้งเป็น false
-    // (ใช้กับระบบบิตเท่านั้น ระบบคงที่ใช้โซนความเร็วคงที่ด้านล่างเสมอ)
+    private static final boolean MOUSE_ACCEL = false;
+
+    private static final int PTR_A = 2;
+    private static final int PTR_B = 6;
+
+    private static final boolean OVERLAP_RECENTER = true;
+
+    private static final float VIEW_EDGE_MARGIN_X = 1000000f;
+    private static final float VIEW_EDGE_MARGIN_Y = 1000000f;
+
+    private static final float STEP_MAX_FRAC = 0.08f;
+    private static final int STEP_MAX_COUNT = 12;
+
     private static final boolean VIEW_ALLOW_OFFSCREEN = true;
 
-    // ลอยได้ไกลสุดจากจุดเริ่มกี่เท่าของจอ ก่อนรีเซ็ต (เดิม 50 เท่า) ลดแล้วชดเชยแม่นขึ้น
-    // ถ้ากล้องกระตุกบ่อยให้เพิ่ม (เช่น 2.5), ถ้ายังช้าเร็วไม่คงที่ให้ลด (เช่น 1.0)
-    private static final float VIEW_LIMIT_SCREENS = 50f;
-
-    // true = โหมดความเร็วคงที่: ความเร็ว = ระยะเมาส์ x ค่าความไว ล้วนๆ ไม่มีตัวคูณตามตำแหน่งเลย (ทั้ง X และ Y)
-    //        นิ้วเสมือนอยู่ในโซนฝั่งขวา (ที่เกมให้ความเร็วเท่ากัน) ไม่ออกนอกจอ
-    //        ถ้าออกนอกโซนจะวางนิ้วใหม่ที่ปลายด้านตรงข้ามทิศที่หมุน (ได้ระยะลากไกลสุด)
-    // false = พฤติกรรมเดิม (ตัวชดเชยตามตำแหน่ง)
-    // [แก้ไข] ระบบคงที่ (viewFlickAccel = false) เปิดโซนนี้ให้อัตโนมัติ ผ่านตัวแปร useZone ใน handlePointerEvent
-    //         ค่านี้จึงบังคับเปิดโซนให้ "ระบบบิต" ด้วยหรือไม่ (ปกติ false = ระบบบิตทำงานเหมือนเดิม)
     private static final boolean VIEW_CONSTANT_ZONE = false;
-    // ขอบเขตโซน (สัดส่วนของจอ) = ระยะที่นิ้วเสมือน "ลาก" ได้ในโหมดคงที่
-    // ถ้าฝั่งซ้ายของโซนกล้องหมุนเร็วกว่าฝั่งขวา ให้เพิ่ม ZONE_X_MIN (เช่น 0.5)
-    // [หมายเหตุ] ถ้า VIEW_X_FREE_IN_ZONE = true ค่า ZONE_X_* ไม่ถูกใช้แล้ว (ไม่ว่าแกน Y จะตั้งเป็นอะไร)
-    private static final float ZONE_X_MIN = 0.16f;
-    private static final float ZONE_X_MAX = 0.88f;
-    // [หมายเหตุ] ZONE_Y_*, ZONE_RESTART ใช้เฉพาะตอน VIEW_Y_FREE_IN_ZONE = false (พฤติกรรมเดิมของแกน Y)
-    private static final float ZONE_Y_MIN = 0.12f;
-    private static final float ZONE_Y_MAX = 0.88f;
-    // วางนิ้วใหม่ที่ตำแหน่งกี่ % ของโซนจากปลายด้านตรงข้าม (ใช้กับแกน Y เท่านั้น)
-    private static final float ZONE_RESTART = 0.04f;
 
-    // [เพิ่ม] สวิตช์แกน Y ของ "ระบบคงที่" (ไม่ได้แก้)
-    // true  = แกน Y ลากทะลุขอบจอได้ (พิกัดติดลบ/เกินจอ) ไม่ยก-วางนิ้วใหม่ ไม่รีเซ็ตตอนเมาส์หยุด
-    // false = พฤติกรรมเดิม (Y หลุดโซนแล้วยก-วางใหม่ + รีเซ็ต Y ตอนเมาส์หยุด)
-    private static final boolean VIEW_Y_FREE_IN_ZONE = true;
-    // [เพิ่ม] ลอยไกลสุดของแกน Y กี่เท่าของความสูงจอ (แค่หยุดที่เพดาน ไม่ยกนิ้ว) กันตัวเลขลอยไกลเกินจริง
-    private static final float VIEW_Y_LIMIT_SCREENS = 50f;
+    private static final float VIEW_Y_LIMIT_SCREENS = 1000000f;
+    private static final float VIEW_X_LIMIT_SCREENS = 1000000f;
 
-    // [แก้ไข X] สวิตช์แกน X ของ "ระบบคงที่" (ไม่ต้องพึ่ง VIEW_Y_FREE_IN_ZONE แล้ว)
-    // true  = แกน X ลากทะลุขอบจอได้ (พิกัดติดลบ/เกินจอ) โดยกดค้างนิ้วเดียวที่ปุ่มล็อคเมาส์ตลอด
-    //         ไม่ชนขอบโซน ไม่ยก-วางนิ้วใหม่ ไม่รีเซ็ตตอนเมาส์หยุด (ไม่ขึ้นกับการตั้งค่าแกน Y)
-    // false = พฤติกรรมเดิม (X ชนขอบโซนแล้วยก-วางใหม่)
-    private static final boolean VIEW_X_FREE_IN_ZONE = true;
-    // [แก้ไข] ลอยไกลสุดของแกน X กี่เท่าของความกว้างจอ (แค่หยุดที่เพดาน ไม่ยกนิ้ว)
-    // เดิม 50 -> ลดเหลือ 5 เพราะนิ้วที่ไกลเกินไปทำให้เกม/ระบบทิ้งนิ้ว (กล้องหยุดหมุนเอง)
-    // ถ้ากล้องไม่ขยับตอนนิ้วอยู่นอกจอไกลๆ ให้ลดค่านี้ (เช่น 3) / ถ้าชนเพดานบ่อยให้เพิ่ม
-    private static final float VIEW_X_LIMIT_SCREENS = 5f;
-
-    // [เพิ่ม] ซีกซ้ายของจอช้ากว่าซีกขวา (ระบบคงที่ แกน X) ตามตำแหน่งนิ้วเสมือน
-    // 0.85 = ซีกซ้ายช้ากว่า ~15% / ยังเร็วไปให้ลด (0.80) / ช้าไปให้เพิ่ม (0.90)
-    // [แก้ไขล่าสุด] 0.75 -> 0.70 ให้ซีกซ้ายช้ากว่าซีกขวาอีกนิด
-    private static final float CONST_LEFT_HALF_GAIN = 0.70f;
-    // เส้นแบ่งซ้าย/ขวา (สัดส่วนความกว้างจอ)
+    private static final float CONST_LEFT_HALF_GAIN = 0.3f;
     private static final float CONST_LEFT_HALF_X = 0.5f;
-    // [แก้ไขให้สมูท] ความกว้างช่วงเปลี่ยนนุ่มๆ รอบเส้นแบ่ง (สัดส่วนความกว้างจอ) เพิ่ม = เปลี่ยนค่อยเป็นค่อยไป
-    // เดิม 0.08 (เปลี่ยนความเร็วในช่วงแคบ ~16% ของจอ รู้สึกสะดุด) -> 0.35 ไล่ระดับเกือบทั้งจอ
-    private static final float CONST_LEFT_HALF_BAND = 0.2f;
+    private static final float CONST_LEFT_HALF_BAND = 0.5f;
 
-    // [เพิ่ม] ความเร็วตอนนิ้วเสมือนอยู่ "นอกจอ" เท่านั้น (ระบบคงที่) 1.0 = ไม่ลด
-    // ในจอความเร็วเท่าเดิมทุกอย่าง ผลมีเฉพาะตอนนิ้วลอยเลยขอบจอ
-    // [แก้ไขให้สมูท] เดิม 0.20 (ชันมาก ช้าลง 80%) -> 0.45
-    // ยังเร็วไปให้ลด CONST_X_SPEED_SCALE แทน อย่าลดค่านี้ เพราะยิ่งต่ำยิ่งทำให้ความเร็วเปลี่ยนชัน
-    // [หมายเหตุ] นอกจอซ้ายจะซ้อนกับ CONST_LEFT_HALF_GAIN
-    private static final float CONST_OFFSCREEN_GAIN_X = 0.30f;
-    private static final float CONST_OFFSCREEN_GAIN_Y = 1.0f;   // 1.0 = ไม่แตะแกน Y
-    // [แก้ไขให้สมูท] ระยะนอกจอ (สัดส่วนของจอ) ที่ถึงค่า GAIN เต็มที่ เพิ่ม = ค่อยๆ ช้าลง
-    // เดิม 0.3 -> 1.0 (ไล่ระดับยาวขึ้น ไม่มีจุดหักมุม)
-    private static final float CONST_OFFSCREEN_BAND = 1.0f;
+    private static final float CONST_OFFSCREEN_GAIN_X = 0.26f;
+    private static final float CONST_OFFSCREEN_GAIN_Y = 1.0f;
+    private static final float CONST_OFFSCREEN_BAND = 0.25f;
 
-    // [เพิ่ม] ตัวคูณความเร็วแกน X ทั้งหมดของระบบคงที่ (ทั้งในจอและนอกจอ) 1.0 = เท่าเดิม
-    // ยังเร็วไปให้ลด (0.5) / ช้าไปให้เพิ่ม (0.8) แกน Y ไม่เกี่ยวข้อง
-    // [หมายเหตุ] คูณซ้อนกับ CONST_LEFT_HALF_GAIN และ CONST_OFFSCREEN_GAIN_X
-    // [แก้ไขล่าสุด] 0.65 -> 0.52 (ช้าลง 20% ทั้งในจอและนอกจอ)
-    private static final float CONST_X_SPEED_SCALE = 0.52f;
+    private static final float CONST_X_SPEED_SCALE = 0.45f;
 
-    // [เพิ่ม] ช่วงปลอดภัยของแกน X ตอน "วางนิ้วใหม่" (DOWN) ของโหมดคงที่ (สัดส่วนของความกว้างจอ)
-    // เหตุผล: เดิมวางนิ้วใหม่ที่ปลายโซนสุดๆ (~37% / ~95%) ซึ่งอาจทับปุ่มจอย/ปุ่มอื่น หรือชิดขอบจอจนระบบมองเป็นปัดจากขอบ
-    //         เกมจึงรับเป็นการ "ทัชตรงอื่น" ตอนนี้ DOWN จะอยู่ในช่วงนี้เสมอ ส่วนระยะลาก (MOVE) ยังกว้างตามโซนเดิม
-    // หมุนไปขวา -> วางใหม่ที่ DOWN_SAFE_X_MIN / หมุนไปซ้าย -> วางใหม่ที่ DOWN_SAFE_X_MAX
-    // ปรับให้ตรงกับพื้นที่ว่าง (ไม่มีปุ่ม) ของเกมคุณ
     private static final float DOWN_SAFE_X_MIN = 0.18f;
     private static final float DOWN_SAFE_X_MAX = 0.88f;
-    // [เพิ่ม] สบัดแรงจนข้ามโซนได้กี่รอบในเฟรมเดียว (ระยะที่เกินจะยกไปทำต่อหลังวางนิ้วใหม่ ไม่ทิ้ง)
-    private static final int MAX_ZONE_WRAPS = 6;
-
-    // เมาส์หยุดขยับกี่ ms ถึงรีเซ็ตนิ้วกลับจุดเริ่ม (กล้องนิ่งอยู่ จึงไม่เห็นกระตุก)
-    private static final long VIEW_IDLE_RECENTER_MS = 300L;
-
-    // [แก้ไข] สวิตช์ "รีเซ็ตแกน X ตอนเมาส์หยุดขยับ" ของ "ระบบคงที่" เท่านั้น
-    // อาการที่แก้: ตอนยกเมาส์ขึ้นมาวางใหม่ (เมาส์หยุดส่ง event เกิน 250ms) ระบบเคยยก-วางนิ้วเสมือนใหม่เอง
-    //             ทำให้เกมเห็นนิ้วถูกปล่อย/ทัชใหม่ = กล้องกระตุก/รีเซ็ตเอง
-    // false = ไม่พา X กลับกลางโซนตอนเมาส์หยุด (X ค้างที่เดิม) <- แนะนำ
-    // true  = พาแกน X กลับกลางโซน (แกน Y ไม่ถูกแตะถ้า VIEW_Y_FREE_IN_ZONE = true)
-    //         [หมายเหตุ] ถ้า VIEW_X_FREE_IN_ZONE = true ค่านี้ถูกข้าม (X ไม่รีเซ็ตเด็ดขาด)
-    // ระบบบิตไม่ถูกแก้ ทำงานเหมือนเดิมทุกอย่าง
-    private static final boolean IDLE_RECENTER_CONSTANT_X = false;
-
-    // [เพิ่ม] ช่วงปลอดภัยของ Y ตอน "วางนิ้วใหม่" (สัดส่วนของความสูงจอ)
-    // DOWN ใหม่ห้ามอยู่ติดขอบบน/ล่าง ไม่งั้นระบบมองเป็นการปัดจากขอบ (ดึงแถบแจ้งเตือน/ท่าทางโฮม)
-    // นิ้วที่ลากเลยขอบหลังวางแล้วยังทะลุได้เหมือนเดิม (ไม่เกี่ยวกับค่านี้)
     private static final float DOWN_SAFE_Y_MIN = 0.16f;
     private static final float DOWN_SAFE_Y_MAX = 0.88f;
 
-    // ระยะลากสูงสุดของโหมดมุมมองจากจุดเริ่ม (สัดส่วนของความกว้าง/สูงจอ) เกินแล้วจะยกนิ้วแล้ววางใหม่
-    // เพิ่มค่า = ลากได้ไกลขึ้นก่อนรีเซ็ต, ลดค่า = รีเซ็ตถี่ขึ้น
     private static final float VIEW_RANGE_X = 0.10f;
     private static final float VIEW_RANGE_Y = 0.12f;
 
-    // [แก้ไข] ปิดการชดเชยความเร็วตามตำแหน่งแกน X (ให้เป็นเส้นตรงเหมือนอีมูเลเตอร์)
-    // LEFT_HALF_GAIN: 1.0 = ปิดการชดเชย (ความเร็วคงที่ทั้งจอ)
-    // เดิม 0.8 ทำให้ความเร็วซ้าย/ขวาไม่เท่ากัน เพราะ viewX ลอยนอกจอได้ไกล
-    private static final float LEFT_HALF_X = 0.525f;
-    private static final float LEFT_HALF_GAIN = 0.8f;
-    private static final float LEFT_HALF_BAND =  1.0f;
-
-    // ตัวลดความเร็วเพิ่มเติมฝั่งซ้าย (ปิดอยู่ = 1.0) [ตอนนี้ระบบคงที่ไม่เรียกใช้แล้ว]
-    private static final float LEFT_EXTRA_GAIN = 1.0f;
-    // เส้นแบ่งซ้าย/ขวา (สัดส่วนของความกว้างจอ)
-    private static final float LEFT_EXTRA_X = 0.5f;
-    // ความกว้างช่วงเปลี่ยนนุ่มๆ รอบเส้นแบ่ง (สัดส่วนของความกว้างจอ)
-    private static final float LEFT_EXTRA_BAND = 0.05f;
-
-    // ช่วงความเร็วดิบ (px/ms ก่อนคูณความไว) ที่เริ่มนับว่า "เริ่มสะบัดเร็ว" ถึง "สะบัดเร็วสุด"
-    private static final float LEFT_FAST_SPEED_MIN = 0.7f;
-    private static final float LEFT_FAST_SPEED_MAX = 0.9f;
-    // gain ของฝั่งซ้ายตอนสะบัดเร็วสุด ตั้งเป็น 1.0 = ปิดการหรี่ตอนสะบัด
-    private static final float LEFT_EXTRA_GAIN_FAST = 1.0f;
-
-    // ตัวคูณความเร็วตอน "หันซ้าย" (ตามทิศที่เมาส์ขยับ ไม่เกี่ยวกับตำแหน่งนิ้วเสมือน)
-    // 1.0 = เท่าเดิม [ตอนนี้ระบบคงที่ไม่เรียกใช้แล้ว]
-    private static final float TURN_LEFT_GAIN = 1.0f;
-
-    // สวิตช์ตัวชดเชยตอนนิ้วเสมือนลากหลุดขอบจอ
-    // false = ปิดตัวชดเชย ความเร็ว = ระยะเมาส์ x ความไว เป็นเส้นตรงจริงๆ
     private static final boolean OFFSCREEN_COMPENSATE = false;
-
-    private static final float OFFSCREEN_GAIN_X = 0.35f;
-    private static final float OFFSCREEN_MIN_X = 035f;
-    // แกน Y กลับไปใช้ค่าเดิม (1.0 = ไม่ชดเชย)
+    private static final float OFFSCREEN_GAIN_X = 0.25f;
+    private static final float OFFSCREEN_MIN_X = 0.35f;
     private static final float OFFSCREEN_GAIN_Y = 1.0f;
-    private static final float OFFSCREEN_BAND = 0.9f;
-    // BAND ของแกน Y (ค่าเดิม)
+    private static final float OFFSCREEN_BAND = 0.75f;
     private static final float OFFSCREEN_BAND_Y = 0.04f;
-    private static final boolean OFFSCREEN_STACK_LEFT = false;
 
-    // กันกล้องพุ่งตอน "ยกเมาส์แล้ววางใหม่" (เฉพาะระบบคงที่)
-    // ถ้าห่างจาก MOVE ก่อนหน้านานกว่าค่านี้ ถือว่าเพิ่งพ้นช่วงเงียบ
-    private static final float POST_GAP_MS = 150f;
-    // [แก้ไข] เพดานความเร็วของ event ก้อนแรกหลังช่วงเงียบ (px/ms) ก้อนที่เกินจะถูก "บีบ" ให้เท่าเพดาน (ไม่ทิ้งทั้งก้อน)
-    // 0.8 x 16ms = ~13px ใกล้เคียง event ปกติ -> ยกเมาส์วางใหม่แล้วความเร็วเท่าเดิม ไม่พุ่ง
-    // ถ้ายังเร็วอยู่ให้ลดเป็น 0.5 / ถ้าก้อนแรกหน่วงเกินไปให้เพิ่มเป็น 1.2
+    private static final float POST_GAP_MS = 100000f;
     private static final float POST_GAP_MAX_V = 0.8f;
-    // ล็อก dt ที่ใช้คำนวณเพดานหลังช่วงเงียบ (ms)
     private static final float POST_GAP_CAP_DT_MS = 16f;
 
-    // [แก้ไข] เพดานความเร็วดิบของ "ระบบคงที่" แกน X: เดิม 1.0 ตัดระยะทิ้ง ทำให้ความเร็วไม่เป็นเส้นตรง
-    // 0 = ปิดเพดาน (เหมือนอีมูเลเตอร์) / ถ้าสบัดแล้วพุ่งเกินไป ค่อยเปิดเป็น 2.0 แล้วลดทีละนิด
     private static final float CONST_MAX_RAW_SPEED_X = 0f;
-    // เพดานแบบเดียวกันของแกน Y (0 = ปิด)
     private static final float CONST_MAX_RAW_SPEED_Y = 0f;
-    // ช่วง dt (ms) ที่ใช้คำนวณเพดานต่อ event: ต่ำสุด/สูงสุด
     private static final float CONST_CAP_DT_MIN_MS = 2f;
     private static final float CONST_CAP_DT_MAX_MS = 16f;
 
-    // ความถี่ส่งตำแหน่งนิ้วเสมือนเริ่มต้น (Hz) ก่อนที่หน้าตั้งค่าจะเรียก setViewHz()
-    // 0 = ซิงค์เฟรมจอ (อาจดีเลย์ได้ ~16ms บนจอ 60Hz) / 250 = ส่งทันทีที่พ้น interval ตอบสนองไวกว่า
-    // [แก้ไขอาการเป้าสั่น] ลดจาก 250 เป็น 144 ให้จังหวะส่งนิ่งขึ้น (ถ้าหน้าตั้งค่าเรียก setViewHz() ค่านั้นจะทับค่านี้)
+    // [แก้ไข] เดิม 0 (ผูก vsync) -> ตั้งความถี่ inject คงที่ รวม event เหลือตำแหน่งล่าสุดต่อรอบ
+    // ถ้ายังหน่วงลด (166) ถ้าไม่ลื่นเพิ่ม (333) หรือเรียก setViewHz() ตอนใช้งาน
     private static final int DEFAULT_VIEW_HZ = 250;
 
-    // ===== ตัวกรองสัญญาณเมาส์ (โหมดมุมมองเท่านั้น) =====
-    // [แก้ไขอาการเป้าสั่น] เปิดตัวกรองเป็นค่าเริ่มต้น (ถ้าหน้าตั้งค่าเรียก setMouseFilter() ค่านั้นจะทับค่านี้)
-    private volatile boolean filterEnabled = true;
-    // ความแรงปรับเรียบตอนขยับช้า: 0 = ไม่เรียบ, 1 = เรียบสุด
-    private volatile float filterSmooth = 0.35f;
-    // เดดโซน (px ต่อ event) สะสมจนเกินค่านี้ถึงปล่อยออก 0 = ปิด
-    private volatile float filterDeadzonePx = 0.5f;
+    private volatile boolean filterEnabled = false;
+    private volatile float filterSmooth = 0.15f;
+    private volatile float filterDeadzonePx = 0f;
 
-    // ความเร็ว (px/ms) ที่ถือว่า "สบัดเร็ว" ปรับเรียบเหลือ 0 ไม่มีหน่วง
-    private static final float FILTER_FAST_SPEED = 0.6f;
-    // กันสไปค์: เพดาน = max(MIN_PX, ค่าเฉลี่ย x RATIO)
+    private static final float FILTER_FAST_SPEED = 0.25f;
     private static final float FILTER_SPIKE_RATIO = 6f;
     private static final float FILTER_SPIKE_MIN_PX = 120f;
-    // เงียบเกินนี้ (ms) ล้างสถานะตัวกรอง
     private static final float FILTER_RESET_GAP_MS = 120f;
+    private static final float FILTER_AVG_ATTACK = 0.9f;
+    private static final float FILTER_AVG_RELEASE = 0.2f;
 
     private float fPrevX, fPrevY, fAccX, fAccY, fAvgMag;
     private final float[] fOut = new float[2];
@@ -209,29 +94,30 @@ public class MouseController {
         fPrevX = fPrevY = fAccX = fAccY = fAvgMag = 0f;
     }
 
-    // ผลลัพธ์อยู่ใน fOut[0], fOut[1]
+    // Result is stored in fOut[0], fOut[1].
     private void applyMouseFilter(float dx, float dy, float dtMs) {
         final float dt = Math.max(1f, Math.min(32f, dtMs));
         if (dtMs > FILTER_RESET_GAP_MS) resetMouseFilter();
 
-        // 1) กันสไปค์ (บีบ ไม่ทิ้ง)
-        float mag = (float) Math.hypot(dx, dy);
+        float rawMag = (float) Math.hypot(dx, dy);
+        float speedT = Math.max(0f, Math.min(1f, (rawMag / dt) / FILTER_FAST_SPEED));
+
+        float mag = rawMag;
         float cap = Math.max(FILTER_SPIKE_MIN_PX, fAvgMag * FILTER_SPIKE_RATIO);
         if (mag > cap && mag > 0f) {
             float s = cap / mag;
             dx *= s; dy *= s; mag = cap;
         }
-        fAvgMag += 0.2f * (mag - fAvgMag);
+        float avgAlpha = (rawMag > fAvgMag) ? FILTER_AVG_ATTACK : FILTER_AVG_RELEASE;
+        fAvgMag += avgAlpha * (rawMag - fAvgMag);
 
-        // 2) ปรับเรียบตามความเร็ว: ช้า = เรียบ, เร็ว = alpha 1 (ไม่หน่วง)
-        float t = Math.max(0f, Math.min(1f, (mag / dt) / FILTER_FAST_SPEED));
+        float t = speedT;
         float minAlpha = 1f - 0.85f * Math.max(0f, Math.min(1f, filterSmooth));
         float alpha = minAlpha + (1f - minAlpha) * t;
         fPrevX += alpha * (dx - fPrevX);
         fPrevY += alpha * (dy - fPrevY);
         float ox = fPrevX, oy = fPrevY;
 
-        // 3) เดดโซนแบบสะสม
         float dz = filterDeadzonePx;
         if (dz > 0f) {
             fAccX += ox; fAccY += oy;
@@ -253,8 +139,6 @@ public class MouseController {
         resetMouseFilter();
     }
 
-    // ตัวคูณความเร็วตามระยะที่นิ้วเสมือนเลยขอบจอ แกน X (ลดต่อเนื่อง ไม่มีเพดาน)
-    // (v = พิกัดบนแกนนั้น, max = ขนาดจอแกนนั้น)
     private float offscreenFactor(float v, float max, float gainOut) {
         float d = v < 0f ? -v : (v > max ? v - max : 0f);
         if (d <= 0f) return 1f;
@@ -264,7 +148,6 @@ public class MouseController {
         return Math.max(OFFSCREEN_MIN_X, f);
     }
 
-    // ตัวคูณแกน Y: สูตรเดิม ลดถึง gainOut แล้วหยุด
     private float offscreenFactorY(float v, float max, float gainOut) {
         float d = v < 0f ? -v : (v > max ? v - max : 0f);
         if (d <= 0f) return 1f;
@@ -272,58 +155,36 @@ public class MouseController {
         return 1f - (1f - gainOut) * t;
     }
 
-    // ตัวคูณความเร็วแกน X ตามตำแหน่งนิ้วเสมือน เปลี่ยนค่อยๆ รอบเส้นแบ่ง ไม่กระโดด
-    // (ปัจจุบันระบบคงที่ไม่เรียกใช้ เก็บไว้เผื่อใช้ภายหลัง)
-    private float leftHalfFactor(float x) {
-        float band = Math.max(1f, LEFT_HALF_BAND * maxScreenWidth);
-        float t = (x - (LEFT_HALF_X * maxScreenWidth - band)) / (2f * band);
-        t = Math.max(0f, Math.min(1f, t));
-        return LEFT_HALF_GAIN + (1f - LEFT_HALF_GAIN) * t;
-    }
-
-    // ตัวลดความเร็วเพิ่มเติมฝั่งซ้าย (ปัจจุบันระบบคงที่ไม่เรียกใช้ เก็บไว้เผื่อใช้ภายหลัง)
-    private float leftExtraFactor(float x, float rawSpeedPxMs) {
-        float mid = LEFT_EXTRA_X * maxScreenWidth;
-        float band = Math.max(1f, LEFT_EXTRA_BAND * maxScreenWidth);
-        float t = (x - (mid - band)) / (2f * band);
-        t = Math.max(0f, Math.min(1f, t));
-        t = t * t * (3f - 2f * t);
-
-        float speedT = (rawSpeedPxMs - LEFT_FAST_SPEED_MIN)
-                / Math.max(0.001f, LEFT_FAST_SPEED_MAX - LEFT_FAST_SPEED_MIN);
-        speedT = Math.max(0f, Math.min(1f, speedT));
-        float gain = LEFT_EXTRA_GAIN - (LEFT_EXTRA_GAIN - LEFT_EXTRA_GAIN_FAST) * speedT;
-
-        return gain + (1f - gain) * t;
-    }
-
-    // ตัวคูณแกน X: ใช้เฉพาะตัวชดเชยตอนหลุดขอบจอ
-    // ถ้า OFFSCREEN_COMPENSATE = false จะคืน 1 เสมอ (ความเร็วเป็นเส้นตรงตามค่าความไว)
     private float factorX(float x) {
         if (!OFFSCREEN_COMPENSATE) return 1f;
         return offscreenFactor(x, maxScreenWidth, OFFSCREEN_GAIN_X);
     }
 
-    // [เพิ่ม] ตัวคูณซีกซ้าย (ระบบคงที่ แกน X): ซ้ายสุด = CONST_LEFT_HALF_GAIN, ขวา = 1.0
-    // เปลี่ยนนุ่มๆ รอบเส้นแบ่งด้วย smoothstep ไม่กระชาก
-    // นิ้วที่ลอยออกนอกจอซ้าย (x < 0) ถือเป็นซีกซ้ายเต็มที่ (ได้ CONST_LEFT_HALF_GAIN)
     private float constLeftHalfFactorX(float x) {
         float mid = CONST_LEFT_HALF_X * maxScreenWidth;
         float band = Math.max(1f, CONST_LEFT_HALF_BAND * maxScreenWidth);
         float t = (x - (mid - band)) / (2f * band);
         t = Math.max(0f, Math.min(1f, t));
-        t = t * t * (3f - 2f * t); // smoothstep
+        t = t * t * (3f - 2f * t);
         return CONST_LEFT_HALF_GAIN + (1f - CONST_LEFT_HALF_GAIN) * t;
     }
 
-    // [เพิ่ม] ตัวคูณตอนอยู่นอกจอ (ระบบคงที่): ในจอ = 1.0 เป๊ะ (ไม่กระทบความเร็วในจอ)
-    // ยิ่งลอยเลยขอบไกลยิ่งลดลงนุ่มๆ (smoothstep) จนถึงค่า gain ที่ระยะ CONST_OFFSCREEN_BAND
     private float constOffscreenFactor(float v, float max, float gain) {
         float d = v < 0f ? -v : (v > max ? v - max : 0f);
         if (d <= 0f || gain >= 1f) return 1f;
         float t = Math.min(1f, d / Math.max(1f, CONST_OFFSCREEN_BAND * max));
-        t = t * t * (3f - 2f * t); // smoothstep
+        t = t * t * (3f - 2f * t);
         return 1f - (1f - gain) * t;
+    }
+
+    private static final float CONST_X_DIST_SLOWDOWN_K = 1.2f;
+    private static final float CONST_X_DIST_MIN = 0.06f;
+
+    private float constOffscreenFactorX(float x, float max) {
+        float d = x < 0f ? -x : (x > max ? x - max : 0f);
+        if (d <= 0f) return 1f;
+        float f = 1f / (1f + CONST_X_DIST_SLOWDOWN_K * (d / Math.max(1f, max)));
+        return Math.max(CONST_X_DIST_MIN, f);
     }
 
     private final Context context;
@@ -333,7 +194,6 @@ public class MouseController {
     private WindowManager.LayoutParams mouseLockParams;
     private ImageView customCursorView;
 
-    // หน้าต่างแยกสำหรับเคอร์เซอร์ จะได้ยกขึ้นมาอยู่บนสุดได้ (ไม่ไปแอบหลังเมนู/หน้าตั้งค่า)
     private FrameLayout cursorLayer;
     private WindowManager.LayoutParams cursorLayerParams;
 
@@ -341,7 +201,6 @@ public class MouseController {
     private boolean isPaused = false;
     private boolean destroyed = false;
 
-    // โหมดพิมพ์: overlay ไม่รับโฟกัส/ไม่จับ pointer capture เพื่อให้เกมได้รับแป้นตรงๆ
     private boolean typingMode = false;
 
     private float cursorX = 0f;
@@ -349,43 +208,29 @@ public class MouseController {
     private float maxScreenWidth;
     private float maxScreenHeight;
 
-    // ความไวของ "โหมดเคอร์เซอร์" เท่านั้น ปรับได้จากสไลเดอร์ "ความเร็วเมาส์ (Sensitivity)" ในหน้าตั้งค่าระบบ
     private float mouseSensitivity;
-    // [เพิ่ม] ความไวของ "โหมดมุมมอง/เล็ง" แยกออกมาต่างหาก ล็อกค่าตอนสร้าง MouseController
-    // ไม่ถูกเปลี่ยนโดยสไลเดอร์ Sensitivity อีกต่อไป (กันสไลเดอร์เคอร์เซอร์ไปกระทบความเร็วเล็ง)
-    // ถ้าต้องการปรับความเร็วเล็ง ให้ใช้ setViewSensitivity() ผ่านเมนู "ความเร็วแกน X/Y" ของปุ่มมุมมองแทน
     private float viewGain;
     private int cursorSize;
 
     private long mouseMoveToken = 0;
+    private int viewPtr = PTR_A;
     private boolean pressing = false;
-    // คลิกขวากำลังถูกกดอยู่ (กัน onRightClick ถูกเรียกซ้ำจาก DOWN + BUTTON_PRESS ของการคลิกครั้งเดียว)
     private boolean rightDown = false;
-    // สถานะปุ่มขวาของ event ก่อนหน้า ใช้จับการ "กดขวา" จากการเปลี่ยนของ buttonState
     private boolean prevSecondary = false;
-    // สถานะปุ่มซ้ายของ event ก่อนหน้า (ไว้จับซ้ายที่กดตอนขวาค้างอยู่ กรณีระบบไม่ส่ง BUTTON_PRESS)
     private boolean prevPrimary = false;
 
-    // นับจำนวนครั้งติดกันที่ TouchSimulator.isPointerDown(2) รายงานว่า "ไม่ได้กดอยู่" ทั้งที่ token ยังไม่เป็น 0
-    // กันการ flicker 1 เฟรม ทำให้โดนยก-วางนิ้วใหม่ (รีเซ็ท/กระตุก) ทั้งที่จริงๆ นิ้วยังกดอยู่
     private int lostPointerStreak = 0;
 
-    // เก็บเป็น double กันค่าสะสมถูกปัดทิ้งเมื่อนิ้วเสมือนลอยไกลมาก
     private double viewX = 0.0;
     private double viewY = 0.0;
 
-    // มี inject ที่นัดส่งไว้ (trailing) รออยู่หรือไม่
     private boolean injectScheduled = false;
 
-    // ความถี่ส่งตำแหน่งนิ้วเสมือนของโหมดมุมมอง (Hz) ตั้งจากหน้าตั้งค่าปุ่มล็อกเมาส์
-    // 0 = ซิงค์กับเฟรมจอ (Choreographer)
-    // มากกว่า 0 = จำกัดความถี่ตามที่ตั้ง (ช่วง 30 - 1000) คำนวณเป็น nanosecond
     private int viewInjectHz = DEFAULT_VIEW_HZ;
     private long lastInjectNs = 0;
     private final android.os.Handler injectHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable injectRunnable = this::doViewInject;
 
-    // ส่งต่อเฟรมจอ (ใช้เมื่อ viewInjectHz = 0)
     private boolean frameQueued = false;
     private final Choreographer.FrameCallback frameCb = new Choreographer.FrameCallback() {
         @Override
@@ -395,7 +240,20 @@ public class MouseController {
         }
     };
 
-    // ยกเลิกงานส่งตำแหน่งที่นัดไว้ทั้งหมด (ทั้งแบบ Hz และแบบซิงค์เฟรม)
+    // [แก้ไข] callback ยิง ถูกโพสต์ออกจาก hot path ของ event เมาส์
+    // ใช้ handler เดียวกันทั้ง Down/Up เพื่อให้ลำดับถูกต้องเสมอ
+    private void fireLeftDown() {
+        injectHandler.post(() -> {
+            if (eventListener != null) eventListener.onMouseLockedLeftDown();
+        });
+    }
+
+    private void fireLeftUp() {
+        injectHandler.post(() -> {
+            if (eventListener != null) eventListener.onMouseLockedLeftUp();
+        });
+    }
+
     private void cancelViewInject() {
         injectHandler.removeCallbacks(injectRunnable);
         injectScheduled = false;
@@ -407,127 +265,50 @@ public class MouseController {
         }
     }
 
-    // ยก-วางนิ้วเสมือนใหม่ที่พิกัด (nx, ny) UP ที่ตำแหน่งเดิม (บีบให้อยู่ในจอ) แล้ว DOWN ที่ตำแหน่งใหม่
-    private void recenterTo(float nx, float ny) {
-        recenterTo(nx, ny, false);
-    }
+    private void recenterIfOutside() {
+        if (mouseMoveToken == 0) return;
 
-    // rawUp = true: UP ที่พิกัดจริงของนิ้ว (ไม่บีบเข้าจอ) ใช้กับระบบคงที่ตอนแกน Y ลอยนอกจอ
-    private void recenterTo(float nx, float ny, boolean rawUp) {
-        if (mouseMoveToken != 0) {
-            float ux, uy;
-            if (rawUp) {
-                ux = (float) viewX;
-                uy = (float) viewY;
-            } else {
-                ux = (float) Math.max(0.0, Math.min(maxScreenWidth - 1, viewX));
-                uy = (float) Math.max(0.0, Math.min(maxScreenHeight - 1, viewY));
-            }
-            TouchSimulator.simulateUp(mouseMoveToken, 2, Math.round(ux), Math.round(uy));
+        final float mx = maxScreenWidth * VIEW_EDGE_MARGIN_X;
+        final float my = maxScreenHeight * VIEW_EDGE_MARGIN_Y;
+        final boolean outX = viewX < -mx || viewX > maxScreenWidth + mx;
+        final boolean outY = viewY < -my || viewY > maxScreenHeight + my;
+        if (!outX && !outY) return;
+
+        float nx = (float) Math.max(0.0, Math.min(maxScreenWidth - 1, viewX));
+        float ny = (float) Math.max(0.0, Math.min(maxScreenHeight - 1, viewY));
+        if (outX) {
+            nx = maxScreenWidth * (viewX > maxScreenWidth ? DOWN_SAFE_X_MIN : DOWN_SAFE_X_MAX);
         }
-        final float safeTop = maxScreenHeight * DOWN_SAFE_Y_MIN;
-        final float safeBottom = maxScreenHeight * DOWN_SAFE_Y_MAX;
-        ny = Math.max(safeTop, Math.min(safeBottom, ny));
+        if (outY) {
+            ny = maxScreenHeight * (viewY > maxScreenHeight ? DOWN_SAFE_Y_MIN : DOWN_SAFE_Y_MAX);
+        }
+
+        final int oldPtr = viewPtr;
+        final long oldTok = mouseMoveToken;
+        final int oldX = Math.round((float) viewX);
+        final int oldY = Math.round((float) viewY);
+        final int newPtr = (oldPtr == PTR_A) ? PTR_B : PTR_A;
+
+        if (OVERLAP_RECENTER) {
+            long newTok = TouchSimulator.simulateDown(newPtr, Math.round(nx), Math.round(ny));
+            if (newTok == 0) return;
+            TouchSimulator.simulateUp(oldTok, oldPtr, oldX, oldY);
+            mouseMoveToken = newTok;
+        } else {
+            TouchSimulator.simulateUp(oldTok, oldPtr, oldX, oldY);
+            mouseMoveToken = TouchSimulator.simulateDown(newPtr, Math.round(nx), Math.round(ny));
+            if (mouseMoveToken == 0) {
+                viewPtr = newPtr;
+                viewX = nx;
+                viewY = ny;
+                return;
+            }
+        }
+        viewPtr = newPtr;
         viewX = nx;
         viewY = ny;
-        mouseMoveToken = TouchSimulator.simulateDown(2, Math.round((float) viewX), Math.round((float) viewY));
     }
 
-    // ส่งตำแหน่งสุดท้ายของนิ้วเสมือน (บีบให้อยู่ในจอ) ก่อนยกนิ้ว กันระยะช่วงท้ายหาย
-    private void sendViewMoveClamped() {
-        if (mouseMoveToken != 0) {
-            TouchSimulator.simulateMoveF(mouseMoveToken, 2,
-                    (float) Math.max(0.0, Math.min(maxScreenWidth - 1, viewX)),
-                    (float) Math.max(0.0, Math.min(maxScreenHeight - 1, viewY)));
-        }
-    }
-
-    // เหมือนข้างบน แต่ไม่บีบแกน Y (ปล่อย Y ตามจริง รวมตอนอยู่นอกจอ)
-    private void sendViewMoveRawY() {
-        if (mouseMoveToken != 0) {
-            TouchSimulator.simulateMoveF(mouseMoveToken, 2,
-                    (float) Math.max(0.0, Math.min(maxScreenWidth - 1, viewX)),
-                    (float) viewY);
-        }
-    }
-
-    // เวลา MOVE ล่าสุดของโหมดมุมมอง + ธงว่ามี idle timer นัดไว้แล้วหรือยัง
-    private long lastViewMoveUptime = 0;
-    private boolean idlePending = false;
-
-    // [แก้ไข] ปิดระบบ "รีเซ็ทตอนเมาส์หยุด" ทั้งหมด (ทั้งระบบบิตและระบบคงที่)
-    // นิ้วเสมือนจะค้างอยู่ตำแหน่งสุดท้ายตลอดไป จนกว่าจะมี MOVE ใหม่เข้ามาจริงๆ เท่านั้น
-    private void armIdleRecenter() {
-        // ตั้งใจเว้นว่างไว้ - ไม่ตั้งตัวจับเวลาใดๆ อีกต่อไป
-    }
-
-    // เมาส์หยุดขยับ -> พานิ้วเสมือนกลับจุดเริ่ม (ปัจจุบันไม่ถูกเรียกแล้ว เก็บไว้เฉยๆ)
-    private final Runnable idleRecenterRunnable = new Runnable() {
-        @Override
-        public void run() {
-            idlePending = false;
-            if (destroyed || isPaused || !isMouseMode || mouseMoveToken == 0) return;
-            long since = android.os.SystemClock.uptimeMillis() - lastViewMoveUptime;
-            if (since < VIEW_IDLE_RECENTER_MS) {
-                idlePending = true;
-                injectHandler.postDelayed(this, VIEW_IDLE_RECENTER_MS - since);
-                return;
-            }
-
-            // ระบบคงที่ + ลากทะลุจอทั้งสองแกน: ส่ง keep-alive (MOVE ตำแหน่งเดิมเป๊ะ) เป็นระยะ
-            if (!viewFlickAccel && VIEW_X_FREE_IN_ZONE && VIEW_Y_FREE_IN_ZONE) {
-                TouchSimulator.simulateMoveF(mouseMoveToken, 2, (float) viewX, (float) viewY);
-                idlePending = true;
-                injectHandler.postDelayed(this, VIEW_IDLE_RECENTER_MS);
-                return;
-            }
-
-            // ห้ามรีเซ็ตตอนกดยิง/กดคลิกค้างอยู่
-            if (pressing) return;
-            float sx = hasCustomTarget ? targetBtnX : maxScreenWidth * 0.75f;
-
-            // ระบบคงที่
-            if (!viewFlickAccel) {
-                final boolean idleRecenterX = IDLE_RECENTER_CONSTANT_X && !VIEW_X_FREE_IN_ZONE;
-
-                float zsx = Math.max(maxScreenWidth * ZONE_X_MIN,
-                        Math.min(maxScreenWidth * ZONE_X_MAX, sx));
-
-                if (VIEW_Y_FREE_IN_ZONE) {
-                    if (idleRecenterX
-                            && Math.abs(viewX - zsx) > maxScreenWidth * 0.02f) {
-                        recenterTo(zsx, (float) viewY, true);
-                    }
-                    return;
-                }
-
-                // ===== พฤติกรรมเดิม (VIEW_Y_FREE_IN_ZONE = false) =====
-                float zsy = hasCustomTarget ? targetBtnY : maxScreenHeight * 0.5f;
-                zsy = Math.max(maxScreenHeight * ZONE_Y_MIN,
-                        Math.min(maxScreenHeight * ZONE_Y_MAX, zsy));
-                if (idleRecenterX) {
-                    if (Math.abs(viewX - zsx) > maxScreenWidth * 0.02f
-                            || Math.abs(viewY - zsy) > maxScreenHeight * 0.02f) {
-                        recenterTo(zsx, zsy);
-                    }
-                } else {
-                    if (Math.abs(viewY - zsy) > maxScreenHeight * 0.02f) {
-                        final float dx0 = VIEW_X_FREE_IN_ZONE
-                                ? (float) Math.max(0.0, Math.min(maxScreenWidth - 1, viewX))
-                                : (float) viewX;
-                        recenterTo(dx0, zsy);
-                    }
-                }
-                return;
-            }
-
-            if (Math.abs(viewX - sx) > maxScreenWidth * 0.02f) {
-                recenterTo(sx, (float) viewY);
-            }
-        }
-    };
-
-    // ขอ pointer capture ให้ติดเร็วตอนสลับโหมด: ขอทันที ถ้ายังไม่ติดลองซ้ำทุก 16ms (สูงสุด 20 ครั้ง)
     private int captureTries = 0;
     private final Runnable captureRunnable = new Runnable() {
         @Override
@@ -555,7 +336,6 @@ public class MouseController {
         captureRunnable.run();
     }
 
-    // นับจำนวนรอบที่โฟกัสหลุด ถ้าหลุดต่อเนื่องจะบังคับให้ window ขอโฟกัสใหม่
     private int focusMissCount = 0;
     private int forceAttempts = 0;
     private long lastForceTime = 0;
@@ -564,30 +344,18 @@ public class MouseController {
     private float targetBtnY = 0f;
     private boolean hasCustomTarget = false;
 
-    // ความเร็วแยกแกนของโหมดมุมมอง (ตั้งจากหน้าตั้งค่าปุ่มล็อกเมาส์)
     private float viewSensX = 1f;
     private float viewSensY = 1f;
 
-    // ===== ระบบสบัดเมาส์: คงที่ / บิต =====
-    // true = ระบบบิต (สบัดแรง = เร็วขึ้น เฉพาะแกน X) / false = ระบบคงที่ (เมาส์เชิงเส้นปกติ + โซนความเร็วคงที่ ทั้ง X และ Y)
     private volatile boolean viewFlickAccel = true;
 
-    // [เลิกใช้] ระบบคงที่ไม่มีเพดานล็อคแล้ว เก็บ setter ไว้กันพรีเซ็ตเก่าพัง
     private volatile float lockMaxV = 0.8f;
 
-    // ระบบบิต: เริ่มเร่งเมื่อเร็วเกินค่านี้ (px/ms)
     private volatile float bitRef = 0.8f;
-    // ระบบบิต: แรงเร่ง 0 = ไม่เร่งเพิ่ม, 1 = เร่งตามแรงสบัด, 3 = เร่งแรงมาก
     private volatile float bitGain = 0f;
-    // ระบบบิต: ตัวคูณสูงสุด (กันพุ่งไม่จำกัด)
     private volatile float bitMax = 4.0f;
 
     private long lastMoveNs = 0;
-
-    // ปรับความเร็วสะบัดดิบให้เรียบด้วย EMA (ปัจจุบันระบบคงที่ไม่ใช้แล้ว)
-    private float smoothedLeftSpeedPxMs = 0f;
-    // น้ำหนักของค่าใหม่ในแต่ละเฟรม (0-1): ยิ่งน้อยยิ่งเรียบ/ตอบสนองช้าลง
-    private static final float LEFT_SPEED_SMOOTHING_ALPHA = 0.25f;
 
     public void setViewFlickAccel(boolean on) { viewFlickAccel = on; }
     public void toggleViewFlickAccel() { viewFlickAccel = !viewFlickAccel; }
@@ -605,11 +373,8 @@ public class MouseController {
         boolean onMouseClickUI(float x, float y, int action);
         void onRightClick();
         boolean onKeyEvent(KeyEvent event);
-        // แจ้งเมื่อ window เสียโฟกัส เพื่อปล่อย D-Pad ไม่ให้ค้าง (KEY_UP จะไม่มาถึงอีก)
         void onWindowFocusLost();
-        // กดคลิกซ้ายลง ตอนล็อคเมาส์ (โหมดมุมมอง) -> ค้างนิ้วไว้จนกว่าจะปล่อย
         void onMouseLockedLeftDown();
-        // ปล่อยคลิกซ้าย ตอนล็อคเมาส์
         void onMouseLockedLeftUp();
     }
 
@@ -620,7 +385,6 @@ public class MouseController {
         this.maxScreenHeight = maxHeight;
         this.cursorSize = cursorSize;
         this.mouseSensitivity = sensitivity;
-        // [เพิ่ม] เก็บค่าความไวตั้งต้นแยกไว้ให้ "โหมดมุมมอง" ใช้เอง ไม่ยุ่งกับสไลเดอร์ Sensitivity อีกต่อไป
         this.viewGain = sensitivity;
         this.eventListener = listener;
 
@@ -637,16 +401,11 @@ public class MouseController {
         this.hasCustomTarget = true;
     }
 
-    // ความชันของค่าความไว (ตั้งจากหน้าตั้งค่า): 1.0 = เส้นตรง
     private static final float VIEW_SENS_CURVE = 1.0f;
-    // ค่าความไวที่ตอนนี้รู้สึกพอดี แยกแกน (ตรงค่านี้ความเร็วเท่าเดิมเป๊ะ)
     private static final float VIEW_SENS_PIVOT_X = 0.02f;
     private static final float VIEW_SENS_PIVOT_Y = 0.04f;
 
-    // ตัวคูณความเร็วโหมดมุมมอง แยกแกน X / Y
-    // [แก้ไข] X ลดจาก 0.45 เป็น 0.40 (ช้าลง ~11%)
-    // ถ้ายังเร็วไปให้ลด X ทีละ 0.03-0.05 (เช่น 0.36) / ถ้าช้าไปให้เพิ่ม (เช่น 0.42)
-    private static final float VIEW_SPEED_SCALE_X = 0.35f;
+    private static final float VIEW_SPEED_SCALE_X = 0.30f;
     private static final float VIEW_SPEED_SCALE_Y = 0.30f;
 
     private float softenViewSens(float s, float pivot, float scale) {
@@ -654,12 +413,30 @@ public class MouseController {
         return (float) (pivot * Math.pow(s / pivot, VIEW_SENS_CURVE)) * scale;
     }
 
-    public void setViewSensitivity(float sx, float sy) {
-        this.viewSensX = softenViewSens(sx, VIEW_SENS_PIVOT_X, VIEW_SPEED_SCALE_X);
-        this.viewSensY = softenViewSens(sy, VIEW_SENS_PIVOT_Y, VIEW_SPEED_SCALE_Y);
+    private volatile float viewTweak = 1f;
+    private float rawSensX = 1f;
+    private float rawSensY = 1f;
+    private boolean sensInitialized = false;
+
+    private void applyViewSens() {
+        this.viewSensX = softenViewSens(rawSensX, VIEW_SENS_PIVOT_X, VIEW_SPEED_SCALE_X) * viewTweak;
+        this.viewSensY = softenViewSens(rawSensY, VIEW_SENS_PIVOT_Y, VIEW_SPEED_SCALE_Y) * viewTweak;
     }
 
-    // ตั้งความถี่ส่งตำแหน่งของโหมดมุมมอง (Hz) 0 = ซิงค์กับเฟรมจอ
+    public void setViewSensitivity(float sx, float sy) {
+        rawSensX = sx;
+        rawSensY = sy;
+        sensInitialized = true;
+        applyViewSens();
+    }
+
+    public void setViewTweak(float t) {
+        viewTweak = Math.max(0.1f, Math.min(3f, t));
+        if (sensInitialized) applyViewSens();
+    }
+
+    public float getViewTweak() { return viewTweak; }
+
     public void setViewHz(int hz) {
         if (hz <= 0) {
             this.viewInjectHz = 0;
@@ -678,7 +455,6 @@ public class MouseController {
                 return super.dispatchKeyEvent(event);
             }
 
-            // ทวงคืน focus + pointer capture ทันทีที่ window ได้โฟกัสกลับมา
             @Override
             public void onWindowFocusChanged(boolean hasWindowFocus) {
                 super.onWindowFocusChanged(hasWindowFocus);
@@ -716,7 +492,6 @@ public class MouseController {
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE |
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN |
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS |
-                // ไม่ให้ IME (แป้นพิมพ์ภาษาอื่น) มาดัก/แปลงคีย์ก่อนถึง dispatchKeyEvent
                 WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM,
                 PixelFormat.TRANSLUCENT
         );
@@ -724,7 +499,6 @@ public class MouseController {
         mouseLockParams.x = 0;
         mouseLockParams.y = 0;
         applyNoInsets(mouseLockParams);
-        // Android 12+ (API 31) บล็อกทัชที่ทะลุ overlay เมื่อ "ความทึบรวมกัน" เกิน 0.8
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             mouseLockParams.alpha = MOUSE_LOCK_ALPHA;
         }
@@ -735,7 +509,6 @@ public class MouseController {
         windowManager.addView(mouseLockView, mouseLockParams);
 
         cursorLayer = new FrameLayout(context);
-        // ขนาดหน้าต่างเคอร์เซอร์ = ขนาดจอจริงเป๊ะๆ (ไม่ใช้ MATCH_PARENT)
         cursorLayerParams = new WindowManager.LayoutParams(
                 Math.round(maxScreenWidth), Math.round(maxScreenHeight),
                 getOverlayType(),
@@ -767,7 +540,6 @@ public class MouseController {
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY : WindowManager.LayoutParams.TYPE_PHONE;
     }
 
-    // ไม่ให้ระบบหักพื้นที่แถบสถานะ/แถบปุ่มโฮม-ย้อนกลับออกจากหน้าต่าง (Android 11+)
     private void applyNoInsets(WindowManager.LayoutParams p) {
         if (Build.VERSION.SDK_INT >= 30) {
             try {
@@ -777,7 +549,6 @@ public class MouseController {
         }
     }
 
-    // ปรับขนาดหน้าต่างเคอร์เซอร์ให้ตรงกับจอจริงทุกครั้งที่ขนาดจอเปลี่ยน (หมุนจอ/ย้ายจอ DeX)
     private void updateOverlaySizes() {
         try {
             if (windowManager == null) return;
@@ -789,7 +560,6 @@ public class MouseController {
         } catch (Exception ignored) {}
     }
 
-    // ขนาดจอจริงเปลี่ยนได้ (หมุนจอ / เกมเป็นแนวนอนแต่ service ถูกสร้างตอนแอปอยู่แนวตั้ง)
     @SuppressWarnings("deprecation")
     public void refreshScreenSize() {
         try {
@@ -800,7 +570,6 @@ public class MouseController {
             float h = dm.heightPixels;
             if (w <= 0 || h <= 0) return;
 
-            // ยอมรับความต่างเล็กน้อย (<2px ต่อแกน) ว่าเป็น noise ไม่ใช่การเปลี่ยนขนาดจอจริง
             if (Math.abs(w - maxScreenWidth) < 2f && Math.abs(h - maxScreenHeight) < 2f) return;
 
             float sx = (maxScreenWidth > 0) ? w / maxScreenWidth : 1f;
@@ -812,13 +581,13 @@ public class MouseController {
             targetBtnX *= sx; targetBtnY *= sy;
             cursorX = Math.max(0f, Math.min(w - 1, cursorX * sx));
             cursorY = Math.max(0f, Math.min(h - 1, cursorY * sy));
-            viewX *= sx; viewY *= sy;
 
-            // ปล่อยนิ้วเมาส์ที่ค้างอยู่ตำแหน่งเก่า ครั้งหน้าที่เมาส์ขยับจะ DOWN ใหม่ในพิกัดที่ถูกต้อง
             if (mouseMoveToken != 0) {
-                TouchSimulator.simulateUp(mouseMoveToken, 2, Math.round((float) (viewX / sx)), Math.round((float) (viewY / sy)));
+                TouchSimulator.simulateUp(mouseMoveToken, viewPtr, Math.round((float) viewX), Math.round((float) viewY));
                 mouseMoveToken = 0;
+                viewPtr = PTR_A;
             }
+            viewX *= sx; viewY *= sy;
         } catch (Exception ignored) {}
     }
 
@@ -826,8 +595,6 @@ public class MouseController {
         if (isPaused) return;
         isPaused = true;
         cancelViewInject();
-        injectHandler.removeCallbacks(idleRecenterRunnable);
-        idlePending = false;
         injectHandler.removeCallbacks(captureRunnable);
         releaseMouseState();
         if (mouseLockView != null) {
@@ -883,7 +650,6 @@ public class MouseController {
             return;
         }
 
-        // window ได้โฟกัสอยู่แล้วแต่ capture ยังไม่ติด: ขอ capture เฉยๆ ไม่แตะ flag
         if (mouseLockView.hasWindowFocus()) {
             focusMissCount = 0;
             mouseLockView.post(() -> {
@@ -899,7 +665,6 @@ public class MouseController {
 
         focusMissCount++;
         long nowMs = android.os.SystemClock.uptimeMillis();
-        // บังคับโฟกัสใหม่: ต้องหลุดต่อเนื่อง 2 รอบ ห่างกันอย่างน้อย 5 วิ และไม่เกิน 3 ครั้งจนกว่าจะได้โฟกัสจริง
         if (focusMissCount >= 2 && forceAttempts < 3 && nowMs - lastForceTime > 5000) {
             focusMissCount = 0;
             forceAttempts++;
@@ -937,9 +702,9 @@ public class MouseController {
         } catch (Exception ignored) {}
     }
 
-    // ส่งตำแหน่งนิ้วเสมือนของโหมดมุมมอง
-    // Hz = 0: ส่ง 1 ครั้งต่อเฟรมจอ (Choreographer)
-    // Hz > 0: ส่งทันทีถ้าพ้น interval แล้ว (leading) ถ้ายังไม่พ้นให้นัดส่งตำแหน่งล่าสุดตอนครบ interval (trailing)
+    // [แก้ไข] ลบทางลัด "pressing || !viewFlickAccel" ที่ inject ทุก MotionEvent ทันที
+    // ตอนกดยิง (นิ้วที่ 2) การ inject ทุก event ทำให้ main thread ถูกถ่วงและดีเลย์
+    // ตอนนี้ทุกโหมดไปผ่านการรวม event (vsync หรือ viewInjectHz) เหลือตำแหน่งล่าสุดต่อรอบ
     private void scheduleViewInject() {
         if (viewInjectHz <= 0) {
             if (!frameQueued) {
@@ -947,7 +712,6 @@ public class MouseController {
                     frameQueued = true;
                     Choreographer.getInstance().postFrameCallback(frameCb);
                 } catch (Exception e) {
-                    // ไม่มี Looper/Choreographer ให้ใช้ -> ส่งทันที
                     frameQueued = false;
                     doViewInject();
                 }
@@ -959,15 +723,12 @@ public class MouseController {
         long waitNs = lastInjectNs + intervalNs - System.nanoTime();
 
         if (waitNs <= 0) {
-            // พ้นช่วงแล้ว ส่งเลย (leading edge)
             if (injectScheduled) {
                 injectHandler.removeCallbacks(injectRunnable);
                 injectScheduled = false;
             }
             doViewInject();
         } else if (!injectScheduled) {
-            // ยังไม่ถึงเวลา นัดส่งตำแหน่งล่าสุดตอนครบ interval (trailing)
-            // [แก้ไขให้สมูท] ปัดเวลารอ "ขึ้น" เป็น ms แทนปัดทิ้ง กันจังหวะส่งเหวี่ยงและคลาดสะสม
             injectScheduled = true;
             injectHandler.postDelayed(injectRunnable, Math.max(1L, (waitNs + 999_999L) / 1_000_000L));
         }
@@ -976,21 +737,16 @@ public class MouseController {
     private void doViewInject() {
         injectScheduled = false;
         if (destroyed || isPaused || !isMouseMode || mouseMoveToken == 0) return;
-
-        // [แก้ไขให้สมูท] เดินตามตารางเวลาคงที่ (lastInjectNs + interval) ไม่ใช้เวลาจริงทุกครั้ง
-        // กันจังหวะคลาดสะสม ถ้าช้าเกิน 2 interval ค่อยซิงค์เวลาใหม่
         long now = System.nanoTime();
         long intervalNs = viewInjectHz > 0 ? 1_000_000_000L / viewInjectHz : 0L;
         lastInjectNs = (intervalNs == 0L || now - lastInjectNs > intervalNs * 2)
                 ? now
                 : lastInjectNs + intervalNs;
 
-        // ส่งพิกัดทศนิยม ไม่ปัดเป็นพิกเซลเต็ม ความเร็วจะไม่เป็นขั้นบันได
-        TouchSimulator.simulateMoveF(mouseMoveToken, 2, (float) viewX, (float) viewY);
+        TouchSimulator.simulateMoveF(mouseMoveToken, viewPtr, (float) viewX, (float) viewY);
     }
 
     private void handlePointerEvent(MotionEvent e) {
-        // ตรวจปุ่มขวาจากการเปลี่ยนของ buttonState ในทุก event
         boolean secNow = (e.getButtonState() & MotionEvent.BUTTON_SECONDARY) != 0;
         if (secNow && !prevSecondary && !rightDown) {
             rightDown = true;
@@ -999,22 +755,20 @@ public class MouseController {
         if (!secNow) rightDown = false;
         prevSecondary = secNow;
 
-        // จับปุ่มซ้ายจากการเปลี่ยนของ buttonState (กดซ้ายตอนขวายังค้างอยู่)
         boolean priNow = (e.getButtonState() & MotionEvent.BUTTON_PRIMARY) != 0;
         int act0 = e.getActionMasked();
         if (isMouseMode && act0 != MotionEvent.ACTION_DOWN && act0 != MotionEvent.ACTION_BUTTON_PRESS
                 && act0 != MotionEvent.ACTION_UP && act0 != MotionEvent.ACTION_BUTTON_RELEASE) {
             if (priNow && !prevPrimary && !pressing) {
                 pressing = true;
-                eventListener.onMouseLockedLeftDown();
+                fireLeftDown();
             } else if (!priNow && prevPrimary && pressing) {
                 pressing = false;
-                eventListener.onMouseLockedLeftUp();
+                fireLeftUp();
             }
         }
         prevPrimary = priNow;
 
-        // ปล่อยสถานะคลิกขวาเมื่อปุ่มขวาไม่ได้ถูกกดแล้ว
         int act = e.getActionMasked();
         if (rightDown && act != MotionEvent.ACTION_DOWN && act != MotionEvent.ACTION_BUTTON_PRESS
                 && (e.getButtonState() & MotionEvent.BUTTON_SECONDARY) == 0) {
@@ -1023,6 +777,11 @@ public class MouseController {
 
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_MOVE:
+                // [แก้ไข] ขอ event แบบไม่ถูก batch ตั้งแต่ต้น
+                try {
+                    mouseLockView.requestUnbufferedDispatch(e);
+                } catch (Exception ignored) {}
+
                 float sumDx = e.getX();
                 float sumDy = e.getY();
                 for (int h = 0; h < e.getHistorySize(); h++) {
@@ -1031,23 +790,16 @@ public class MouseController {
                 }
 
                 float speed = (float) Math.hypot(sumDx, sumDy);
-                // [แก้ไข] โหมดมุมมอง (ล็อคเมาส์): ใช้ viewGain ที่ล็อกค่าไว้ตอนเริ่มแอป
-                // ไม่ขึ้นกับสไลเดอร์ "ความเร็วเมาส์ (Sensitivity)" ในหน้าตั้งค่าอีกต่อไป
-                // โหมดเคอร์เซอร์ปกติ: ยังใช้ mouseSensitivity ที่ปรับได้จากสไลเดอร์ตามเดิม พร้อมความเร่ง
                 float gain = isMouseMode
                         ? viewGain
-                        : mouseSensitivity * (0.5f + Math.min(speed, 1f) * 0.0625f);
+                        : mouseSensitivity * (MOUSE_ACCEL
+                                ? (0.5f + Math.min(speed, 1f) * 0.0625f)
+                                : 0.5625f);
 
                 if (isMouseMode) {
-                    // ถ้านิ้วเมาส์ (ID 2) ถูกล้างไปแล้ว ให้ DOWN ใหม่อัตโนมัติ (debounce 2 ครั้งกัน flicker)
                     boolean tokenGone = mouseMoveToken == 0;
-                    // [แก้ไข] ระบบคงที่ + X ลอยนอกจอได้: ข้ามการเช็ค isPointerDown ทั้งหมด
-                    // (นิ้วนอกจอมักถูกรายงานว่า "ไม่ได้กด" ทำให้โดนวางนิ้วใหม่ที่ขอบจอ = กล้องกระโดด)
-                    // จึง DOWN เฉพาะตอนเริ่มโหมดเท่านั้น (tokenGone)
-                    boolean freeX = !viewFlickAccel && VIEW_X_FREE_IN_ZONE;
-                    // [แก้ไขอาการเป้าสั่นตอนยิง] ตอนกดยิง/คลิกค้างอยู่ (pressing) ข้ามการเช็ค isPointerDown
-                    // เพราะระบบอาจรายงานนิ้ว ID 2 หลุดชั่วคราวทั้งที่ยังกดอยู่ -> โดนยก-วางใหม่ = กล้องสะดุด/สั่น
-                    boolean reportedUp = !tokenGone && !freeX && !pressing && !TouchSimulator.isPointerDown(2);
+                    boolean freeX = !viewFlickAccel;
+                    boolean reportedUp = !tokenGone && !freeX && !pressing && !TouchSimulator.isPointerDown(viewPtr);
                     if (reportedUp) {
                         lostPointerStreak++;
                     } else {
@@ -1055,31 +807,24 @@ public class MouseController {
                     }
                     if (tokenGone || lostPointerStreak >= 2) {
                         lostPointerStreak = 0;
-                        if (!viewFlickAccel && VIEW_X_FREE_IN_ZONE) {
-                            // ระบบคงที่: วางนิ้วกลับที่ตำแหน่ง X ปัจจุบัน (บีบเข้าจอเฉพาะตอน DOWN)
+                        if (!viewFlickAccel) {
                             viewX = Math.max(0.0, Math.min(maxScreenWidth - 1, viewX));
-                            viewY = VIEW_Y_FREE_IN_ZONE
-                                    ? Math.max(0.0, Math.min(maxScreenHeight - 1, viewY))
-                                    : (hasCustomTarget ? targetBtnY : maxScreenHeight * 0.5f);
+                            viewY = Math.max(0.0, Math.min(maxScreenHeight - 1, viewY));
                         } else {
                             viewX = hasCustomTarget ? targetBtnX : maxScreenWidth * 0.75f;
                             viewY = hasCustomTarget ? targetBtnY : maxScreenHeight * 0.5f;
                         }
-                        mouseMoveToken = TouchSimulator.simulateDown(2, Math.round((float) viewX), Math.round((float) viewY));
+                        mouseMoveToken = TouchSimulator.simulateDown(viewPtr, Math.round((float) viewX), Math.round((float) viewY));
                     }
 
-                    // คำนวณ dt เสมอ เพื่อใช้ตรวจจับ "ช่วงเงียบ" (มือยกเมาส์ขึ้น) ของระบบคงที่ด้วย
                     long nowNs = System.nanoTime();
                     float rawDt = lastMoveNs == 0 ? 8f : (nowNs - lastMoveNs) / 1_000_000f;
                     lastMoveNs = nowNs;
                     float dtMsFull = Math.max(1f, Math.min(1000f, rawDt));
 
-                    // กันเหวี่ยงแรงเกินจนพิกัดกระโดดไกลในเฟรมเดียว
-                    // ระบบคงที่: แกน X ไม่ตัดระยะเลย / แกน Y และระบบบิตใช้ 1500
                     final float MAX_FRAME_DELTA = 1500f;
                     final float MAX_FRAME_DELTA_X = viewFlickAccel ? MAX_FRAME_DELTA : 1_000_000f;
 
-                    // [เพิ่ม] ตัวกรองสัญญาณเมาส์ (กรองก่อนเข้าสูตรความเร็วเดิม)
                     float inDx = sumDx, inDy = sumDy;
                     if (filterEnabled) {
                         applyMouseFilter(sumDx, sumDy, dtMsFull);
@@ -1089,16 +834,12 @@ public class MouseController {
                     float dx = Math.max(-MAX_FRAME_DELTA_X, Math.min(MAX_FRAME_DELTA_X, inDx));
                     float dy = Math.max(-MAX_FRAME_DELTA, Math.min(MAX_FRAME_DELTA, inDy));
 
-                    // ระบบคงที่เท่านั้น: event แรกหลัง "ช่วงเงียบ" (ยกเมาส์แล้ววางใหม่)
-                    // [แก้ไข] ถ้าก้อนใหญ่เกินเพดาน ให้ "บีบ" ให้เท่าเพดาน (ไม่ทิ้งทั้งก้อนเหมือนเดิม)
-                    // ความเร็วหลังวางเมาส์ใหม่จึงใกล้เคียงตอนขยับปกติ ไม่พุ่ง
                     if (!viewFlickAccel && dtMsFull > POST_GAP_MS) {
                         float capPx = POST_GAP_MAX_V * Math.min(dtMsFull, POST_GAP_CAP_DT_MS);
                         dx = Math.max(-capPx, Math.min(capPx, dx));
                         dy = Math.max(-capPx, Math.min(capPx, dy));
                     }
 
-                    // ระบบคงที่เท่านั้น: เพดานความเร็วดิบ (ตอนนี้ปิดอยู่ทั้ง X และ Y = 0)
                     if (!viewFlickAccel) {
                         final float capDt = Math.max(CONST_CAP_DT_MIN_MS, Math.min(dtMsFull, CONST_CAP_DT_MAX_MS));
                         if (CONST_MAX_RAW_SPEED_X > 0f) {
@@ -1111,133 +852,51 @@ public class MouseController {
                         }
                     }
 
-                    // ระบบสบัดเมาส์: เฉพาะ "ระบบบิต" เท่านั้น
                     if (viewFlickAccel) {
                         float dtMs = Math.max(1f, Math.min(32f, dtMsFull));
 
-                        // ความเร็วนิ้วเสมือนแกน X (px/ms) หลังคูณความไวแล้ว
                         float fvx = Math.abs(dx * gain * viewSensX) / dtMs;
                         if (fvx > bitRef && bitGain > 0f) {
-                            // ระบบบิต: สบัดแรงเร่งเพิ่มเฉพาะแกน X (ไม่เกิน bitMax)
                             float k = Math.min(bitMax, 1f + bitGain * (fvx / bitRef - 1f));
                             dx *= k;
                         }
                     }
 
-                    // ระบบคงที่ใช้โซนความเร็วคงที่เสมอ
-                    // ระบบบิตใช้โซนก็ต่อเมื่อเปิด VIEW_CONSTANT_ZONE (ปกติปิด = พฤติกรรมเดิม)
-                    final boolean useZone = VIEW_CONSTANT_ZONE || !viewFlickAccel;
+                    final boolean useConst = VIEW_CONSTANT_ZONE || !viewFlickAccel;
 
-                    // ขอให้ระบบส่ง event เมาส์มาทันที ไม่รอรวมตามเฟรม
-                    try {
-                        mouseLockView.requestUnbufferedDispatch(e);
-                    } catch (Exception ignored) {}
-
-                    if (useZone) {
-                        // ===== โซนความเร็วคงที่: หมุนต่อเนื่อง ไม่ทิ้งระยะ ไม่ทัชผิดที่ =====
-                        // [แก้ไข] คูณ CONST_X_SPEED_SCALE ลดความเร็วแกน X ทั้งหมด (ในจอ + นอกจอ) แกน Y ไม่เกี่ยว
+                    if (useConst) {
                         final float mvX = dx * gain * viewSensX * CONST_X_SPEED_SCALE;
+                        final float mvY = dy * gain * viewSensY;
 
-                        // แกน Y
-                        // [แก้ไข] ชะลอเฉพาะตอนนิ้วเสมือนอยู่นอกจอ (ในจอ factor = 1.0 ความเร็วเท่าเดิม)
-                        viewY += dy * gain * viewSensY
-                                * constOffscreenFactor((float) viewY, maxScreenHeight, CONST_OFFSCREEN_GAIN_Y);
-                        if (VIEW_Y_FREE_IN_ZONE) {
-                            // ลากทะลุขอบจอได้ ไม่ยก-วางนิ้วใหม่ (แค่กันเลขลอยไกลเกินจริง)
-                            final double yLim = maxScreenHeight * VIEW_Y_LIMIT_SCREENS;
+                        final float needX = Math.abs(mvX) / Math.max(1f, maxScreenWidth * STEP_MAX_FRAC);
+                        final float needY = Math.abs(mvY) / Math.max(1f, maxScreenHeight * STEP_MAX_FRAC);
+                        final int steps = Math.max(1, Math.min(STEP_MAX_COUNT,
+                                (int) Math.ceil(Math.max(needX, needY))));
+                        final float stX = mvX / steps;
+                        final float stY = mvY / steps;
+
+                        final double xLim = maxScreenWidth * VIEW_X_LIMIT_SCREENS;
+                        final double yLim = maxScreenHeight * VIEW_Y_LIMIT_SCREENS;
+
+                        for (int i = 0; i < steps; i++) {
+                            viewY += stY * constOffscreenFactor((float) viewY, maxScreenHeight, CONST_OFFSCREEN_GAIN_Y);
+                            viewX += stX * constLeftHalfFactorX((float) viewX)
+                                    * constOffscreenFactorX((float) viewX, maxScreenWidth);
+
                             if (viewY < -yLim) viewY = -yLim;
                             else if (viewY > maxScreenHeight + yLim) viewY = maxScreenHeight + yLim;
-                        }
-
-                        // แกน X ลากทะลุขอบจอได้ ไม่ขึ้นกับ VIEW_Y_FREE_IN_ZONE
-                        if (VIEW_X_FREE_IN_ZONE) {
-                            // [แก้ไข] ซีกซ้ายของจอช้ากว่าซีกขวา ตามตำแหน่งนิ้วเสมือน (smoothstep รอบเส้นแบ่ง)
-                            // ซีกขวา = เส้นตรงล้วนๆ (ความเร็ว = ระยะเมาส์ x ความไว) / ซีกซ้าย x CONST_LEFT_HALF_GAIN
-                            // [แก้ไข] + ชะลอเฉพาะตอนนิ้วเสมือนอยู่นอกจอ (ในจอ factor = 1.0 ความเร็วเท่าเดิม)
-                            viewX += mvX * constLeftHalfFactorX((float) viewX)
-                                    * constOffscreenFactor((float) viewX, maxScreenWidth, CONST_OFFSCREEN_GAIN_X);
-                            final double xLim = maxScreenWidth * VIEW_X_LIMIT_SCREENS;
                             if (viewX < -xLim) viewX = -xLim;
                             else if (viewX > maxScreenWidth + xLim) viewX = maxScreenWidth + xLim;
 
-                            // ถ้า Y ตั้งเป็นแบบเดิม (VIEW_Y_FREE_IN_ZONE = false) ให้ Y หลุดโซนแล้วยก-วางใหม่เหมือนเดิม
-                            if (!VIEW_Y_FREE_IN_ZONE) {
-                                final float yTop = maxScreenHeight * ZONE_Y_MIN;
-                                final float yBot = maxScreenHeight * ZONE_Y_MAX;
-                                if (viewY < yTop || viewY > yBot) {
-                                    final float yNew = viewY > yBot ? yTop + (yBot - yTop) * ZONE_RESTART
-                                                                    : yBot - (yBot - yTop) * ZONE_RESTART;
-                                    sendViewMoveClamped();
-                                    recenterTo((float) Math.max(0.0, Math.min(maxScreenWidth - 1, viewX)), yNew);
-                                }
-                            }
-
-                            scheduleViewInject();
-                            armIdleRecenter();
-                            break;
+                            recenterIfOutside();
                         }
 
-                        // ===== ด้านล่างนี้ใช้เฉพาะตอน VIEW_X_FREE_IN_ZONE = false (พฤติกรรมเดิมของแกน X) =====
-                        final float zx0 = maxScreenWidth * ZONE_X_MIN, zx1 = maxScreenWidth * ZONE_X_MAX;
-                        final float zy0 = maxScreenHeight * ZONE_Y_MIN, zy1 = maxScreenHeight * ZONE_Y_MAX;
-
-                        // จุดวางนิ้วใหม่แกน X อยู่ในช่วงปลอดภัยเสมอ (ไม่ทับปุ่ม/ไม่ชิดขอบจอ)
-                        final float restartRightX = Math.max(zx0, maxScreenWidth * DOWN_SAFE_X_MIN); // หมุนไปขวา
-                        final float restartLeftX = Math.min(zx1, maxScreenWidth * DOWN_SAFE_X_MAX);  // หมุนไปซ้าย
-
-                        // แกน Y หลุดโซนหรือไม่ (ใช้เฉพาะพฤติกรรมเดิม: VIEW_Y_FREE_IN_ZONE = false)
-                        boolean yOut = !VIEW_Y_FREE_IN_ZONE && (viewY < zy0 || viewY > zy1);
-                        final float newY = viewY > zy1 ? zy0 + (zy1 - zy0) * ZONE_RESTART
-                                                       : zy1 - (zy1 - zy0) * ZONE_RESTART;
-
-                        // แกน X: เดินไปทีละช่วง ถ้าชนขอบโซนก็ส่งตำแหน่งที่ขอบ ยก-วางนิ้วใหม่ แล้วเดินต่อด้วยระยะที่เหลือ
-                        double remain = mvX;
-                        for (int i = 0; i < MAX_ZONE_WRAPS && remain != 0.0; i++) {
-                            double target = viewX + remain;
-                            if (target >= zx0 && target <= zx1) {
-                                viewX = target;
-                                remain = 0.0;
-                                break;
-                            }
-                            boolean toRight = target > zx1;
-                            double edge = toRight ? zx1 : zx0;
-                            remain -= (edge - viewX); // ระยะที่เกินขอบ เก็บไว้ทำต่อ
-                            viewX = edge;
-
-                            if (VIEW_Y_FREE_IN_ZONE) {
-                                sendViewMoveRawY();
-                                recenterTo(toRight ? restartRightX : restartLeftX, (float) viewY, true);
-                            } else {
-                                sendViewMoveClamped();
-                                float ry = yOut ? newY : (float) viewY;
-                                yOut = false; // แกน Y ถูกจัดการพร้อมกันแล้ว
-                                recenterTo(toRight ? restartRightX : restartLeftX, ry);
-                            }
-                        }
-                        // ถ้าครบรอบสูงสุดแล้วยังเหลือ (สบัดแรงผิดปกติ) ทิ้งส่วนที่เกิน
-                        if (remain != 0.0) {
-                            double target = viewX + remain;
-                            viewX = Math.max(zx0, Math.min(zx1, target));
-                        }
-
-                        // แกน Y หลุดโซนโดยที่ X ไม่ชนขอบ: ยก-วางใหม่เหมือนเดิม
-                        if (yOut) {
-                            sendViewMoveClamped();
-                            recenterTo((float) viewX, newY);
-                        }
-
-                        // ส่งตำแหน่งล่าสุดต่อทันทีทุกกรณี (รวมหลังวางนิ้วใหม่)
                         scheduleViewInject();
-                        armIdleRecenter();
                         break;
                     }
 
-                    // ===== ระบบบิต / พฤติกรรมเดิม (ไม่ได้แก้) =====
                     viewX += dx * gain * viewSensX * factorX((float) viewX);
-                    // แกน Y ชดเชยตอนหลุดขอบจอ (สูตรเดิม)
                     viewY += dy * gain * viewSensY * offscreenFactorY((float) viewY, maxScreenHeight, OFFSCREEN_GAIN_Y);
-
-                    armIdleRecenter();
 
                     final float startX = hasCustomTarget ? targetBtnX : maxScreenWidth * 0.75f;
                     final float startY = hasCustomTarget ? targetBtnY : maxScreenHeight * 0.5f;
@@ -1257,27 +916,20 @@ public class MouseController {
 
                     if (needRecenter && !pressing) {
                         if (mouseMoveToken != 0) {
-                            TouchSimulator.simulateUp(mouseMoveToken, 2, Math.round((float) viewX), Math.round((float) viewY));
+                            TouchSimulator.simulateUp(mouseMoveToken, viewPtr, Math.round((float) viewX), Math.round((float) viewY));
                         }
                         viewX = startX;
                         viewY = startY;
-                        mouseMoveToken = TouchSimulator.simulateDown(2, Math.round((float) viewX), Math.round((float) viewY));
+                        mouseMoveToken = TouchSimulator.simulateDown(viewPtr, Math.round((float) viewX), Math.round((float) viewY));
                     } else {
                         scheduleViewInject();
                     }
                 } else {
-                    // ===== โหมดเคอร์เซอร์ปกติ =====
                     cursorX += sumDx * gain;
                     cursorY += sumDy * gain;
                     cursorX = Math.max(0f, Math.min(maxScreenWidth - 1, cursorX));
                     cursorY = Math.max(0f, Math.min(maxScreenHeight - 1, cursorY));
 
-                    // 1) ขอ event เมาส์ทันที ไม่รอรวมตามเฟรมจอ
-                    try {
-                        mouseLockView.requestUnbufferedDispatch(e);
-                    } catch (Exception ignored) {}
-
-                    // 2) ขยับเคอร์เซอร์ทันที ไม่รอ Choreographer
                     if (customCursorView != null) {
                         customCursorView.setTranslationX(cursorX);
                         customCursorView.setTranslationY(cursorY);
@@ -1285,16 +937,13 @@ public class MouseController {
 
                     boolean uiHandled = eventListener.onMouseClickUI(cursorX, cursorY, MotionEvent.ACTION_MOVE);
                     if (!uiHandled && mouseMoveToken != 0) {
-                        // 3) ส่งพิกัดทศนิยม ลากแล้วไม่เป็นขั้นบันได
-                        TouchSimulator.simulateMoveF(mouseMoveToken, 2, cursorX, cursorY);
+                        TouchSimulator.simulateMoveF(mouseMoveToken, viewPtr, cursorX, cursorY);
                     }
                 }
                 break;
 
             case MotionEvent.ACTION_BUTTON_PRESS:
             case MotionEvent.ACTION_DOWN:
-                // คลิกขวา: ACTION_DOWN ของเมาส์จะมี buttonState ขวา (actionButton เป็น 0) ส่วน BUTTON_PRESS มี actionButton ขวา
-                // ถ้า actionButton ระบุปุ่มมาชัดเจน (เช่น ซ้าย) ให้ตัดสินจาก actionButton เท่านั้น
                 final int ab = e.getActionButton();
                 if (ab == MotionEvent.BUTTON_SECONDARY
                         || (ab == 0 && (e.getButtonState() & MotionEvent.BUTTON_SECONDARY) != 0)) {
@@ -1304,18 +953,17 @@ public class MouseController {
                     }
                     break;
                 }
-                // ล็อคเมาส์อยู่: กดซ้ายลง -> FloatingService กดค้างที่ปุ่มซึ่งตั้งเป็น MS_L
                 if (isMouseMode) {
                     if (!pressing) {
                         pressing = true;
-                        eventListener.onMouseLockedLeftDown();
+                        fireLeftDown();
                     }
                     break;
                 }
                 if (!isMouseMode && !pressing) {
                     pressing = true;
                     if (!eventListener.onMouseClickUI(cursorX, cursorY, MotionEvent.ACTION_DOWN)) {
-                        mouseMoveToken = TouchSimulator.simulateDown(2, (int) cursorX, (int) cursorY);
+                        mouseMoveToken = TouchSimulator.simulateDown(viewPtr, (int) cursorX, (int) cursorY);
                     }
                 }
                 break;
@@ -1324,15 +972,14 @@ public class MouseController {
             case MotionEvent.ACTION_UP:
                 if (isMouseMode && pressing && e.getActionButton() != MotionEvent.BUTTON_SECONDARY) {
                     pressing = false;
-                    // ปล่อยนิ้วที่กดค้างไว้
-                    eventListener.onMouseLockedLeftUp();
+                    fireLeftUp();
                     break;
                 }
                 if (!isMouseMode && pressing && e.getActionButton() != MotionEvent.BUTTON_SECONDARY) {
                     pressing = false;
                     eventListener.onMouseClickUI(cursorX, cursorY, MotionEvent.ACTION_UP);
                     if (mouseMoveToken != 0) {
-                        TouchSimulator.simulateUp(mouseMoveToken, 2, (int) cursorX, (int) cursorY);
+                        TouchSimulator.simulateUp(mouseMoveToken, viewPtr, (int) cursorX, (int) cursorY);
                         mouseMoveToken = 0;
                     }
                 }
@@ -1349,15 +996,13 @@ public class MouseController {
         refreshScreenSize();
         boolean wasMouseMode = isMouseMode;
         isMouseMode = active;
-        // กันนิ้วคลิกซ้ายค้างตอนสลับโหมด
-        if (pressing && wasMouseMode) eventListener.onMouseLockedLeftUp();
+        if (pressing && wasMouseMode) fireLeftUp();
         pressing = false;
         if (!isPaused) {
             mouseLockView.setVisibility(View.VISIBLE);
             if (cursorLayer != null) cursorLayer.setVisibility(View.VISIBLE);
         }
 
-        // เรียก updateViewLayout (binder call) เฉพาะเมื่อ flag ยังไม่ถูกตั้งจริงๆ
         if (mouseLockParams != null && windowManager != null
                 && (mouseLockParams.flags & WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE) == 0) {
             mouseLockParams.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
@@ -1368,45 +1013,38 @@ public class MouseController {
 
         if (isMouseMode) {
             if (!wasMouseMode) {
-                // เริ่มโหมดมุมมองใหม่ รีเซ็ตตัวจับเวลาของระบบบิต
                 lastMoveNs = 0;
-                // รีเซ็ตความเร็วที่ปรับเรียบแล้วของฝั่งซ้าย กันค่าเก่าค้างมา
-                smoothedLeftSpeedPxMs = 0f;
-                // รีเซ็ตตัวนับ flicker ของการเช็ค isPointerDown
                 lostPointerStreak = 0;
-                // [เพิ่ม] ล้างสถานะตัวกรองสัญญาณเมาส์
                 resetMouseFilter();
 
                 if (mouseMoveToken != 0) {
-                    TouchSimulator.simulateUp(mouseMoveToken, 2, (int) cursorX, (int) cursorY);
+                    TouchSimulator.simulateUp(mouseMoveToken, viewPtr, (int) cursorX, (int) cursorY);
                     mouseMoveToken = 0;
                 }
+                viewPtr = PTR_A;
                 viewX = hasCustomTarget ? targetBtnX : maxScreenWidth * 0.75f;
                 viewY = hasCustomTarget ? targetBtnY : maxScreenHeight * 0.5f;
 
-                mouseMoveToken = TouchSimulator.simulateDown(2, Math.round((float) viewX), Math.round((float) viewY));
+                mouseMoveToken = TouchSimulator.simulateDown(viewPtr, Math.round((float) viewX), Math.round((float) viewY));
             }
 
-            // แค่ซ่อนเคอร์เซอร์ ไม่ลบ view ทิ้ง (ครั้งหน้าไม่ต้องสร้าง/โหลดรูปใหม่)
             if (customCursorView != null) customCursorView.setVisibility(View.GONE);
 
             if (!typingMode) requestCaptureFast();
         } else {
-            // ออกจากโหมดมุมมอง ยกเลิกงานส่งตำแหน่งที่ค้างอยู่
             if (wasMouseMode) cancelViewInject();
 
             if (wasMouseMode && mouseMoveToken != 0) {
-                TouchSimulator.simulateUp(mouseMoveToken, 2, Math.round((float) viewX), Math.round((float) viewY));
+                TouchSimulator.simulateUp(mouseMoveToken, viewPtr, Math.round((float) viewX), Math.round((float) viewY));
                 mouseMoveToken = 0;
             }
+            viewPtr = PTR_A;
 
-            // ปลดล็อคเมาส์ -> เคอร์เซอร์กลับมาอยู่กลางจอ
             if (wasMouseMode) {
                 cursorX = maxScreenWidth / 2f;
                 cursorY = maxScreenHeight / 2f;
             }
 
-            // สร้างเคอร์เซอร์เฉพาะครั้งแรก หลังจากนั้นใช้ตัวเดิมซ้ำ
             if (customCursorView == null) {
                 customCursorView = new ImageView(context);
                 int cursorId = context.getResources().getIdentifier("ic_cursor", "drawable", context.getPackageName());
@@ -1435,7 +1073,6 @@ public class MouseController {
         }
     }
 
-    // โหมดพิมพ์: ปล่อย pointer capture + ให้ overlay ไม่รับโฟกัส เกมจะได้รับแป้นตรงๆ
     public void setTypingMode(boolean typing) {
         if (destroyed || typingMode == typing || mouseLockView == null) return;
         typingMode = typing;
@@ -1443,8 +1080,6 @@ public class MouseController {
         try {
             if (typing) {
                 cancelViewInject();
-                injectHandler.removeCallbacks(idleRecenterRunnable);
-                idlePending = false;
                 releaseMouseState();
                 if (isMouseMode) setMouseMode(false);
                 if (cursorLayer != null) cursorLayer.setVisibility(View.GONE);
@@ -1466,7 +1101,6 @@ public class MouseController {
         } catch (Exception ignored) {}
     }
 
-    // ยกหน้าต่างเคอร์เซอร์ขึ้นบนสุด (เรียกหลังมีหน้าต่างใหม่เด้งขึ้นมา)
     public void bringCursorToFront() {
         if (destroyed || cursorLayer == null || windowManager == null) return;
         try {
@@ -1483,22 +1117,19 @@ public class MouseController {
         rightDown = false;
         prevSecondary = false;
         lostPointerStreak = 0;
-        // [เพิ่ม] ล้างสถานะตัวกรองสัญญาณเมาส์
         resetMouseFilter();
-        // ปล่อยนิ้วคลิกซ้ายที่กดค้างอยู่ (ถ้ามี)
         if (pressing && isMouseMode) {
             pressing = false;
-            eventListener.onMouseLockedLeftUp();
+            fireLeftUp();
         }
         if (mouseMoveToken != 0) {
-            TouchSimulator.simulateUp(mouseMoveToken, 2, Math.round((float) viewX), Math.round((float) viewY));
+            TouchSimulator.simulateUp(mouseMoveToken, viewPtr, Math.round((float) viewX), Math.round((float) viewY));
             mouseMoveToken = 0;
         }
+        viewPtr = PTR_A;
     }
 
     public void updateSensitivity(float sensitivity) {
-        // [แก้ไข] สไลเดอร์ Sensitivity ในหน้าตั้งค่า ตอนนี้ปรับแค่ความเร็ว "เคอร์เซอร์" เท่านั้น
-        // ไม่แตะ viewGain (ความเร็วโหมดมุมมอง/เล็ง) อีกต่อไป
         this.mouseSensitivity = sensitivity;
     }
 
@@ -1515,10 +1146,7 @@ public class MouseController {
     public void destroy() {
         destroyed = true;
         cancelViewInject();
-        injectHandler.removeCallbacks(idleRecenterRunnable);
-        idlePending = false;
         injectHandler.removeCallbacks(captureRunnable);
-        // ไม่ inject UP ตรงนี้ (กัน main thread ค้างตอนปิด) FloatingService จะ CANCEL ทุกนิ้วให้เอง
         mouseMoveToken = 0;
         try {
             if (mouseLockView != null) {

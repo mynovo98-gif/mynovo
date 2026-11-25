@@ -278,7 +278,6 @@ public class MainActivity extends AppCompatActivity {
         btnCardActivation.addView(tvActivationStatus);
 
         btnCardActivation.setOnClickListener(v -> handleActivationClick());
-        rootContent.addView(btnCardActivation);
 
         LinearLayout peripheralCard = new LinearLayout(this);
         peripheralCard.setOrientation(LinearLayout.VERTICAL);
@@ -297,7 +296,6 @@ public class MainActivity extends AppCompatActivity {
         layoutPeripheralsContainer = new LinearLayout(this);
         layoutPeripheralsContainer.setOrientation(LinearLayout.VERTICAL);
         peripheralCard.addView(layoutPeripheralsContainer);
-        rootContent.addView(peripheralCard);
 
         TextView tvMyGameHeader = new TextView(this);
         tvMyGameHeader.setText("My game");
@@ -305,7 +303,6 @@ public class MainActivity extends AppCompatActivity {
         tvMyGameHeader.setTextSize(14f);
         tvMyGameHeader.setTypeface(null, android.graphics.Typeface.BOLD);
         tvMyGameHeader.setPadding(4, 4, 0, 8);
-        rootContent.addView(tvMyGameHeader);
 
         btnAddApp = new LinearLayout(this);
         btnAddApp.setOrientation(LinearLayout.HORIZONTAL);
@@ -330,7 +327,105 @@ public class MainActivity extends AppCompatActivity {
             }
             showAppSelectionDialog();
         });
-        rootContent.addView(btnAddApp);
+
+        // ===== แถวบน: คอลัมน์ซ้าย (Activation Center + Available peripherals + My game + Add Game)
+        //       + กล่องด้านขวา (สูงเท่าคอลัมน์ซ้ายเสมอ ไม่ว่าคอลัมน์ซ้ายจะสูงเท่าไหร่ก็ตาม) =====
+        LinearLayout topRow = new LinearLayout(this);
+        topRow.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams topRowParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        topRowParams.setMargins(0, 0, 0, 14);
+        topRow.setLayoutParams(topRowParams);
+
+        LinearLayout leftColumn = new LinearLayout(this);
+        leftColumn.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams leftColumnParams = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        leftColumn.setLayoutParams(leftColumnParams);
+        leftColumn.addView(btnCardActivation);
+        leftColumn.addView(peripheralCard);
+        leftColumn.addView(tvMyGameHeader);
+        leftColumn.addView(btnAddApp);
+        topRow.addView(leftColumn);
+
+        // กล่องด้านขวา พื้นหลังโทนเดียวกับการ์ดอื่นในแอป สูง MATCH_PARENT = เท่ากับคอลัมน์ซ้ายเสมอโดยอัตโนมัติ
+        LinearLayout sideBox = new LinearLayout(this);
+        sideBox.setOrientation(LinearLayout.VERTICAL);
+
+        android.graphics.drawable.GradientDrawable sideBoxBg = new android.graphics.drawable.GradientDrawable();
+        sideBoxBg.setColor(Color.parseColor("#1E2230"));          // พื้นหลังโทนเดียวกับการ์ดอื่นๆ
+        sideBoxBg.setStroke(4, Color.parseColor("#FF5555"));      // เส้นขอบแดง ปรับได้
+        sideBoxBg.setCornerRadius(12f);                           // ใส่ 0 ถ้าอยากได้เหลี่ยมคม
+        sideBox.setBackground(sideBoxBg);
+
+        LinearLayout.LayoutParams sideBoxParams = new LinearLayout.LayoutParams(
+                780, ViewGroup.LayoutParams.MATCH_PARENT); // กว้างคงที่ 780px (ลดลงจาก 950), สูงเท่า leftColumn เสมอ ไม่ทับกัน
+        sideBoxParams.setMargins(14, 0, 0, 0);
+        sideBox.setLayoutParams(sideBoxParams);
+
+        // ===== ข้อความเลื่อนแนวตั้ง จากล่างขึ้นบน (เหมือนเครดิตท้ายหนัง) วนไม่หยุด =====
+        FrameLayout sideBoxScrollArea = new FrameLayout(this);
+        sideBoxScrollArea.setClipChildren(true); // ตัดส่วนที่เลื่อนเกินกรอบไม่ให้โผล่ออกนอกกล่อง
+        sideBoxScrollArea.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        sideBox.addView(sideBoxScrollArea);
+
+        // กล่องแนวตั้งที่รวมทุกบรรทัดเครดิตไว้ด้วยกัน เลื่อนขึ้นพร้อมกันเป็นชุดเดียว
+        LinearLayout creditsList = new LinearLayout(this);
+        creditsList.setOrientation(LinearLayout.VERTICAL);
+        FrameLayout.LayoutParams creditsListParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER_HORIZONTAL);
+        creditsList.setLayoutParams(creditsListParams);
+        sideBoxScrollArea.addView(creditsList);
+
+        TextView tvCredit1 = new TextView(this);
+        tvCredit1.setText("สนับสนุนโดยมายโนโว");
+        tvCredit1.setTextColor(Color.parseColor("#8BE9FD"));
+        tvCredit1.setTextSize(14f);
+        tvCredit1.setTypeface(null, android.graphics.Typeface.BOLD);
+        tvCredit1.setGravity(Gravity.CENTER_HORIZONTAL);
+        LinearLayout.LayoutParams tvCredit1Params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tvCredit1Params.setMargins(0, 0, 0, 24); // ระยะห่างก่อนบรรทัดถัดไป ปรับได้
+        tvCredit1.setLayoutParams(tvCredit1Params);
+        creditsList.addView(tvCredit1);
+
+        TextView tvCredit2 = new TextView(this);
+        tvCredit2.setText("Racerx ครีเอเตอร์ Bluemousepro");
+        tvCredit2.setTextColor(Color.parseColor("#8BE9FD"));
+        tvCredit2.setTextSize(14f);
+        tvCredit2.setTypeface(null, android.graphics.Typeface.BOLD);
+        tvCredit2.setGravity(Gravity.CENTER_HORIZONTAL);
+        LinearLayout.LayoutParams tvCredit2Params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tvCredit2.setLayoutParams(tvCredit2Params);
+        creditsList.addView(tvCredit2);
+
+        // รอให้ layout วัดขนาดจริงเสร็จก่อน ค่อยเริ่มคำนวณระยะเลื่อน (ต้องรู้ความสูงกล่อง + ความสูงชุดเครดิตทั้งหมด)
+        sideBoxScrollArea.getViewTreeObserver().addOnGlobalLayoutListener(
+                new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
+                    @Override
+                    public void onGlobalLayout() {
+                        sideBoxScrollArea.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                        float containerHeight = sideBoxScrollArea.getHeight();
+                        float creditsHeight = creditsList.getHeight();
+                        if (containerHeight <= 0) return;
+
+                        creditsList.setTranslationY(containerHeight); // เริ่มจากใต้กล่อง (มองไม่เห็น)
+
+                        android.animation.ObjectAnimator scrollAnim = android.animation.ObjectAnimator.ofFloat(
+                                creditsList, "translationY", containerHeight, -creditsHeight);
+                        scrollAnim.setDuration(8000); // 8 วินาทีต่อรอบ (ยาวขึ้นเพราะมี 2 บรรทัด) ปรับความเร็วได้ตรงนี้
+                        scrollAnim.setInterpolator(new android.view.animation.LinearInterpolator());
+                        scrollAnim.setRepeatCount(android.animation.ObjectAnimator.INFINITE); // วนลูปไปเรื่อยๆ ไม่หยุด
+                        scrollAnim.setRepeatMode(android.animation.ObjectAnimator.RESTART);
+                        scrollAnim.start();
+                    }
+                });
+
+        topRow.addView(sideBox);
+
+        rootContent.addView(topRow);
 
         layoutGamesContainer = new LinearLayout(this);
         layoutGamesContainer.setOrientation(LinearLayout.VERTICAL);
@@ -531,8 +626,8 @@ public class MainActivity extends AppCompatActivity {
         fragmentContainer.addView(layout);
     }
 
-    // ===== ปุ่มปากกากลางแถบเมนูล่าง (แทรกระหว่าง Account กับ Activation) =====
-    // แทรกจากโค้ด ไม่ต้องแก้ activity_main.xml ต้องมี res/drawable/btn_pen.png
+    // ===== ปุ่มคอมมานกลางแถบเมนูล่าง (แทรกระหว่าง Account กับ Activation) =====
+    // แทรกจากโค้ด ไม่ต้องแก้ activity_main.xml ต้องมี res/drawable/ic_command_menu.png (รูปโลโก้ C ที่จะใส่เอง)
     private void addCenterPenButton() {
         try {
             ViewGroup parent = (ViewGroup) navAccount.getParent();
@@ -550,13 +645,23 @@ public class MainActivity extends AppCompatActivity {
             slot.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
 
             ImageView pen = new ImageView(this);
-            pen.setImageResource(R.drawable.btn_pen);
+            pen.setImageResource(R.drawable.ic_command_menu); // << วางไฟล์รูปโลโก้ C ไว้ที่ res/drawable/ic_command_menu.png
             pen.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            pen.setContentDescription("Pen");
+            pen.setContentDescription("Command Menu");
             pen.setClickable(true);
             pen.setFocusable(true);
             pen.setLayoutParams(new FrameLayout.LayoutParams(size, size, Gravity.CENTER));
             pen.setOnClickListener(v -> onPenButtonClick());
+
+            // เอาเมาส์ไปชี้ (hover) ก็เปิดเมนูได้เลย ไม่ต้องคลิก (เผื่อใช้งานผ่านเมาส์จริงที่ต่อกับแอปนี้)
+            pen.setOnHoverListener((v, event) -> {
+                if (event.getAction() == android.view.MotionEvent.ACTION_HOVER_ENTER) {
+                    onPenButtonClick();
+                    return true;
+                }
+                return false;
+            });
+
             slot.addView(pen);
 
             parent.addView(slot, parent.indexOfChild(navAccount) + 1);
@@ -565,9 +670,119 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // TODO: ใส่หน้าที่ของปุ่มปากกาตรงนี้
     private void onPenButtonClick() {
-        Toast.makeText(this, "✏️ Pen: coming soon", Toast.LENGTH_SHORT).show();
+        showTerminalDialog();
+    }
+
+    // ===== Terminal: พิมพ์คำสั่ง shell เอง สั่งผ่าน Shizuku =====
+    private void showTerminalDialog() {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(Color.parseColor("#1E2230"));
+        root.setPadding(24, 24, 24, 24);
+
+        TextView tvTitle = new TextView(this);
+        tvTitle.setText("⌨️ Terminal (Shizuku)");
+        tvTitle.setTextColor(Color.parseColor("#8BE9FD"));
+        tvTitle.setTextSize(16f);
+        tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+        tvTitle.setPadding(0, 0, 0, 16);
+        root.addView(tvTitle);
+
+        // พื้นที่แสดงผลลัพธ์ (output log) เลื่อนได้
+        ScrollView outputScroll = new ScrollView(this);
+        LinearLayout.LayoutParams outputScrollParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 650);
+        outputScroll.setLayoutParams(outputScrollParams);
+        outputScroll.setBackgroundColor(Color.parseColor("#0F111A"));
+        outputScroll.setPadding(16, 16, 16, 16);
+
+        TextView tvOutput = new TextView(this);
+        tvOutput.setText("$ พร้อมรับคำสั่ง... (รัน Shizuku Service + ขอสิทธิ์ก่อนใช้งาน)\n");
+        tvOutput.setTextColor(Color.parseColor("#50FA7B"));
+        tvOutput.setTextSize(12f);
+        tvOutput.setTypeface(android.graphics.Typeface.MONOSPACE);
+        outputScroll.addView(tvOutput);
+        root.addView(outputScroll);
+
+        // แถวพิมพ์คำสั่ง + ปุ่ม Run
+        LinearLayout inputRow = new LinearLayout(this);
+        inputRow.setOrientation(LinearLayout.HORIZONTAL);
+        inputRow.setGravity(Gravity.CENTER_VERTICAL);
+        inputRow.setPadding(0, 16, 0, 0);
+
+        EditText etCommand = new EditText(this);
+        etCommand.setHint("พิมพ์คำสั่ง shell เช่น ls, pwd, dumpsys ...");
+        etCommand.setHintTextColor(Color.parseColor("#6272A4"));
+        etCommand.setTextColor(Color.WHITE);
+        etCommand.setTextSize(13f);
+        etCommand.setTypeface(android.graphics.Typeface.MONOSPACE);
+        etCommand.setSingleLine(true);
+        etCommand.setPadding(20, 16, 20, 16);
+        etCommand.setBackgroundColor(Color.parseColor("#0F111A"));
+        etCommand.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        etCommand.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_GO);
+        LinearLayout.LayoutParams etCommandParams = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        etCommandParams.setMargins(0, 0, 10, 0);
+        etCommand.setLayoutParams(etCommandParams);
+        inputRow.addView(etCommand);
+
+        TextView btnRun = new TextView(this);
+        btnRun.setText("RUN");
+        btnRun.setTextColor(Color.WHITE);
+        btnRun.setTextSize(13f);
+        btnRun.setTypeface(null, android.graphics.Typeface.BOLD);
+        btnRun.setPadding(28, 16, 28, 16);
+        btnRun.setBackgroundColor(Color.parseColor("#BD93F9"));
+        inputRow.addView(btnRun);
+        root.addView(inputRow);
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setView(root);
+        builder.setNegativeButton("Close", null);
+        AlertDialog dialog = builder.create();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.parseColor("#1E2230")));
+        }
+
+        // รันคำสั่งที่พิมพ์ ผ่าน Shizuku (background thread) แล้วเอาผลลัพธ์มาต่อท้าย output log
+        Runnable executeCommand = () -> {
+            String cmd = etCommand.getText().toString().trim();
+            if (cmd.isEmpty()) return;
+
+            tvOutput.append("\n$ " + cmd + "\n");
+            etCommand.setText("");
+            btnRun.setEnabled(false);
+
+            new Thread(() -> {
+                String result = runShizukuShell(cmd);
+                runOnUiThread(() -> {
+                    if (result == null) {
+                        tvOutput.append("❌ ใช้งานไม่ได้ กรุณาเปิด Shizuku Service และขอสิทธิ์ก่อน (ดูที่ Activation)\n");
+                    } else {
+                        tvOutput.append(result.isEmpty() ? "(ไม่มีผลลัพธ์)\n" : result);
+                    }
+                    outputScroll.post(() -> outputScroll.fullScroll(View.FOCUS_DOWN));
+                    btnRun.setEnabled(true);
+                });
+            }).start();
+        };
+
+        btnRun.setOnClickListener(v -> executeCommand.run());
+        etCommand.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_GO) {
+                executeCommand.run();
+                return true;
+            }
+            return false;
+        });
+
+        dialog.show();
+        // ขยายความกว้าง dialog ให้เต็มจอ เพราะ terminal ต้องการพื้นที่เยอะ
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
     }
 
     private void handleActivationClick() {

@@ -26,42 +26,27 @@ import rikka.shizuku.ShizukuBinderWrapper;
 
 public class TouchSimulator {
     private static final String TAG = "TouchSimulator";
-
-    // เปิดเมื่อต้องการ debug (Log ทุก DOWN/UP ทำให้ช้าลงนิดหน่อย)
     private static final boolean DEBUG_LOG = false;
-
-    // [เพิ่ม] วัดเวลาจริงที่ใช้ "ต่อการยิง event หนึ่งครั้ง" (ตั้งแต่เริ่มเรียก send/invoke จนกลับมา)
-    // เปิดไว้ชั่วคราวเพื่อหาสาเหตุหน่วงคงที่ (เท่ากันทั้งหันช้า-หันเร็ว) ว่าฝั่งไหนกินเวลา
-    // ไม่ log ทุกครั้ง (รัว log เองก็ทำให้ช้า) แค่ log เฉพาะครั้งที่ช้าเกิน LOG_SLOW_INJECT_MS
     private static final boolean LOG_INJECT_TIMING = true;
     private static final long LOG_SLOW_INJECT_MS = 3L;
-
-    // [เพิ่ม] บังคับใช้เฉพาะเส้นทาง Shizuku ชั่วคราว (ข้าม ShellServerClient แม้เชื่อมต่ออยู่)
-    // ไว้เทียบความหน่วงระหว่าง 2 เส้นทาง: ลอง true ดูว่าหน่วงที่เจอหายไหม ถ้าหายแปลว่า ShellServerClient ช้ากว่า
+    private static final long LOG_SLOW_SUMMARY_MS = 2000L;
+    private static int slowCount = 0;
+    private static long slowMaxMs = 0L;
+    private static long slowLastLogUptime = 0L;
     private static volatile boolean forceShizukuOnly = false;
     public static void setForceShizukuOnly(boolean v) {
         forceShizukuOnly = v;
         Log.i(TAG, "forceShizukuOnly=" + v);
     }
     public static boolean isForceShizukuOnly() { return forceShizukuOnly; }
-
-    // เวลาค้างนิ้วของ simulateClick (ms) เกมที่รับปุ่มไม่ติดให้เพิ่ม (เช่น 40-60) ถ้าอยากให้ไวสุดให้ลด (เช่น 10-15)
     private static final long CLICK_HOLD_MS = 20L;
-
-    // accepted=false ติดกันกี่ครั้งถึงจะแจ้งผู้ใช้ว่า ROM อาจบล็อก
     private static final int REJECT_STREAK_LIMIT = 8;
-
     private static volatile Object iInputManager = null;
     private static volatile Method injectInputEventMethod = null;
-
-    // 0 = ASYNC (ไม่บล็อก)
     private static final int INJECT_MODE = 0;
 
     private static final HandlerThread clickThread = new HandlerThread("TouchSimClick");
     private static final Handler clickHandler;
-
-    // เธรดแยกสำหรับส่ง event เข้าระบบ (binder call ผ่าน Shizuku / เขียน socket ใช้เวลา) main thread จะได้ไม่โดนบล็อก
-    // และปุ่มแตะไม่ต้องรอคิวหลัง event เมาส์ที่ถี่มาก
     private static final HandlerThread injectThread =
             new HandlerThread("TouchSimInject", Process.THREAD_PRIORITY_URGENT_DISPLAY);
     private static final Handler injectHandler;
@@ -71,32 +56,18 @@ public class TouchSimulator {
         injectThread.start();
         injectHandler = new Handler(injectThread.getLooper());
     }
-
-    // คิว event ที่รอส่ง (เรียงลำดับเดิมเสมอ)
     private static final ArrayDeque<MotionEvent> pendingEvents = new ArrayDeque<>();
     private static boolean drainScheduled = false;
-
     private static Context appContext = null;
     private static long lastInitTime = 0;
-
-    // นับ accepted=false ติดกัน (ใช้เฉพาะเธรดส่ง event)
     private static int failStreak = 0;
-
-    // cache ผลเช็คสิทธิ์ Shizuku กันเรียก binder ซ้ำทุกครั้งที่กด
     private static volatile long permOkUntil = 0;
-
-    // logical id (ที่แอปเราใช้) -> state
     private static final ConcurrentHashMap<Integer, PointerState> activePointers = new ConcurrentHashMap<>();
-
     private static long gestureDownTime = 0;
     private static long downSeq = 0;
-
-    // [เพิ่ม] buffer ใช้ซ้ำสำหรับสร้าง MotionEvent (MotionEvent.obtain คัดลอกค่าไปเก็บเองอยู่แล้ว จึงใช้ซ้ำได้ปลอดภัย)
-    // เดิมทุก MOVE สร้าง ArrayList + sort + PointerProperties/PointerCoords ใหม่หมด ที่เมาส์ถี่ๆ ทำให้เกิด GC แล้วกระตุก
     private static final int MAX_P = 10;
     private static final MotionEvent.PointerProperties[] PROPS = new MotionEvent.PointerProperties[MAX_P];
     private static final MotionEvent.PointerCoords[] COORDS = new MotionEvent.PointerCoords[MAX_P];
-    // [เพิ่ม] cache ลำดับนิ้ว (เรียงตาม seq) สร้างใหม่เฉพาะตอนจำนวนนิ้วเปลี่ยน (DOWN/UP/CANCEL)
     private static final int[] cacheIds = new int[MAX_P];
     private static final PointerState[] cacheStates = new PointerState[MAX_P];
     private static int cacheSize = 0;
@@ -108,24 +79,16 @@ public class TouchSimulator {
         }
     }
 
-    // deviceId ของ touchscreen จริง (บางเกมกรอง deviceId 0 / virtual ทิ้ง)
     private static int touchDeviceId = 0;
     private static volatile boolean touchDeviceResolved = false;
-
-    // ผู้ใช้กด Deactivate แล้ว = เลิกใช้ Shizuku (Shizuku ยังรันอยู่ แต่แอปไม่ใช้ส่ง event) เก็บไว้ใน SharedPreferences
     private static final String PREF_NAME = "MynovoPrefs";
     private static final String KEY_SHIZUKU_DISABLED = "shizukuDisabled";
     private static volatile boolean shizukuEnabled = true;
-
-    // จอที่เกมอยู่ (DeX = จอภายนอก) FloatingService เรียก setDisplayId ให้ตอนเริ่มทำงาน
-    // ไม่ตั้ง = จอหลัก (0) ถ้าไม่ใส่ displayId ให้ MotionEvent ระบบจะส่งทัชไปจอมือถือ (ทำให้จอมือถือเลื่อนตามเมาส์)
     private static volatile int targetDisplayId = 0;
     private static volatile Method setDisplayIdMethod = null;
     private static volatile boolean setDisplayIdResolved = false;
-
     public static void setDisplayId(int id) {
         if (id == targetDisplayId) return;
-        // เปลี่ยนจอกลางทาง: ปล่อยนิ้วค้างเดิมกันค้างบนจอเก่า
         try { releaseTouch(); } catch (Throwable ignored) {}
         targetDisplayId = id;
         Log.i(TAG, "target displayId=" + id);
@@ -135,7 +98,6 @@ public class TouchSimulator {
         return targetDisplayId;
     }
 
-    // ใส่ displayId ให้ MotionEvent (InputEvent.setDisplayId เป็น hidden API เลยใช้ reflection)
     private static void applyDisplayId(MotionEvent ev) {
         final int id = targetDisplayId;
         if (id == 0) return;
@@ -177,7 +139,7 @@ public class TouchSimulator {
         float x, y;
         long downTime;
         long seq;
-        int eventId; // id ที่ใส่ใน MotionEvent จริง (ต่ำสุดที่ว่าง เริ่มที่ 0 เหมือนจอจริง)
+        int eventId;
 
         PointerState(float x, float y, long downTime, long seq, int eventId) {
             this.x = x;
@@ -191,10 +153,8 @@ public class TouchSimulator {
     public static void setContext(Context c) {
         if (c != null) {
             appContext = c.getApplicationContext();
-            // โหลดสถานะ "ปิด Shizuku" ที่ผู้ใช้เคยกด Deactivate ไว้
             shizukuEnabled = !appContext.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
                     .getBoolean(KEY_SHIZUKU_DISABLED, false);
-            // ให้ client ของ shell server รู้จัก context แล้วลองเชื่อมรอไว้เลย (ถ้า activate.sh รันอยู่แล้ว)
             ShellServerClient.setContext(c);
             ShellServerClient.ensureConnectedAsync();
         }
@@ -217,8 +177,6 @@ public class TouchSimulator {
         permOkUntil = 0;
         return false;
     }
-
-    // มีทางส่ง event ให้ใช้ไหม: shell server (activate.sh) หรือ Shizuku อย่างใดอย่างหนึ่ง
     private static boolean accessOk() {
         if (ShellServerClient.isConnected()) return true;
         ShellServerClient.ensureConnectedAsync();
@@ -243,7 +201,6 @@ public class TouchSimulator {
                     return id;
                 }
             }
-            // ไม่เจอตัวที่ไม่ virtual ลองตัวไหนก็ได้ที่เป็น touchscreen
             for (int id : InputDevice.getDeviceIds()) {
                 InputDevice d = InputDevice.getDevice(id);
                 if (d != null
@@ -304,7 +261,6 @@ public class TouchSimulator {
         }
     }
 
-    // เตรียมทางส่ง event: ถ้ายังไม่เชื่อม shell server ให้ขอเชื่อมเบื้องหลัง แล้วลอง Shizuku ไปก่อน
     private static synchronized void initBackend() {
         if (backendReady()) return;
         ShellServerClient.ensureConnectedAsync();
@@ -324,7 +280,6 @@ public class TouchSimulator {
         }
     }
 
-    // [เพิ่ม] สร้าง cache ลำดับนิ้วใหม่ (เรียกเฉพาะตอนจำนวนนิ้วเปลี่ยน) ต้องเรียกใน synchronized(TouchSimulator.class)
     private static void rebuildCache() {
         List<Map.Entry<Integer, PointerState>> list = new ArrayList<>(activePointers.entrySet());
         Collections.sort(list, (a, b) -> Long.compare(a.getValue().seq, b.getValue().seq));
@@ -337,16 +292,16 @@ public class TouchSimulator {
         cacheValid = true;
     }
 
-    // ===== คิวส่ง event =====
-
     private static void enqueue(MotionEvent ev, boolean isMove) {
         synchronized (pendingEvents) {
             if (isMove) {
-                // MOVE ที่ยังไม่ถูกส่งและอยู่ท้ายคิว ถูกแทนด้วยตัวใหม่ (ตำแหน่งล่าสุดเท่านั้นที่สำคัญ)
-                MotionEvent last = pendingEvents.peekLast();
-                if (last != null && last.getActionMasked() == MotionEvent.ACTION_MOVE) {
-                    pendingEvents.pollLast();
-                    last.recycle();
+                java.util.Iterator<MotionEvent> it = pendingEvents.iterator();
+                while (it.hasNext()) {
+                    MotionEvent p = it.next();
+                    if (p.getActionMasked() == MotionEvent.ACTION_MOVE) {
+                        it.remove();
+                        p.recycle();
+                    }
                 }
             }
             pendingEvents.addLast(ev);
@@ -390,9 +345,6 @@ public class TouchSimulator {
                     }
                 }
 
-                // ถ้าเชื่อม shell server อยู่ใช้ทางนั้นก่อน ไม่งั้นใช้ Shizuku
-                // (อยากให้ Shizuku มาก่อน ให้สลับลำดับตรงนี้)
-                // [แก้ไข] forceShizukuOnly = true จะข้าม shell server ไปใช้ Shizuku เสมอ (ไว้เทียบความหน่วง 2 เส้นทาง)
                 final boolean viaServer = !forceShizukuOnly && ShellServerClient.isConnected();
                 final Object im = iInputManager;
                 final Method m = injectInputEventMethod;
@@ -406,8 +358,6 @@ public class TouchSimulator {
                 boolean threw = false;
                 boolean serverFailed = false;
                 Throwable err = null;
-                // [เพิ่ม] จับเวลาต่อการยิง event หนึ่งครั้ง (เฉพาะตอน LOG_INJECT_TIMING เปิด) เพื่อหาว่า
-                // เส้นทางไหน (server/shizuku) เป็นตัวกินเวลาแบบคงที่ ไม่ว่าจะหันช้าหรือหันเร็ว
                 final long t0 = LOG_INJECT_TIMING ? System.nanoTime() : 0L;
                 try {
                     if (viaServer) {
@@ -421,15 +371,23 @@ public class TouchSimulator {
                     err = rootCause(t);
                     Log.e(TAG, "Shizuku multi-touch injection error", err);
                 } finally {
-                    if (LOG_INJECT_TIMING) {
-                        long elapsedMs = (System.nanoTime() - t0) / 1_000_000L;
-                        if (elapsedMs >= LOG_SLOW_INJECT_MS) {
-                            Log.w(TAG, "inject slow: " + elapsedMs + "ms via="
-                                    + (viaServer ? "server" : "shizuku")
-                                    + " action=" + MotionEvent.actionToString(action));
+                    ev.recycle();
+                }
+
+                if (LOG_INJECT_TIMING) {
+                    final long elapsedMs = (System.nanoTime() - t0) / 1_000_000L;
+                    if (elapsedMs >= LOG_SLOW_INJECT_MS) {
+                        slowCount++;
+                        if (elapsedMs > slowMaxMs) slowMaxMs = elapsedMs;
+                        final long nowMs = SystemClock.uptimeMillis();
+                        if (nowMs - slowLastLogUptime >= LOG_SLOW_SUMMARY_MS) {
+                            Log.w(TAG, "inject slow x" + slowCount + " max=" + slowMaxMs + "ms via="
+                                    + (viaServer ? "server" : "shizuku"));
+                            slowCount = 0;
+                            slowMaxMs = 0L;
+                            slowLastLogUptime = nowMs;
                         }
                     }
-                    ev.recycle();
                 }
 
                 if (DEBUG_LOG && (action != MotionEvent.ACTION_MOVE || !accepted)) {
@@ -449,8 +407,9 @@ public class TouchSimulator {
                     }
                     handleInjectFailure(true);
                 } else if (!accepted) {
-                    // ไม่ล้างสถานะนิ้ว (กันกล้องหยุดเวลามีหลายนิ้วชนกัน) แค่นับไว้แจ้งผู้ใช้
-                    Log.w(TAG, "injectInputEvent returned false (ignored, keeping pointer state)");
+                    if (failStreak == 0) {
+                        Log.w(TAG, "injectInputEvent returned false (ignored, keeping pointer state)");
+                    }
                     if (++failStreak >= REJECT_STREAK_LIMIT) {
                         failStreak = 0;
                         RomGuide.markNeeded(appContext, "ระบบไม่รับ event");
@@ -509,7 +468,6 @@ public class TouchSimulator {
                 return;
             }
 
-            // [แก้ไข] ใช้ cache + buffer ซ้ำ ไม่สร้าง object ใหม่ทุก MOVE
             if (!cacheValid) rebuildCache();
             final int size = cacheSize;
             if (size == 0) return;
@@ -553,10 +511,7 @@ public class TouchSimulator {
                     touchDeviceId, 0, InputDevice.SOURCE_TOUCHSCREEN, 0
             );
 
-            // ส่งทัชไปจอที่เกมอยู่ (DeX) ไม่ใช่จอมือถือ
             applyDisplayId(event);
-
-            // ส่งเข้าคิว ให้เธรดส่ง event จัดการ (ไม่บล็อกตรงนี้)
             enqueue(event, finalAction == MotionEvent.ACTION_MOVE);
 
             if (isUp) {
@@ -614,7 +569,6 @@ public class TouchSimulator {
         simulateMove(token, 0, x, y);
     }
 
-    // ขยับนิ้วด้วยพิกัดทศนิยม (ละเอียดกว่าปัดเป็นพิกเซลเต็ม ทำให้การลากช้าๆ นิ่งและไม่เป็นขั้นบันได)
     public static void simulateMoveF(final long token, final int pointerId, final float x, final float y) {
         injectSyncState(pointerId, MotionEvent.ACTION_MOVE, x, y);
     }
@@ -627,10 +581,6 @@ public class TouchSimulator {
         simulateUp(token, 0, x, y);
     }
 
-    // [เพิ่ม] ปุ่มแตะแบบกดค้างตามนิ้ว/ปุ่มคีย์บอร์ดของผู้ใช้
-    //   simulatePress(id, x, y) : วางนิ้วลงแล้วค้างไว้ ไม่ปล่อยเอง
-    //   simulateRelease(id)     : ปล่อยนิ้วที่ค้างอยู่ (ใช้พิกัดที่กดไว้)
-    //   isHeld(id)              : pointer นี้ยังกดค้างอยู่ไหม
     public static boolean isHeld(int pointerId) {
         return activePointers.containsKey(pointerId);
     }
@@ -664,7 +614,6 @@ public class TouchSimulator {
         injectSyncState(pointerId, MotionEvent.ACTION_DOWN, (float) x, (float) y);
         final PointerState pressed = activePointers.get(pointerId);
         if (pressed == null) return;
-        // ค้างนิ้วสั้นๆ ให้เฟรมเกมรับ DOWN ทัน (ปรับที่ CLICK_HOLD_MS)
         clickHandler.postDelayed(() -> {
             if (activePointers.get(pointerId) == pressed) {
                 injectSyncState(pointerId, MotionEvent.ACTION_UP, (float) x, (float) y);
