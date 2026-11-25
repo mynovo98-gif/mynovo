@@ -376,6 +376,9 @@ public class MouseController {
         void onWindowFocusLost();
         void onMouseLockedLeftDown();
         void onMouseLockedLeftUp();
+
+        // [ลูกกลิ้งเมาส์] vscroll บวก = เลื่อนขึ้น, ลบ = เลื่อนลง (หน่วยเป็นจำนวนคลิก)
+        default void onMouseWheel(float x, float y, float vscroll) {}
     }
 
     public MouseController(Context context, WindowManager windowManager, float maxWidth, float maxHeight, int cursorSize, float sensitivity, MouseEventListener listener) {
@@ -776,6 +779,14 @@ public class MouseController {
         }
 
         switch (e.getActionMasked()) {
+            case MotionEvent.ACTION_SCROLL:
+                // [ลูกกลิ้งเมาส์] ทำงานเฉพาะโหมดปกติ (โหมด View ไม่ส่ง เพื่อไม่รบกวนการหมุนกล้อง)
+                if (!isMouseMode && !typingMode) {
+                    float vs = e.getAxisValue(MotionEvent.AXIS_VSCROLL);
+                    if (vs != 0f) eventListener.onMouseWheel(cursorX, cursorY, vs);
+                }
+                break;
+
             case MotionEvent.ACTION_MOVE:
                 // [แก้ไข] ขอ event แบบไม่ถูก batch ตั้งแต่ต้น
                 try {
