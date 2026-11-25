@@ -401,7 +401,7 @@ public class MainActivity extends AppCompatActivity {
         tvCredit2.setLayoutParams(tvCredit2Params);
         creditsList.addView(tvCredit2);
 		
-		   TextView tvCredit2 = new TextView(this);
+		   TextView tvCredit3 = new TextView(this);
         tvCredit2.setText("Kisper ครีเอเตอร์");
         tvCredit2.setTextColor(Color.parseColor("#8BE9FD"));
         tvCredit2.setTextSize(14f);
