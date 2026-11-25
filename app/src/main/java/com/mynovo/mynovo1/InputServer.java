@@ -54,7 +54,8 @@ import java.util.ArrayDeque;
 public class InputServer {
     public static final int PORT = 38417;
 
-    private static final boolean LOG_INJECT_TIMING = true;
+    // [lag fix] ปิด log จับเวลาทุก inject
+    private static final boolean LOG_INJECT_TIMING = false;
     private static final long LOG_SLOW_INJECT_MS = 3L;
     private static final int QUEUE_WARN_SIZE = 5;
 
@@ -85,7 +86,8 @@ public class InputServer {
     private static final Thread injectWorker = new Thread(InputServer::injectWorkerLoop, "inject-worker");
     static {
         injectWorker.setDaemon(true);
-        try { injectWorker.setPriority(Thread.MAX_PRIORITY); } catch (Throwable ignored) {}
+        // [lag fix] ลดจาก MAX_PRIORITY เล็กน้อย ไม่แย่ง CPU กับเกม
+        try { injectWorker.setPriority(Thread.MAX_PRIORITY - 2); } catch (Throwable ignored) {}
         injectWorker.start();
     }
 
