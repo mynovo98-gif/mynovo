@@ -29,6 +29,14 @@
 #define MAX_DEV 16
 #define TB(b, a) (((a)[(b) / 8] >> ((b) % 8)) & 1)
 
+// [แก้] 0 = ไม่ grab เมาส์ (เมาส์ยังไปทางระบบตามปกติ ใช้กับเกม/DeX ได้)
+//       1 = grab เมาส์ด้วยและส่งเฟรม M/B ให้แอป (ต้องมีโค้ดฝั่งแอปรับเฟรมเมาส์ไปขยับเคอร์เซอร์เอง
+//           ไม่งั้นพอ grab เมาส์จะตายสนิท)
+// ตอนนี้ FloatingService ยังไม่รับเฟรมเมาส์ จึงตั้งเป็น 0
+#ifndef GRAB_MOUSE
+#define GRAB_MOUSE 0
+#endif
+
 #ifndef EVIOCGRAB
 #define EVIOCGRAB _IOW('E', 0x90, int)
 #endif
@@ -138,7 +146,7 @@ static void add_dev(const char *path) {
     }
     if (fd < 0) return;
     int kb = is_keyboard(fd);
-    int ms = is_mouse(fd); // [MOUSE]
+    int ms = GRAB_MOUSE ? is_mouse(fd) : 0; // [MOUSE] [แก้] ถ้าปิด GRAB_MOUSE จะไม่แตะเมาส์เลย
     if (!kb && !ms) {
         close(fd);
         return;
