@@ -52,7 +52,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="🎮 Start Game"
+                android:text="Start Game"
                 android:textColor="#8BE9FD"
                 android:textSize="12sp"
                 android:textStyle="bold" />
@@ -73,7 +73,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="👤 Account"
+                android:text="Account"
                 android:textColor="#B2CBCB"
                 android:textSize="12sp" />
         </LinearLayout>
@@ -93,7 +93,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="🛡️ Activation"
+                android:text="Activation"
                 android:textColor="#B2CBCB"
                 android:textSize="12sp" />
         </LinearLayout>
@@ -113,7 +113,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="⚙️ Settings"
+                android:text="Settings"
                 android:textColor="#B2CBCB"
                 android:textSize="12sp" />
         </LinearLayout>
