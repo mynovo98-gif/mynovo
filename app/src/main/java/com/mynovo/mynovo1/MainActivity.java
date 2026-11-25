@@ -740,6 +740,7 @@ public class MainActivity extends AppCompatActivity {
 
     // ===== Terminal: พิมพ์คำสั่ง shell เอง สั่งผ่าน Shizuku =====
     // เพิ่มปุ่มลัด: 16:9 (ปรับสัดส่วนจอ), RESET (wm size reset), CLEAR (ล้างหน้าจอ log)
+    // [เพิ่ม] ปุ่ม COPY มุมบนซ้าย คัดลอกข้อความใน log ทั้งหมดไปคลิปบอร์ด
     private void showTerminalDialog() {
         final float density = getResources().getDisplayMetrics().density;
         final int screenH = getResources().getDisplayMetrics().heightPixels;
@@ -753,13 +754,28 @@ public class MainActivity extends AppCompatActivity {
         root.setBackgroundColor(Color.parseColor("#1E2230"));
         root.setPadding(24, 24, 24, 24);
 
+        LinearLayout headerRow = new LinearLayout(this);
+        headerRow.setOrientation(LinearLayout.HORIZONTAL);
+        headerRow.setGravity(Gravity.CENTER_VERTICAL);
+        headerRow.setPadding(0, 0, 0, 12);
+
+        // ปุ่มคัดลอก (มุมบนซ้าย)
+        final TextView btnCopy = makeQuickButton("COPY", "#50FA7B", "#0F111A");
+        LinearLayout.LayoutParams copyParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        copyParams.setMargins(0, 0, 16, 0);
+        btnCopy.setLayoutParams(copyParams);
+        btnCopy.setPadding(28, 12, 28, 12);
+        headerRow.addView(btnCopy);
+
         TextView tvTitle = new TextView(this);
         tvTitle.setText("Terminal (Shizuku)");
         tvTitle.setTextColor(Color.parseColor("#8BE9FD"));
         tvTitle.setTextSize(16f);
         tvTitle.setTypeface(null, android.graphics.Typeface.BOLD);
-        tvTitle.setPadding(0, 0, 0, 12);
-        root.addView(tvTitle);
+        headerRow.addView(tvTitle);
+
+        root.addView(headerRow);
 
         // พื้นที่แสดงผลลัพธ์ (output log) เลื่อนได้
         final ScrollView outputScroll = new ScrollView(this);
@@ -777,6 +793,16 @@ public class MainActivity extends AppCompatActivity {
         tvOutput.setTypeface(android.graphics.Typeface.MONOSPACE);
         outputScroll.addView(tvOutput);
         root.addView(outputScroll);
+
+        btnCopy.setOnClickListener(v -> {
+            android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                    getSystemService(Context.CLIPBOARD_SERVICE);
+            if (cm != null) {
+                cm.setPrimaryClip(android.content.ClipData.newPlainText(
+                        "terminal", tvOutput.getText().toString()));
+                Toast.makeText(this, "คัดลอกแล้ว", Toast.LENGTH_SHORT).show();
+            }
+        });
 
         // แถวปุ่มลัด: 16:9 / RESET / CLEAR
         LinearLayout quickRow = new LinearLayout(this);
