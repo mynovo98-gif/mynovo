@@ -81,7 +81,7 @@ public class MainActivity extends AppCompatActivity {
     private Dialog currentDialog;
     private String currentDialogType = "";
 
-    // ปุ่ม C ที่เด้งขึ้นมาเหนือปุ่มปากกา
+    // ปุ่มที่เด้งขึ้นมาเหนือปุ่มในแถบเมนูล่าง (ตอนนี้คือปุ่มรูปปากกา)
     private ImageView cButton;
 
     // wizard Wireless activation (ใช้ WirelessAdbWizardManager ภายใน)
@@ -150,7 +150,7 @@ public class MainActivity extends AppCompatActivity {
         navActivation.setOnClickListener(v -> handleActivationClick());
         navSettings.setOnClickListener(v -> loadSettingsView());
 
-        // ปุ่มปากกากลางแถบเมนูล่าง
+        // ปุ่มกลางแถบเมนูล่าง
         addCenterPenButton();
     }
 
@@ -641,9 +641,10 @@ public class MainActivity extends AppCompatActivity {
         fragmentContainer.addView(layout);
     }
 
-    // ===== ปุ่มปากกากลางแถบเมนูล่าง (แทรกระหว่าง Account กับ Activation) =====
+    // ===== ปุ่มกลางแถบเมนูล่าง (แทรกระหว่าง Account กับ Activation) =====
     // แทรกจากโค้ด ไม่ต้องแก้ activity_main.xml
-    // ต้องมี res/drawable/ic_command_menu.png (รูปปากกา) และ res/drawable/btn_pen.png (รูปตัว C)
+    // สลับแล้ว: ปุ่มในแถบเมนู = รูปตัว C (res/drawable/btn_pen.png)
+    //           ปุ่มที่เด้งขึ้นมา = รูปปากกา (res/drawable/ic_command_menu.png)
     private void addCenterPenButton() {
         try {
             ViewGroup parent = (ViewGroup) navAccount.getParent();
@@ -661,17 +662,17 @@ public class MainActivity extends AppCompatActivity {
             slot.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
 
             ImageView pen = new ImageView(this);
-            pen.setImageResource(R.drawable.ic_command_menu); // รูปปากกา res/drawable/ic_command_menu.png
+            pen.setImageResource(R.drawable.btn_pen); // สลับ: ในแถบเมนูใช้รูปตัว C
             pen.setScaleType(ImageView.ScaleType.FIT_CENTER);
             pen.setContentDescription("Command Menu");
             pen.setClickable(true);
             pen.setFocusable(true);
             pen.setLayoutParams(new FrameLayout.LayoutParams(size, size, Gravity.CENTER));
 
-            // กดปากกา -> ปุ่ม C เด้งขึ้นมาเหนือปากกา (กดซ้ำเพื่อซ่อน)
+            // กดปุ่มในแถบเมนู -> ปุ่มที่เด้งขึ้นมาเหนือปุ่มนี้ (กดซ้ำเพื่อซ่อน)
             pen.setOnClickListener(v -> toggleCButton(pen));
 
-            // เอาเมาส์ไปชี้ (hover) ปากกา ก็ให้ปุ่ม C ขึ้นมาได้เลย ไม่ต้องคลิก (เผื่อใช้งานผ่านเมาส์จริงที่ต่อกับแอปนี้)
+            // เอาเมาส์ไปชี้ (hover) ปุ่ม ก็ให้ปุ่มที่เด้งขึ้นมาแสดงได้เลย ไม่ต้องคลิก (เผื่อใช้งานผ่านเมาส์จริงที่ต่อกับแอปนี้)
             pen.setOnHoverListener((v, event) -> {
                 if (event.getAction() == android.view.MotionEvent.ACTION_HOVER_ENTER) {
                     showCButton(pen);
@@ -692,7 +693,7 @@ public class MainActivity extends AppCompatActivity {
         showTerminalDialog();
     }
 
-    // ===== ปุ่ม C ที่เด้งขึ้นมาเหนือปุ่มปากกา =====
+    // ===== ปุ่มที่เด้งขึ้นมาเหนือปุ่มในแถบเมนู =====
     private void toggleCButton(View pen) {
         if (cButton != null && cButton.getParent() != null) hideCButton();
         else showCButton(pen);
@@ -709,7 +710,7 @@ public class MainActivity extends AppCompatActivity {
         ViewGroup content = findViewById(android.R.id.content);
         float d = getResources().getDisplayMetrics().density;
         int size = Math.round(44 * d);
-        int gap = Math.round(90 * d);      // ระยะจากกลางปากกาขึ้นไปถึงกลางปุ่ม C (เพิ่ม = สูงขึ้น, ลด = ต่ำลง)
+        int gap = Math.round(90 * d);      // ระยะจากกลางปุ่มในแถบขึ้นไปถึงกลางปุ่มที่เด้ง (เพิ่ม = สูงขึ้น, ลด = ต่ำลง)
         int offsetX = Math.round(-4 * d);  // เลื่อนซ้าย/ขวา (ลบ = ซ้าย, บวก = ขวา)
 
         int[] pl = new int[2];
@@ -720,9 +721,9 @@ public class MainActivity extends AppCompatActivity {
         int cy = pl[1] - cl[1] + pen.getHeight() / 2;
 
         cButton = new ImageView(this);
-        cButton.setImageResource(R.drawable.btn_pen); // รูปตัว C res/drawable/btn_pen.png (ถ้าชื่อไฟล์อื่น แก้ตรงนี้)
+        cButton.setImageResource(R.drawable.ic_command_menu); // สลับ: ปุ่มที่เด้งขึ้นมาใช้รูปปากกา
         cButton.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        cButton.setContentDescription("C");
+        cButton.setContentDescription("Pen");
         cButton.setElevation(24 * d);
         cButton.setClickable(true);
         cButton.setOnClickListener(v -> {
