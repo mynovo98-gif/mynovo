@@ -402,14 +402,14 @@ public class MainActivity extends AppCompatActivity {
         creditsList.addView(tvCredit2);
 		
 		   TextView tvCredit3 = new TextView(this);
-        tvCredit2.setText("Kisper ครีเอเตอร์");
-        tvCredit2.setTextColor(Color.parseColor("#8BE9FD"));
-        tvCredit2.setTextSize(14f);
-        tvCredit2.setTypeface(null, android.graphics.Typeface.BOLD);
-        tvCredit2.setGravity(Gravity.CENTER_HORIZONTAL);
-        LinearLayout.LayoutParams tvCredit2Params = new LinearLayout.LayoutParams(
+        tvCredit3.]setText("Kisper ครีเอเตอร์");
+        tvCredit3.setTextColor(Color.parseColor("#8BE9FD"));
+        tvCredit3.setTextSize(14f);
+        tvCredit3.setTypeface(null, android.graphics.Typeface.BOLD);
+        tvCredit3.setGravity(Gravity.CENTER_HORIZONTAL);
+        LinearLayout.LayoutParams tvCredit3Params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        tvCredit2.setLayoutParams(tvCredit2Params);
+        tvCredit3.setLayoutParams(tvCredit3Params);
         creditsList.addView(tvCredit3);
 
         // รอให้ layout วัดขนาดจริงเสร็จก่อน ค่อยเริ่มคำนวณระยะเลื่อน (ต้องรู้ความสูงกล่อง + ความสูงชุดเครดิตทั้งหมด)
