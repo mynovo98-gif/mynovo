@@ -43,15 +43,12 @@ public class MouseController {
     private static final float CONST_LEFT_HALF_X = 0.5f;
     private static final float CONST_LEFT_HALF_BAND = 0.5f;
 
-    private static final float CONST_OFFSCREEN_GAIN_X = 0.26f;
+    private static final float CONST_OFFSCREEN_GAIN_X = 0.15f;
     private static final float CONST_OFFSCREEN_GAIN_Y = 1.0f;
     private static final float CONST_OFFSCREEN_BAND = 0.25f;
 
     private static final float CONST_X_SPEED_SCALE = 0.65f;
 
-    // [เพิ่ม] ความนุ่มของตำแหน่งที่ inject (เฉพาะโหมดคงที่) หน่วยมิลลิวินาที
-    // 9 = สมดุล, 12-15 = นุ่มมากแต่หน่วง, 5-6 = ไวขึ้น
-    // อิงเวลาจริง จึงเหมือนกันทุกรีเฟรชเรตของจอ
     private static final float CONST_TAU_MS = 9f;
 
     private static final float DOWN_SAFE_X_MIN = 0.18f;
