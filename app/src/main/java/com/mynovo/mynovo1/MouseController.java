@@ -38,8 +38,8 @@ public class MouseController {
     private static final float VIEW_Y_LIMIT_SCREENS = 1000000f;
     private static final float VIEW_X_LIMIT_SCREENS = 1000000f;
 
-    // [แก้ไข] เดิม 0.3f -> 1.0f ให้ความเร็วหัน X คงที่ทั้งจอ
-    private static final float CONST_LEFT_HALF_GAIN = 1.0f;
+    // [คืนค่าเก่า] แกน X ครึ่งซ้ายช้าลงเหลือ 30% (เดิมในไฟล์ใหม่เป็น 1.0f)
+    private static final float CONST_LEFT_HALF_GAIN = 0.3f;
     private static final float CONST_LEFT_HALF_X = 0.5f;
     private static final float CONST_LEFT_HALF_BAND = 0.5f;
 
@@ -184,8 +184,8 @@ public class MouseController {
         return 1f - (1f - gain) * t;
     }
 
-    // [แก้ไข] เดิม 1.2f -> 0f ไม่ให้ X ช้าลงเมื่อออกนอกจอ
-    private static final float CONST_X_DIST_SLOWDOWN_K = 0f;
+    // [คืนค่าเก่า] X ช้าลงเมื่อออกนอกจอ (เดิมในไฟล์ใหม่เป็น 0f)
+    private static final float CONST_X_DIST_SLOWDOWN_K = 1.2f;
     private static final float CONST_X_DIST_MIN = 0.06f;
 
     private float constOffscreenFactorX(float x, float max) {
