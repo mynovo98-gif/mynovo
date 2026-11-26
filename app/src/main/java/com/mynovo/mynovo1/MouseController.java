@@ -39,7 +39,7 @@ public class MouseController {
     private static final float VIEW_X_LIMIT_SCREENS = 1000000f;
 
     // [คืนค่าเก่า] แกน X ครึ่งซ้ายช้าลงเหลือ 30% (เดิมในไฟล์ใหม่เป็น 1.0f)
-    private static final float CONST_LEFT_HALF_GAIN = 0.3f;
+    private static final float CONST_LEFT_HALF_GAIN = 1.0f;
     private static final float CONST_LEFT_HALF_X = 0.5f;
     private static final float CONST_LEFT_HALF_BAND = 0.5f;
 
@@ -185,8 +185,8 @@ public class MouseController {
     }
 
     // [คืนค่าเก่า] X ช้าลงเมื่อออกนอกจอ (เดิมในไฟล์ใหม่เป็น 0f)
-    private static final float CONST_X_DIST_SLOWDOWN_K = 1.2f;
-    private static final float CONST_X_DIST_MIN = 0.06f;
+    private static final float CONST_X_DIST_SLOWDOWN_K = 0f;
+    private static final float CONST_X_DIST_MIN = 1.0f;
 
     private float constOffscreenFactorX(float x, float max) {
         float d = x < 0f ? -x : (x > max ? x - max : 0f);
@@ -942,9 +942,9 @@ public class MouseController {
                         final double yLim = maxScreenHeight * VIEW_Y_LIMIT_SCREENS;
 
                         for (int i = 0; i < steps; i++) {
-                            viewY += stY * constOffscreenFactor((float) viewY, maxScreenHeight, CONST_OFFSCREEN_GAIN_Y);
-                            viewX += stX * constLeftHalfFactorX((float) viewX)
-                                    * constOffscreenFactorX((float) viewX, maxScreenWidth);
+                               viewY += stY * constOffscreenFactor((float) viewY, maxScreenHeight, CONST_OFFSCREEN_GAIN_Y);
+                               viewX += stX * constLeftHalfFactorX((float) viewX)
+                                               * constOffscreenFactorX((float) viewX, maxScreenWidth);
 
                             if (viewY < -yLim) viewY = -yLim;
                             else if (viewY > maxScreenHeight + yLim) viewY = maxScreenHeight + yLim;
