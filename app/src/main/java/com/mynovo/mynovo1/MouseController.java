@@ -38,7 +38,8 @@ public class MouseController {
     private static final float VIEW_Y_LIMIT_SCREENS = 1000000f;
     private static final float VIEW_X_LIMIT_SCREENS = 1000000f;
 
-    private static final float CONST_LEFT_HALF_GAIN = 0.3f;
+    // [แก้ไข] เดิม 0.3f -> 1.0f ให้ความเร็วหัน X คงที่ทั้งจอ
+    private static final float CONST_LEFT_HALF_GAIN = 1.0f;
     private static final float CONST_LEFT_HALF_X = 0.5f;
     private static final float CONST_LEFT_HALF_BAND = 0.5f;
 
@@ -47,6 +48,11 @@ public class MouseController {
     private static final float CONST_OFFSCREEN_BAND = 0.25f;
 
     private static final float CONST_X_SPEED_SCALE = 0.45f;
+
+    // [เพิ่ม] ความนุ่มของตำแหน่งที่ inject (เฉพาะโหมดคงที่) หน่วยมิลลิวินาที
+    // 9 = สมดุล, 12-15 = นุ่มมากแต่หน่วง, 5-6 = ไวขึ้น
+    // อิงเวลาจริง จึงเหมือนกันทุกรีเฟรชเรตของจอ
+    private static final float CONST_TAU_MS = 9f;
 
     private static final float DOWN_SAFE_X_MIN = 0.18f;
     private static final float DOWN_SAFE_X_MAX = 0.88f;
@@ -72,12 +78,13 @@ public class MouseController {
     private static final float CONST_CAP_DT_MIN_MS = 2f;
     private static final float CONST_CAP_DT_MAX_MS = 16f;
 
-    // [แก้ไข] เดิม 0 (ผูก vsync) -> ตั้งความถี่ inject คงที่ รวม event เหลือตำแหน่งล่าสุดต่อรอบ
-    // ถ้ายังหน่วงลด (166) ถ้าไม่ลื่นเพิ่ม (333) หรือเรียก setViewHz() ตอนใช้งาน
+    // ใช้กับโหมดไม่คงที่ (flick) เท่านั้น โหมดคงที่ inject ตาม vsync
     private static final int DEFAULT_VIEW_HZ = 250;
 
-    private volatile boolean filterEnabled = false;
-    private volatile float filterSmooth = 0.15f;
+    // [แก้ไข] ฟิลเตอร์ใช้เฉพาะโหมดคงที่ เปิดเป็นค่าเริ่มต้น (ปิดได้ด้วย setMouseFilter(false, 0, 0))
+    // smooth 0.3-0.6 ยิ่งสูงยิ่งลื่นแต่หน่วง
+    private volatile boolean filterEnabled = true;
+    private volatile float filterSmooth = 0.4f;
     private volatile float filterDeadzonePx = 0f;
 
     private static final float FILTER_FAST_SPEED = 0.25f;
@@ -177,7 +184,8 @@ public class MouseController {
         return 1f - (1f - gain) * t;
     }
 
-    private static final float CONST_X_DIST_SLOWDOWN_K = 1.2f;
+    // [แก้ไข] เดิม 1.2f -> 0f ไม่ให้ X ช้าลงเมื่อออกนอกจอ
+    private static final float CONST_X_DIST_SLOWDOWN_K = 0f;
     private static final float CONST_X_DIST_MIN = 0.06f;
 
     private float constOffscreenFactorX(float x, float max) {
@@ -224,6 +232,11 @@ public class MouseController {
     private double viewX = 0.0;
     private double viewY = 0.0;
 
+    // [เพิ่ม] ตำแหน่งที่ส่งจริง (ไล่ตาม viewX/viewY) เฉพาะโหมดคงที่
+    private float sx = 0f, sy = 0f;
+    private long smoothTok = 0;
+    private long lastSmoothNs = 0;
+
     private boolean injectScheduled = false;
 
     private int viewInjectHz = DEFAULT_VIEW_HZ;
@@ -240,7 +253,7 @@ public class MouseController {
         }
     };
 
-    // [แก้ไข] callback ยิง ถูกโพสต์ออกจาก hot path ของ event เมาส์
+    // callback ยิง ถูกโพสต์ออกจาก hot path ของ event เมาส์
     // ใช้ handler เดียวกันทั้ง Down/Up เพื่อให้ลำดับถูกต้องเสมอ
     private void fireLeftDown() {
         injectHandler.post(() -> {
@@ -301,12 +314,14 @@ public class MouseController {
                 viewPtr = newPtr;
                 viewX = nx;
                 viewY = ny;
+                smoothTok = 0;
                 return;
             }
         }
         viewPtr = newPtr;
         viewX = nx;
         viewY = ny;
+        smoothTok = 0; // [เพิ่ม] recenter -> ให้ตำแหน่งที่ส่ง snap ตาม ไม่ไถข้ามจอ
     }
 
     private int captureTries = 0;
@@ -575,22 +590,23 @@ public class MouseController {
 
             if (Math.abs(w - maxScreenWidth) < 2f && Math.abs(h - maxScreenHeight) < 2f) return;
 
-            float sx = (maxScreenWidth > 0) ? w / maxScreenWidth : 1f;
-            float sy = (maxScreenHeight > 0) ? h / maxScreenHeight : 1f;
+            float sxf = (maxScreenWidth > 0) ? w / maxScreenWidth : 1f;
+            float syf = (maxScreenHeight > 0) ? h / maxScreenHeight : 1f;
             maxScreenWidth = w;
             maxScreenHeight = h;
             updateOverlaySizes();
 
-            targetBtnX *= sx; targetBtnY *= sy;
-            cursorX = Math.max(0f, Math.min(w - 1, cursorX * sx));
-            cursorY = Math.max(0f, Math.min(h - 1, cursorY * sy));
+            targetBtnX *= sxf; targetBtnY *= syf;
+            cursorX = Math.max(0f, Math.min(w - 1, cursorX * sxf));
+            cursorY = Math.max(0f, Math.min(h - 1, cursorY * syf));
 
             if (mouseMoveToken != 0) {
                 TouchSimulator.simulateUp(mouseMoveToken, viewPtr, Math.round((float) viewX), Math.round((float) viewY));
                 mouseMoveToken = 0;
                 viewPtr = PTR_A;
             }
-            viewX *= sx; viewY *= sy;
+            smoothTok = 0;
+            viewX *= sxf; viewY *= syf;
         } catch (Exception ignored) {}
     }
 
@@ -705,11 +721,10 @@ public class MouseController {
         } catch (Exception ignored) {}
     }
 
-    // [แก้ไข] ลบทางลัด "pressing || !viewFlickAccel" ที่ inject ทุก MotionEvent ทันที
-    // ตอนกดยิง (นิ้วที่ 2) การ inject ทุก event ทำให้ main thread ถูกถ่วงและดีเลย์
-    // ตอนนี้ทุกโหมดไปผ่านการรวม event (vsync หรือ viewInjectHz) เหลือตำแหน่งล่าสุดต่อรอบ
+    // [แก้ไข] โหมดคงที่ (!viewFlickAccel) inject ตาม vsync (1 ครั้งต่อเฟรม)
+    // โหมดอื่นใช้ viewInjectHz เหมือนเดิม (0 = vsync)
     private void scheduleViewInject() {
-        if (viewInjectHz <= 0) {
+        if (viewInjectHz <= 0 || !viewFlickAccel) {
             if (!frameQueued) {
                 try {
                     frameQueued = true;
@@ -737,16 +752,51 @@ public class MouseController {
         }
     }
 
+    // [แก้ไข] โหมดคงที่: ส่งตำแหน่งที่ไล่ตาม viewX/viewY แบบ exponential (อิงเวลาจริง)
     private void doViewInject() {
         injectScheduled = false;
         if (destroyed || isPaused || !isMouseMode || mouseMoveToken == 0) return;
+
+        final boolean constMode = !viewFlickAccel;
         long now = System.nanoTime();
-        long intervalNs = viewInjectHz > 0 ? 1_000_000_000L / viewInjectHz : 0L;
+        long intervalNs = (viewInjectHz > 0 && !constMode) ? 1_000_000_000L / viewInjectHz : 0L;
         lastInjectNs = (intervalNs == 0L || now - lastInjectNs > intervalNs * 2)
                 ? now
                 : lastInjectNs + intervalNs;
 
-        TouchSimulator.simulateMoveF(mouseMoveToken, viewPtr, (float) viewX, (float) viewY);
+        float ox = (float) viewX, oy = (float) viewY;
+        boolean more = false;
+
+        if (constMode) {
+            float dx = ox - sx, dy = oy - sy;
+            boolean snap = smoothTok != mouseMoveToken
+                    || Math.hypot(dx, dy) > maxScreenWidth * 0.3f; // down ใหม่ / recenter
+            if (snap) {
+                sx = ox;
+                sy = oy;
+                smoothTok = mouseMoveToken;
+                lastSmoothNs = 0;
+            } else {
+                float dtMs = lastSmoothNs == 0 ? 8f : Math.min(50f, (now - lastSmoothNs) / 1e6f);
+                lastSmoothNs = now;
+                float a = 1f - (float) Math.exp(-dtMs / CONST_TAU_MS);
+                sx += dx * a;
+                sy += dy * a;
+                more = Math.abs(ox - sx) > 0.5f || Math.abs(oy - sy) > 0.5f;
+                if (!more) {
+                    sx = ox;
+                    sy = oy;
+                    lastSmoothNs = 0;
+                }
+            }
+            ox = sx;
+            oy = sy;
+        }
+
+        TouchSimulator.simulateMoveF(mouseMoveToken, viewPtr, ox, oy);
+
+        // เมาส์หยุดแล้วแต่ตำแหน่งที่ส่งยังไม่ถึงเป้า -> ส่งต่ออีกเฟรมจนถึง
+        if (more) scheduleViewInject();
     }
 
     private void handlePointerEvent(MotionEvent e) {
@@ -788,7 +838,7 @@ public class MouseController {
                 break;
 
             case MotionEvent.ACTION_MOVE:
-                // [แก้ไข] ขอ event แบบไม่ถูก batch ตั้งแต่ต้น
+                // ขอ event แบบไม่ถูก batch ตั้งแต่ต้น
                 try {
                     mouseLockView.requestUnbufferedDispatch(e);
                 } catch (Exception ignored) {}
@@ -826,6 +876,7 @@ public class MouseController {
                             viewY = hasCustomTarget ? targetBtnY : maxScreenHeight * 0.5f;
                         }
                         mouseMoveToken = TouchSimulator.simulateDown(viewPtr, Math.round((float) viewX), Math.round((float) viewY));
+                        smoothTok = 0;
                     }
 
                     long nowNs = System.nanoTime();
@@ -837,7 +888,8 @@ public class MouseController {
                     final float MAX_FRAME_DELTA_X = viewFlickAccel ? MAX_FRAME_DELTA : 1_000_000f;
 
                     float inDx = sumDx, inDy = sumDy;
-                    if (filterEnabled) {
+                    // [แก้ไข] ฟิลเตอร์ทำงานเฉพาะโหมดคงที่
+                    if (filterEnabled && !viewFlickAccel) {
                         applyMouseFilter(sumDx, sumDy, dtMsFull);
                         inDx = fOut[0];
                         inDy = fOut[1];
@@ -932,6 +984,7 @@ public class MouseController {
                         viewX = startX;
                         viewY = startY;
                         mouseMoveToken = TouchSimulator.simulateDown(viewPtr, Math.round((float) viewX), Math.round((float) viewY));
+                        smoothTok = 0;
                     } else {
                         scheduleViewInject();
                     }
@@ -1026,6 +1079,8 @@ public class MouseController {
             if (!wasMouseMode) {
                 lastMoveNs = 0;
                 lostPointerStreak = 0;
+                smoothTok = 0;
+                lastSmoothNs = 0;
                 resetMouseFilter();
 
                 if (mouseMoveToken != 0) {
@@ -1128,6 +1183,8 @@ public class MouseController {
         rightDown = false;
         prevSecondary = false;
         lostPointerStreak = 0;
+        smoothTok = 0;
+        lastSmoothNs = 0;
         resetMouseFilter();
         if (pressing && isMouseMode) {
             pressing = false;
