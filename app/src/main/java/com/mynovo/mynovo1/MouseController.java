@@ -718,8 +718,6 @@ public class MouseController {
         } catch (Exception ignored) {}
     }
 
-    // [แก้ไข] โหมดคงที่ (!viewFlickAccel) inject ตาม vsync (1 ครั้งต่อเฟรม)
-    // โหมดอื่นใช้ viewInjectHz เหมือนเดิม (0 = vsync)
     private void scheduleViewInject() {
         if (viewInjectHz <= 0 || !viewFlickAccel) {
             if (!frameQueued) {
@@ -749,7 +747,6 @@ public class MouseController {
         }
     }
 
-    // [แก้ไข] โหมดคงที่: ส่งตำแหน่งที่ไล่ตาม viewX/viewY แบบ exponential (อิงเวลาจริง)
     private void doViewInject() {
         injectScheduled = false;
         if (destroyed || isPaused || !isMouseMode || mouseMoveToken == 0) return;
@@ -885,7 +882,6 @@ public class MouseController {
                     final float MAX_FRAME_DELTA_X = viewFlickAccel ? MAX_FRAME_DELTA : 1_000_000f;
 
                     float inDx = sumDx, inDy = sumDy;
-                    // [แก้ไข] ฟิลเตอร์ทำงานเฉพาะโหมดคงที่
                     if (filterEnabled && !viewFlickAccel) {
                         applyMouseFilter(sumDx, sumDy, dtMsFull);
                         inDx = fOut[0];
@@ -941,7 +937,7 @@ public class MouseController {
                         for (int i = 0; i < steps; i++) {
                                viewY += stY * constOffscreenFactor((float) viewY, maxScreenHeight, CONST_OFFSCREEN_GAIN_Y);
                                viewX += stX * constLeftHalfFactorX((float) viewX)
-                                               * constOffscreenFactorX((float) viewX, maxScreenWidth);
+                                                 * constOffscreenFactorX((float) viewX, maxScreenWidth);
 
                             if (viewY < -yLim) viewY = -yLim;
                             else if (viewY > maxScreenHeight + yLim) viewY = maxScreenHeight + yLim;
