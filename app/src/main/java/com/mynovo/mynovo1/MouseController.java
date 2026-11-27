@@ -47,7 +47,9 @@ public class MouseController {
     private static final float CONST_OFFSCREEN_GAIN_Y = 1.0f;
     private static final float CONST_OFFSCREEN_BAND = 0.25f;
 
-    private static final float CONST_X_SPEED_SCALE = 0.45f;
+    // [แก้ไข] ย้ายจากค่าคงที่ -> ปรับได้ runtime ผ่าน setConstXSpeedScale()
+    // ผูกกับ UI "X-axis speed (Constant mode)" ในหน้าตั้งค่าปุ่ม View/Mouse Lock (ไม่ใช่ Mouse speed ของระบบ)
+    private volatile float constXSpeedScale = 0.45f;
 
     private static final float CONST_TAU_MS = 9f;
 
@@ -378,6 +380,12 @@ public class MouseController {
         bitGain = Math.max(0f, gain);
         bitMax = Math.max(1f, max);
     }
+
+    // [เพิ่ม] ตัวคูณความเร็วแกน X เฉพาะโหมด Constant ปรับได้จากหน้าตั้งค่าปุ่ม View/Mouse Lock
+    public void setConstXSpeedScale(float v) {
+        constXSpeedScale = Math.max(0.05f, Math.min(2f, v));
+    }
+    public float getConstXSpeedScale() { return constXSpeedScale; }
 
     private final MouseEventListener eventListener;
 
@@ -921,7 +929,7 @@ public class MouseController {
                     final boolean useConst = VIEW_CONSTANT_ZONE || !viewFlickAccel;
 
                     if (useConst) {
-                        final float mvX = dx * gain * viewSensX * CONST_X_SPEED_SCALE;
+                        final float mvX = dx * gain * viewSensX * constXSpeedScale;
                         final float mvY = dy * gain * viewSensY;
 
                         final float needX = Math.abs(mvX) / Math.max(1f, maxScreenWidth * STEP_MAX_FRAC);
