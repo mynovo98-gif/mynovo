@@ -70,18 +70,27 @@ public class MouseController {
     private static final float POST_GAP_MAX_V = 0.8f;
     private static final float POST_GAP_CAP_DT_MS = 16f;
 
-    private static final float CONST_MAX_RAW_SPEED_X = 0f;
-    private static final float CONST_MAX_RAW_SPEED_Y = 0f;
+    // (ไม่มีการจำกัดความเร็วในโหมดคงที่แล้ว)
+    // ใช้ clamp dt เฉพาะคำนวณความเร็วสำหรับ slow boost
     private static final float CONST_CAP_DT_MIN_MS = 2f;
     private static final float CONST_CAP_DT_MAX_MS = 16f;
 
-    // ใช้กับโหมดไม่คงที่ (flick) เท่านั้น โหมดคงที่ inject ตาม vsync
+    // ===================== ช่วยให้ขยับนิดเดียวก็ขยับ (โหมดคงที่) =====================
+    // ตอนเมาส์ขยับช้ามาก ๆ เพิ่ม gain ให้อีกสูงสุด CONST_SLOW_BOOST เท่า แล้วค่อย ๆ ลดเป็น 1 เมื่อเร็วขึ้น
+    // CONST_SLOW_REF = ความเร็ว (count/ms) ที่ boost หายหมด
+    // ปิดได้โดยตั้ง CONST_SLOW_BOOST = 0
+    private static final float CONST_SLOW_BOOST = 0.5f;
+    private static final float CONST_SLOW_REF = 1.5f;
+
+    // polling rate ของการ inject (Hz) ใช้ได้ทั้งโหมดคงที่และโหมด flick
+    //  0 = ตาม vsync (Choreographer)
     private static final int DEFAULT_VIEW_HZ = 250;
 
     // ===================== One Euro Filter (ใช้เฉพาะโหมดคงที่) =====================
     // ปิดได้ด้วย setMouseFilter(false, 0, 0)
     // filterSmooth 0..1  : ยิ่งสูง = นิ่งขึ้นตอนขยับช้า (minCutoff ต่ำลง) แต่หน่วงขึ้น
     // filterBeta         : ยิ่งสูง = ตอบสนองไวขึ้นตอนขยับเร็ว (ปรับด้วย setMouseFilterBeta)
+    // [ละเอียดขึ้น] กรองทีละ sample (รวม historical ในแต่ละ event) แทนการรวมเป็นก้อนเดียวแล้วกรองครั้งเดียว
     private volatile boolean filterEnabled = true;
     private volatile float filterSmooth = 0.4f;
     private volatile float filterDeadzonePx = 0f;
@@ -100,6 +109,8 @@ public class MouseController {
     private static final float FILTER_RESET_GAP_MS = 120f;
     private static final float FILTER_AVG_ATTACK = 0.9f;
     private static final float FILTER_AVG_RELEASE = 0.2f;
+    // dt ต่อ sample ต่ำสุด (ms) รองรับเมาส์ 4k-8k Hz
+    private static final float FILTER_MIN_DT_MS = 0.1f;
 
     private float fPrevX, fPrevY, fAccX, fAccY, fAvgMag, fSpeed;
     private final float[] fOut = new float[2];
@@ -114,12 +125,12 @@ public class MouseController {
         return dtMs / (dtMs + tauMs);
     }
 
-    // Result is stored in fOut[0], fOut[1].
+    // กรอง 1 sample. ผลลัพธ์อยู่ใน fOut[0], fOut[1]
+    // (การ reset เมื่อเว้นช่วงนาน ทำที่ผู้เรียก ก่อนวนลูป sample)
     private void applyMouseFilter(float dx, float dy, float dtMs) {
-        final float dt = Math.max(1f, Math.min(32f, dtMs));
-        if (dtMs > FILTER_RESET_GAP_MS) resetMouseFilter();
+        final float dt = Math.max(FILTER_MIN_DT_MS, Math.min(32f, dtMs));
 
-        // กัน spike (เหมือนเดิม)
+        // กัน spike
         float rawMag = (float) Math.hypot(dx, dy);
         float mag = rawMag;
         float cap = Math.max(FILTER_SPIKE_MIN_PX, fAvgMag * FILTER_SPIKE_RATIO);
@@ -170,6 +181,7 @@ public class MouseController {
     public void setMouseFilterBeta(float beta) {
         filterBeta = Math.max(0f, beta);
     }
+
     // ==============================================================================
 
     private float offscreenFactor(float v, float max, float gainOut) {
@@ -210,6 +222,10 @@ public class MouseController {
         return 1f - (1f - gain) * t;
     }
 
+    // X ช้าลงเมื่อออกนอกจอ "ฝั่งขวาเท่านั้น" (ฝั่งซ้ายไม่แตะ)
+    // ที่มาของค่า: ในจอขวารู้สึก ~30 / นอกจอขวารู้สึก ~70  ->  30/70 = 0.43
+    // K = ความชันของการลด (ยิ่งสูงยิ่งลดถึง MIN เร็วหลังพ้นขอบ)
+    //     ถึง MIN เมื่อ d/จอ = (1/MIN - 1)/K = 1.33/20 ~ 0.066 ของความกว้างจอ
     private static final float CONST_X_DIST_SLOWDOWN_K = 20f;
     private static final float CONST_X_DIST_MIN = 0.43f;
 
@@ -257,7 +273,7 @@ public class MouseController {
     private double viewX = 0.0;
     private double viewY = 0.0;
 
-    // [เพิ่ม] ตำแหน่งที่ส่งจริง (ไล่ตาม viewX/viewY) เฉพาะโหมดคงที่
+    // ตำแหน่งที่ส่งจริง (ไล่ตาม viewX/viewY) เฉพาะโหมดคงที่
     private float sx = 0f, sy = 0f;
     private long smoothTok = 0;
     private long lastSmoothNs = 0;
@@ -346,7 +362,7 @@ public class MouseController {
         viewPtr = newPtr;
         viewX = nx;
         viewY = ny;
-        smoothTok = 0; // [เพิ่ม] recenter -> ให้ตำแหน่งที่ส่ง snap ตาม ไม่ไถข้ามจอ
+        smoothTok = 0; // recenter -> ให้ตำแหน่งที่ส่ง snap ตาม ไม่ไถข้ามจอ
     }
 
     private int captureTries = 0;
@@ -480,6 +496,7 @@ public class MouseController {
 
     public float getViewTweak() { return viewTweak; }
 
+    // hz <= 0 -> ตาม vsync. ใช้ได้ทั้งโหมดคงที่และโหมด flick
     public void setViewHz(int hz) {
         if (hz <= 0) {
             this.viewInjectHz = 0;
@@ -746,8 +763,9 @@ public class MouseController {
         } catch (Exception ignored) {}
     }
 
+    // [แก้] ใช้ viewInjectHz ได้ทั้งสองโหมด (เดิมโหมดคงที่ถูกบังคับให้ตาม vsync เสมอ)
     private void scheduleViewInject() {
-        if (viewInjectHz <= 0 || !viewFlickAccel) {
+        if (viewInjectHz <= 0) {
             if (!frameQueued) {
                 try {
                     frameQueued = true;
@@ -781,7 +799,8 @@ public class MouseController {
 
         final boolean constMode = !viewFlickAccel;
         long now = System.nanoTime();
-        long intervalNs = (viewInjectHz > 0 && !constMode) ? 1_000_000_000L / viewInjectHz : 0L;
+        // [แก้] จังหวะ inject ตาม viewInjectHz ทั้งโหมดคงที่และ flick (0 = ตาม vsync)
+        long intervalNs = (viewInjectHz > 0) ? 1_000_000_000L / viewInjectHz : 0L;
         lastInjectNs = (intervalNs == 0L || now - lastInjectNs > intervalNs * 2)
                 ? now
                 : lastInjectNs + intervalNs;
@@ -799,12 +818,14 @@ public class MouseController {
                 smoothTok = mouseMoveToken;
                 lastSmoothNs = 0;
             } else {
+                // dt จริงระหว่างการ inject -> ความนุ่มไม่ขึ้นกับค่า Hz ที่ตั้ง
                 float dtMs = lastSmoothNs == 0 ? 8f : Math.min(50f, (now - lastSmoothNs) / 1e6f);
                 lastSmoothNs = now;
                 float a = 1f - (float) Math.exp(-dtMs / CONST_TAU_MS);
                 sx += dx * a;
                 sy += dy * a;
-                more = Math.abs(ox - sx) > 0.5f || Math.abs(oy - sy) > 0.5f;
+                // threshold เล็กลง: การขยับระดับ sub-pixel ก็ยังถูกส่งออกไป
+                more = Math.abs(ox - sx) > 0.05f || Math.abs(oy - sy) > 0.05f;
                 if (!more) {
                     sx = ox;
                     sy = oy;
@@ -865,9 +886,10 @@ public class MouseController {
                     mouseLockView.requestUnbufferedDispatch(e);
                 } catch (Exception ignored) {}
 
+                final int histSize = e.getHistorySize();
                 float sumDx = e.getX();
                 float sumDy = e.getY();
-                for (int h = 0; h < e.getHistorySize(); h++) {
+                for (int h = 0; h < histSize; h++) {
                     sumDx += e.getHistoricalX(h);
                     sumDy += e.getHistoricalY(h);
                 }
@@ -911,9 +933,21 @@ public class MouseController {
 
                     float inDx = sumDx, inDy = sumDy;
                     if (filterEnabled && !viewFlickAccel) {
-                        applyMouseFilter(sumDx, sumDy, dtMsFull);
-                        inDx = fOut[0];
-                        inDy = fOut[1];
+                        // [ละเอียดขึ้น] กรองทีละ sample: แต่ละ event อาจมี historical หลายจุด
+                        // แบ่ง dt ของทั้ง event ให้แต่ละ sample เท่า ๆ กัน (ไม่ต้องพึ่ง timestamp ที่ละเอียดแค่ ms)
+                        if (dtMsFull > FILTER_RESET_GAP_MS) resetMouseFilter();
+                        final int n = histSize + 1;
+                        final float sampleDt = Math.max(FILTER_MIN_DT_MS, Math.min(32f, dtMsFull / n));
+                        float accX = 0f, accY = 0f;
+                        for (int h = 0; h < n; h++) {
+                            final float sdx = (h < histSize) ? e.getHistoricalX(h) : e.getX();
+                            final float sdy = (h < histSize) ? e.getHistoricalY(h) : e.getY();
+                            applyMouseFilter(sdx, sdy, sampleDt);
+                            accX += fOut[0];
+                            accY += fOut[1];
+                        }
+                        inDx = accX;
+                        inDy = accY;
                     }
                     float dx = Math.max(-MAX_FRAME_DELTA_X, Math.min(MAX_FRAME_DELTA_X, inDx));
                     float dy = Math.max(-MAX_FRAME_DELTA, Math.min(MAX_FRAME_DELTA, inDy));
@@ -924,15 +958,16 @@ public class MouseController {
                         dy = Math.max(-capPx, Math.min(capPx, dy));
                     }
 
+                    float slowBoost = 1f;
                     if (!viewFlickAccel) {
                         final float capDt = Math.max(CONST_CAP_DT_MIN_MS, Math.min(dtMsFull, CONST_CAP_DT_MAX_MS));
-                        if (CONST_MAX_RAW_SPEED_X > 0f) {
-                            final float capRawX = CONST_MAX_RAW_SPEED_X * capDt;
-                            dx = Math.max(-capRawX, Math.min(capRawX, dx));
-                        }
-                        if (CONST_MAX_RAW_SPEED_Y > 0f) {
-                            final float capRawY = CONST_MAX_RAW_SPEED_Y * capDt;
-                            dy = Math.max(-capRawY, Math.min(capRawY, dy));
+
+                        // ขยับช้ามาก ๆ -> เพิ่ม gain เล็กน้อย ให้ขยับนิดเดียวก็เห็นผล
+                        if (CONST_SLOW_BOOST > 0f) {
+                            final float spd = (float) Math.hypot(dx, dy) / capDt; // count/ms
+                            float t = Math.min(1f, spd / Math.max(0.01f, CONST_SLOW_REF));
+                            t = t * t * (3f - 2f * t);
+                            slowBoost = 1f + CONST_SLOW_BOOST * (1f - t);
                         }
                     }
 
@@ -949,8 +984,8 @@ public class MouseController {
                     final boolean useConst = VIEW_CONSTANT_ZONE || !viewFlickAccel;
 
                     if (useConst) {
-                        final float mvX = dx * gain * viewSensX * CONST_X_SPEED_SCALE;
-                        final float mvY = dy * gain * viewSensY;
+                        final float mvX = dx * gain * viewSensX * CONST_X_SPEED_SCALE * slowBoost;
+                        final float mvY = dy * gain * viewSensY * slowBoost;
 
                         final float needX = Math.abs(mvX) / Math.max(1f, maxScreenWidth * STEP_MAX_FRAC);
                         final float needY = Math.abs(mvY) / Math.max(1f, maxScreenHeight * STEP_MAX_FRAC);
@@ -963,9 +998,9 @@ public class MouseController {
                         final double yLim = maxScreenHeight * VIEW_Y_LIMIT_SCREENS;
 
                         for (int i = 0; i < steps; i++) {
-                               viewY += stY * constOffscreenFactor((float) viewY, maxScreenHeight, CONST_OFFSCREEN_GAIN_Y);
-                               viewX += stX * constLeftHalfFactorX((float) viewX)
-                                                 * constOffscreenFactorX((float) viewX, maxScreenWidth);
+                            viewY += stY * constOffscreenFactor((float) viewY, maxScreenHeight, CONST_OFFSCREEN_GAIN_Y);
+                            viewX += stX * constLeftHalfFactorX((float) viewX)
+                                    * constOffscreenFactorX((float) viewX, maxScreenWidth);
 
                             if (viewY < -yLim) viewY = -yLim;
                             else if (viewY > maxScreenHeight + yLim) viewY = maxScreenHeight + yLim;
@@ -1257,4 +1292,4 @@ public class MouseController {
             }
         } catch (Exception ignored) {}
     }
-    }
+}
