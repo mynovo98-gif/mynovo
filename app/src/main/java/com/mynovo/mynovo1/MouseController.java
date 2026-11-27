@@ -25,8 +25,6 @@ public class MouseController {
 
     private static final boolean OVERLAP_RECENTER = true;
 
-    // true = ห้ามยกนิ้ววางใหม่ระหว่างใช้งาน (ปิดการ recenter ทุกแบบ: Up แล้ว Down ใหม่)
-    // ยังเหลือแค่กรณีบังคับ: ระบบ/เกมตัด pointer เอง (token หาย), เปลี่ยนขนาดจอ, สลับโหมด
     private static final boolean NEVER_LIFT = true;
 
     private static final float VIEW_EDGE_MARGIN_X = 1000000f;
@@ -42,7 +40,6 @@ public class MouseController {
     private static final float VIEW_Y_LIMIT_SCREENS = 1000000f;
     private static final float VIEW_X_LIMIT_SCREENS = 1000000f;
 
-    // [คืนค่าเก่า] แกน X ครึ่งซ้ายช้าลงเหลือ 30% (เดิมในไฟล์ใหม่เป็น 1.0f)
     private static final float CONST_LEFT_HALF_GAIN = 0.3f;
     private static final float CONST_LEFT_HALF_X = 0.7f;
     private static final float CONST_LEFT_HALF_BAND = 0.5f;
@@ -51,7 +48,7 @@ public class MouseController {
     private static final float CONST_OFFSCREEN_GAIN_Y = 1.0f;
     private static final float CONST_OFFSCREEN_BAND = 0.25f;
 
-    private static final float CONST_X_SPEED_SCALE = 0.45f;
+    private static final float CONST_X_SPEED_SCALE = 0.3f;
 
     private static final float CONST_TAU_MS = 9f;
 
@@ -74,48 +71,27 @@ public class MouseController {
     private static final float POST_GAP_MAX_V = 0.8f;
     private static final float POST_GAP_CAP_DT_MS = 16f;
 
-    // (ไม่มีการจำกัดความเร็วในโหมดคงที่แล้ว)
-    // ใช้ clamp dt เฉพาะคำนวณความเร็วสำหรับ slow boost
     private static final float CONST_CAP_DT_MIN_MS = 2f;
     private static final float CONST_CAP_DT_MAX_MS = 16f;
 
-    // ===================== ช่วยให้ขยับนิดเดียวก็ขยับ (โหมดคงที่) =====================
-    // ตอนเมาส์ขยับช้ามาก ๆ เพิ่ม gain ให้อีกสูงสุด CONST_SLOW_BOOST เท่า แล้วค่อย ๆ ลดเป็น 1 เมื่อเร็วขึ้น
-    // CONST_SLOW_REF = ความเร็ว (count/ms) ที่ boost หายหมด
-    // ปิดได้โดยตั้ง CONST_SLOW_BOOST = 0
     private static final float CONST_SLOW_BOOST = 0.5f;
     private static final float CONST_SLOW_REF = 1.5f;
 
-    // ===================== ยกเมาส์ (เว้นช่วงแล้วขยับใหม่) =====================
-    // ถ้าเว้นเกิน LIFT_GAP_MS ถือว่ายกเมาส์ -> event แรกหลังยกจะไม่ใช้ช่วงที่เว้นมาคำนวณความเร็ว
-    // (เดิมเอา gap ทั้งก้อนไปคิด -> ดูเหมือน "ช้ามาก" -> ได้ slow boost เต็ม + filter แทบไม่กรอง = พุ่งตอนเริ่มหัน)
-    // ใช้ LIFT_NOMINAL_DT_MS แทน และปิด boost ไป LIFT_NO_BOOST_EVENTS event แรก
-    // นอกจอขวา (viewX > กว้างจอ) ปิด boost เสมอ เพื่อให้ยังช้าตามที่ตั้งไว้
     private static final float LIFT_GAP_MS = 40f;
     private static final float LIFT_NOMINAL_DT_MS = 4f;
     private static final int LIFT_NO_BOOST_EVENTS = 6;
     private int resumeEvents = 0;
 
-    // polling rate ของการ inject (Hz) ใช้ได้ทั้งโหมดคงที่และโหมด flick
-    //  0 = ตาม vsync (Choreographer)
     private static final int DEFAULT_VIEW_HZ = 250;
 
-    // ===================== One Euro Filter (ใช้เฉพาะโหมดคงที่) =====================
-    // ปิดได้ด้วย setMouseFilter(false, 0, 0)
-    // filterSmooth 0..1  : ยิ่งสูง = นิ่งขึ้นตอนขยับช้า (minCutoff ต่ำลง) แต่หน่วงขึ้น
-    // filterBeta         : ยิ่งสูง = ตอบสนองไวขึ้นตอนขยับเร็ว (ปรับด้วย setMouseFilterBeta)
-    // [ละเอียดขึ้น] กรองทีละ sample (รวม historical ในแต่ละ event) แทนการรวมเป็นก้อนเดียวแล้วกรองครั้งเดียว
     private volatile boolean filterEnabled = true;
     private volatile float filterSmooth = 0.4f;
     private volatile float filterDeadzonePx = 0f;
     private volatile float filterBeta = 600f;
 
-    // smooth=0 -> cutoff 60Hz (แทบไม่กรอง), smooth=1 -> cutoff 8Hz (นิ่งสุด)
     private static final float OE_MIN_CUTOFF_HI = 60f;
     private static final float OE_MIN_CUTOFF_LO = 8f;
-    // cutoff ของตัวกรองความเร็ว (ใช้ตัดสินว่ากำลังขยับเร็วหรือช้า)
     private static final float OE_D_CUTOFF = 25f;
-    // เพดาน cutoff กันไม่ให้สูงเกินจำเป็น
     private static final float OE_MAX_CUTOFF = 400f;
 
     private static final float FILTER_SPIKE_RATIO = 6f;
@@ -123,7 +99,6 @@ public class MouseController {
     private static final float FILTER_RESET_GAP_MS = 120f;
     private static final float FILTER_AVG_ATTACK = 0.9f;
     private static final float FILTER_AVG_RELEASE = 0.2f;
-    // dt ต่อ sample ต่ำสุด (ms) รองรับเมาส์ 4k-8k Hz
     private static final float FILTER_MIN_DT_MS = 0.1f;
 
     private float fPrevX, fPrevY, fAccX, fAccY, fAvgMag, fSpeed;
@@ -133,18 +108,14 @@ public class MouseController {
         fPrevX = fPrevY = fAccX = fAccY = fAvgMag = fSpeed = 0f;
     }
 
-    // alpha ของ low-pass จาก cutoff (Hz) และ dt (ms) -> ไม่ขึ้นกับ polling rate ของเมาส์
     private static float oneEuroAlpha(float cutoffHz, float dtMs) {
-        final float tauMs = 159.15494f / Math.max(0.01f, cutoffHz); // 1/(2*pi*fc) เป็น ms
+        final float tauMs = 159.15494f / Math.max(0.01f, cutoffHz);
         return dtMs / (dtMs + tauMs);
     }
 
-    // กรอง 1 sample. ผลลัพธ์อยู่ใน fOut[0], fOut[1]
-    // (การ reset เมื่อเว้นช่วงนาน ทำที่ผู้เรียก ก่อนวนลูป sample)
     private void applyMouseFilter(float dx, float dy, float dtMs) {
         final float dt = Math.max(FILTER_MIN_DT_MS, Math.min(32f, dtMs));
 
-        // กัน spike
         float rawMag = (float) Math.hypot(dx, dy);
         float mag = rawMag;
         float cap = Math.max(FILTER_SPIKE_MIN_PX, fAvgMag * FILTER_SPIKE_RATIO);
@@ -155,17 +126,14 @@ public class MouseController {
         float avgAlpha = (rawMag > fAvgMag) ? FILTER_AVG_ATTACK : FILTER_AVG_RELEASE;
         fAvgMag += avgAlpha * (rawMag - fAvgMag);
 
-        // 1) ความเร็ว (px/ms) แล้วกรองให้เรียบ
         final float speed = mag / dt;
         fSpeed += oneEuroAlpha(OE_D_CUTOFF, dt) * (speed - fSpeed);
 
-        // 2) cutoff ปรับตามความเร็ว: ช้า -> ต่ำ (นิ่ง) / เร็ว -> สูง (ไม่หน่วง)
         final float sm = Math.max(0f, Math.min(1f, filterSmooth));
         final float minCutoff = OE_MIN_CUTOFF_HI - (OE_MIN_CUTOFF_HI - OE_MIN_CUTOFF_LO) * sm;
         final float cutoff = Math.min(OE_MAX_CUTOFF, minCutoff + Math.max(0f, filterBeta) * fSpeed);
         final float alpha = oneEuroAlpha(cutoff, dt);
 
-        // 3) low-pass
         fPrevX += alpha * (dx - fPrevX);
         fPrevY += alpha * (dy - fPrevY);
         float ox = fPrevX, oy = fPrevY;
@@ -191,12 +159,10 @@ public class MouseController {
         resetMouseFilter();
     }
 
-    // beta: ~200 = นิ่งมาก/หน่วงกว่า, ~600 = ค่าเริ่มต้น, ~1500 = ไวมาก/นิ่งน้อยลง
     public void setMouseFilterBeta(float beta) {
         filterBeta = Math.max(0f, beta);
     }
 
-    // ==============================================================================
 
     private float offscreenFactor(float v, float max, float gainOut) {
         float d = v < 0f ? -v : (v > max ? v - max : 0f);
@@ -236,12 +202,9 @@ public class MouseController {
         return 1f - (1f - gain) * t;
     }
 
-    // X ช้าลงเมื่อออกนอกจอ "ฝั่งขวาเท่านั้น" (ฝั่งซ้ายไม่แตะ)
-    // ที่มาของค่า: ในจอขวารู้สึก ~30 / นอกจอขวารู้สึก ~70  ->  30/70 = 0.43
-    // K = ความชันของการลด (ยิ่งสูงยิ่งลดถึง MIN เร็วหลังพ้นขอบ)
-    //     ถึง MIN เมื่อ d/จอ = (1/MIN - 1)/K = 1.33/20 ~ 0.066 ของความกว้างจอ
-    private static final float CONST_X_DIST_SLOWDOWN_K = 20f;
-    private static final float CONST_X_DIST_MIN = 0.43f;
+    
+    private static final float CONST_X_DIST_SLOWDOWN_K = 30f;
+    private static final float CONST_X_DIST_MIN = 0.25f;
 
     private float constOffscreenFactorX(float x, float max) {
         if (x <= max) return 1f;
@@ -287,7 +250,6 @@ public class MouseController {
     private double viewX = 0.0;
     private double viewY = 0.0;
 
-    // ตำแหน่งที่ส่งจริง (ไล่ตาม viewX/viewY) เฉพาะโหมดคงที่
     private float sx = 0f, sy = 0f;
     private long smoothTok = 0;
     private long lastSmoothNs = 0;
@@ -308,8 +270,6 @@ public class MouseController {
         }
     };
 
-    // callback ยิง ถูกโพสต์ออกจาก hot path ของ event เมาส์
-    // ใช้ handler เดียวกันทั้ง Down/Up เพื่อให้ลำดับถูกต้องเสมอ
     private void fireLeftDown() {
         injectHandler.post(() -> {
             if (eventListener != null) eventListener.onMouseLockedLeftDown();
@@ -510,7 +470,6 @@ public class MouseController {
 
     public float getViewTweak() { return viewTweak; }
 
-    // hz <= 0 -> ตาม vsync. ใช้ได้ทั้งโหมดคงที่และโหมด flick
     public void setViewHz(int hz) {
         if (hz <= 0) {
             this.viewInjectHz = 0;
@@ -813,7 +772,6 @@ public class MouseController {
 
         final boolean constMode = !viewFlickAccel;
         long now = System.nanoTime();
-        // [แก้] จังหวะ inject ตาม viewInjectHz ทั้งโหมดคงที่และ flick (0 = ตาม vsync)
         long intervalNs = (viewInjectHz > 0) ? 1_000_000_000L / viewInjectHz : 0L;
         lastInjectNs = (intervalNs == 0L || now - lastInjectNs > intervalNs * 2)
                 ? now
@@ -825,20 +783,20 @@ public class MouseController {
         if (constMode) {
             float dx = ox - sx, dy = oy - sy;
             boolean snap = smoothTok != mouseMoveToken
-                    || Math.hypot(dx, dy) > maxScreenWidth * 0.3f; // down ใหม่ / recenter
+                    || Math.hypot(dx, dy) > maxScreenWidth * 0.3f;
             if (snap) {
                 sx = ox;
                 sy = oy;
                 smoothTok = mouseMoveToken;
                 lastSmoothNs = 0;
             } else {
-                // dt จริงระหว่างการ inject -> ความนุ่มไม่ขึ้นกับค่า Hz ที่ตั้ง
+                
                 float dtMs = lastSmoothNs == 0 ? 8f : Math.min(50f, (now - lastSmoothNs) / 1e6f);
                 lastSmoothNs = now;
                 float a = 1f - (float) Math.exp(-dtMs / CONST_TAU_MS);
                 sx += dx * a;
                 sy += dy * a;
-                // threshold เล็กลง: การขยับระดับ sub-pixel ก็ยังถูกส่งออกไป
+                
                 more = Math.abs(ox - sx) > 0.05f || Math.abs(oy - sy) > 0.05f;
                 if (!more) {
                     sx = ox;
@@ -852,7 +810,6 @@ public class MouseController {
 
         TouchSimulator.simulateMoveF(mouseMoveToken, viewPtr, ox, oy);
 
-        // เมาส์หยุดแล้วแต่ตำแหน่งที่ส่งยังไม่ถึงเป้า -> ส่งต่ออีกเฟรมจนถึง
         if (more) scheduleViewInject();
     }
 
@@ -887,7 +844,6 @@ public class MouseController {
 
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_SCROLL:
-                // [ลูกกลิ้งเมาส์] ทำงานเฉพาะโหมดปกติ (โหมด View ไม่ส่ง เพื่อไม่รบกวนการหมุนกล้อง)
                 if (!isMouseMode && !typingMode) {
                     float vs = e.getAxisValue(MotionEvent.AXIS_VSCROLL);
                     if (vs != 0f) eventListener.onMouseWheel(cursorX, cursorY, vs);
@@ -895,7 +851,7 @@ public class MouseController {
                 break;
 
             case MotionEvent.ACTION_MOVE:
-                // ขอ event แบบไม่ถูก batch ตั้งแต่ต้น
+                
                 try {
                     mouseLockView.requestUnbufferedDispatch(e);
                 } catch (Exception ignored) {}
@@ -945,7 +901,6 @@ public class MouseController {
                     final float MAX_FRAME_DELTA = 1500f;
                     final float MAX_FRAME_DELTA_X = viewFlickAccel ? MAX_FRAME_DELTA : 1_000_000f;
 
-                    // ยกเมาส์แล้ววางใหม่: ไม่เอาช่วงที่เว้นมาคิดเป็น dt
                     final boolean afterGap = dtMsFull > LIFT_GAP_MS;
                     final float dtEff = afterGap ? LIFT_NOMINAL_DT_MS : dtMsFull;
                     if (afterGap) {
@@ -955,8 +910,7 @@ public class MouseController {
 
                     float inDx = sumDx, inDy = sumDy;
                     if (filterEnabled && !viewFlickAccel) {
-                        // [ละเอียดขึ้น] กรองทีละ sample: แต่ละ event อาจมี historical หลายจุด
-                        // แบ่ง dt ของทั้ง event ให้แต่ละ sample เท่า ๆ กัน (ไม่ต้องพึ่ง timestamp ที่ละเอียดแค่ ms)
+                    
                         final int n = histSize + 1;
                         final float sampleDt = Math.max(FILTER_MIN_DT_MS, Math.min(32f, dtEff / n));
                         float accX = 0f, accY = 0f;
@@ -983,8 +937,7 @@ public class MouseController {
                     if (!viewFlickAccel) {
                         final float capDt = Math.max(CONST_CAP_DT_MIN_MS, Math.min(dtEff, CONST_CAP_DT_MAX_MS));
 
-                        // ขยับช้ามาก ๆ -> เพิ่ม gain เล็กน้อย ให้ขยับนิดเดียวก็เห็นผล
-                        // ไม่ boost: ช่วงแรกหลังยกเมาส์ / ตอนอยู่นอกจอขวา
+                        
                         final boolean noBoost = resumeEvents > 0 || viewX > maxScreenWidth;
                         if (resumeEvents > 0) resumeEvents--;
                         if (CONST_SLOW_BOOST > 0f && !noBoost) {
