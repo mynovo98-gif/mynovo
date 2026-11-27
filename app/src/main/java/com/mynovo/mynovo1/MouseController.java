@@ -25,6 +25,10 @@ public class MouseController {
 
     private static final boolean OVERLAP_RECENTER = true;
 
+    // true = ห้ามยกนิ้ววางใหม่ระหว่างใช้งาน (ปิดการ recenter ทุกแบบ: Up แล้ว Down ใหม่)
+    // ยังเหลือแค่กรณีบังคับ: ระบบ/เกมตัด pointer เอง (token หาย), เปลี่ยนขนาดจอ, สลับโหมด
+    private static final boolean NEVER_LIFT = true;
+
     private static final float VIEW_EDGE_MARGIN_X = 1000000f;
     private static final float VIEW_EDGE_MARGIN_Y = 1000000f;
 
@@ -81,6 +85,16 @@ public class MouseController {
     // ปิดได้โดยตั้ง CONST_SLOW_BOOST = 0
     private static final float CONST_SLOW_BOOST = 0.5f;
     private static final float CONST_SLOW_REF = 1.5f;
+
+    // ===================== ยกเมาส์ (เว้นช่วงแล้วขยับใหม่) =====================
+    // ถ้าเว้นเกิน LIFT_GAP_MS ถือว่ายกเมาส์ -> event แรกหลังยกจะไม่ใช้ช่วงที่เว้นมาคำนวณความเร็ว
+    // (เดิมเอา gap ทั้งก้อนไปคิด -> ดูเหมือน "ช้ามาก" -> ได้ slow boost เต็ม + filter แทบไม่กรอง = พุ่งตอนเริ่มหัน)
+    // ใช้ LIFT_NOMINAL_DT_MS แทน และปิด boost ไป LIFT_NO_BOOST_EVENTS event แรก
+    // นอกจอขวา (viewX > กว้างจอ) ปิด boost เสมอ เพื่อให้ยังช้าตามที่ตั้งไว้
+    private static final float LIFT_GAP_MS = 40f;
+    private static final float LIFT_NOMINAL_DT_MS = 4f;
+    private static final int LIFT_NO_BOOST_EVENTS = 6;
+    private int resumeEvents = 0;
 
     // polling rate ของการ inject (Hz) ใช้ได้ทั้งโหมดคงที่และโหมด flick
     //  0 = ตาม vsync (Choreographer)
@@ -320,7 +334,7 @@ public class MouseController {
     }
 
     private void recenterIfOutside() {
-        if (mouseMoveToken == 0) return;
+        if (NEVER_LIFT || mouseMoveToken == 0) return;
 
         final float mx = maxScreenWidth * VIEW_EDGE_MARGIN_X;
         final float my = maxScreenHeight * VIEW_EDGE_MARGIN_Y;
@@ -931,13 +945,20 @@ public class MouseController {
                     final float MAX_FRAME_DELTA = 1500f;
                     final float MAX_FRAME_DELTA_X = viewFlickAccel ? MAX_FRAME_DELTA : 1_000_000f;
 
+                    // ยกเมาส์แล้ววางใหม่: ไม่เอาช่วงที่เว้นมาคิดเป็น dt
+                    final boolean afterGap = dtMsFull > LIFT_GAP_MS;
+                    final float dtEff = afterGap ? LIFT_NOMINAL_DT_MS : dtMsFull;
+                    if (afterGap) {
+                        resumeEvents = LIFT_NO_BOOST_EVENTS;
+                        resetMouseFilter();
+                    }
+
                     float inDx = sumDx, inDy = sumDy;
                     if (filterEnabled && !viewFlickAccel) {
                         // [ละเอียดขึ้น] กรองทีละ sample: แต่ละ event อาจมี historical หลายจุด
                         // แบ่ง dt ของทั้ง event ให้แต่ละ sample เท่า ๆ กัน (ไม่ต้องพึ่ง timestamp ที่ละเอียดแค่ ms)
-                        if (dtMsFull > FILTER_RESET_GAP_MS) resetMouseFilter();
                         final int n = histSize + 1;
-                        final float sampleDt = Math.max(FILTER_MIN_DT_MS, Math.min(32f, dtMsFull / n));
+                        final float sampleDt = Math.max(FILTER_MIN_DT_MS, Math.min(32f, dtEff / n));
                         float accX = 0f, accY = 0f;
                         for (int h = 0; h < n; h++) {
                             final float sdx = (h < histSize) ? e.getHistoricalX(h) : e.getX();
@@ -960,10 +981,13 @@ public class MouseController {
 
                     float slowBoost = 1f;
                     if (!viewFlickAccel) {
-                        final float capDt = Math.max(CONST_CAP_DT_MIN_MS, Math.min(dtMsFull, CONST_CAP_DT_MAX_MS));
+                        final float capDt = Math.max(CONST_CAP_DT_MIN_MS, Math.min(dtEff, CONST_CAP_DT_MAX_MS));
 
                         // ขยับช้ามาก ๆ -> เพิ่ม gain เล็กน้อย ให้ขยับนิดเดียวก็เห็นผล
-                        if (CONST_SLOW_BOOST > 0f) {
+                        // ไม่ boost: ช่วงแรกหลังยกเมาส์ / ตอนอยู่นอกจอขวา
+                        final boolean noBoost = resumeEvents > 0 || viewX > maxScreenWidth;
+                        if (resumeEvents > 0) resumeEvents--;
+                        if (CONST_SLOW_BOOST > 0f && !noBoost) {
                             final float spd = (float) Math.hypot(dx, dy) / capDt; // count/ms
                             float t = Math.min(1f, spd / Math.max(0.01f, CONST_SLOW_REF));
                             t = t * t * (3f - 2f * t);
@@ -1033,7 +1057,7 @@ public class MouseController {
                                 || viewY <= 40f || viewY >= maxScreenHeight - 40f;
                     }
 
-                    if (needRecenter && !pressing) {
+                    if (needRecenter && !pressing && !NEVER_LIFT) {
                         if (mouseMoveToken != 0) {
                             TouchSimulator.simulateUp(mouseMoveToken, viewPtr, Math.round((float) viewX), Math.round((float) viewY));
                         }
