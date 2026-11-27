@@ -47,7 +47,7 @@ public class MouseController {
     private static final float CONST_OFFSCREEN_GAIN_Y = 1.0f;
     private static final float CONST_OFFSCREEN_BAND = 0.25f;
 
-    private static final float CONST_X_SPEED_SCALE = 0.25f;
+    private static final float CONST_X_SPEED_SCALE = 0.45f;
 
     private static final float CONST_TAU_MS = 9f;
 
