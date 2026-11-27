@@ -39,7 +39,7 @@ public class TouchSimulator {
         Log.i(TAG, "forceShizukuOnly=" + v);
     }
     public static boolean isForceShizukuOnly() { return forceShizukuOnly; }
-    private static final long CLICK_HOLD_MS = 20L;
+    private static final long CLICK_HOLD_MS = 10L;
     private static final int REJECT_STREAK_LIMIT = 8;
     private static volatile Object iInputManager = null;
     private static volatile Method injectInputEventMethod = null;
