@@ -210,13 +210,12 @@ public class MouseController {
         return 1f - (1f - gain) * t;
     }
 
-    // [คืนค่าเก่า] X ช้าลงเมื่อออกนอกจอ (เดิมในไฟล์ใหม่เป็น 0f)
-    private static final float CONST_X_DIST_SLOWDOWN_K = 0f;
-    private static final float CONST_X_DIST_MIN = 1.0f;
+    private static final float CONST_X_DIST_SLOWDOWN_K = 20f;
+    private static final float CONST_X_DIST_MIN = 0.43f;
 
     private float constOffscreenFactorX(float x, float max) {
-        float d = x < 0f ? -x : (x > max ? x - max : 0f);
-        if (d <= 0f) return 1f;
+        if (x <= max) return 1f;
+        float d = x - max;
         float f = 1f / (1f + CONST_X_DIST_SLOWDOWN_K * (d / Math.max(1f, max)));
         return Math.max(CONST_X_DIST_MIN, f);
     }
