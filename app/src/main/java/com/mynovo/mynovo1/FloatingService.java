@@ -4901,5 +4901,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
             }).start();
         }
 
-        super.onDestroy();
+                super.onDestroy();
     }
+}
