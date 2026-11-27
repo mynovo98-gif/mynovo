@@ -159,18 +159,10 @@ public class FloatingService extends Service implements MouseController.MouseEve
     private Map<View, Integer> buttonHzMap = new HashMap<>();
     private Map<View, float[]> buttonFlickMap = new HashMap<>();
 
-    // [แก้ไข] เพิ่มช่อง [5] = constXSpeedScale (ตัวคูณความเร็วแกน X เฉพาะโหมด Constant)
-    // ย้ายมาจากค่าคงที่ CONST_X_SPEED_SCALE เดิมใน MouseController ให้ปรับได้ต่อปุ่มจากหน้าตั้งค่า
     private float[] flickCfg(View c) {
         float[] f = buttonFlickMap.get(c);
         if (f == null) {
-            f = new float[]{1f, 0.8f, 0.8f, 0f, 4f, 0.45f};
-            buttonFlickMap.put(c, f);
-        }
-        if (f.length < 6) {
-            // เผื่อ preset เก่าที่เคยเซฟไว้แค่ 5 ช่อง ให้ขยายและเติมค่าเริ่มต้น
-            f = java.util.Arrays.copyOf(f, 6);
-            f[5] = 0.45f;
+            f = new float[]{1f, 0.8f, 0.8f, 0f, 4f};
             buttonFlickMap.put(c, f);
         }
         return f;
@@ -2560,7 +2552,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
                 mouseController.setViewFlickAccel(fc[0] > 0.5f);
                 mouseController.setLockMaxV(fc[1]);
                 mouseController.setBitParams(fc[2], fc[3], fc[4]);
-                mouseController.setConstXSpeedScale(fc[5]); // [เพิ่ม] X-axis speed (Constant mode)
                 return;
             }
         }
@@ -2700,13 +2691,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
         modeRow.addView(btnBit);
         layout.addView(modeRow);
 
-        // [เพิ่ม] กลุ่มตั้งค่าที่ใช้เฉพาะโหมด Constant: ปรับ X-axis speed (ย้ายมาจาก CONST_X_SPEED_SCALE เดิม)
-        final LinearLayout constGroup = new LinearLayout(this);
-        constGroup.setOrientation(LinearLayout.VERTICAL);
-        addNumberRow(constGroup, "X-axis speed (Constant mode)", 0.05f, 2f, cfg[5],
-                v -> { cfg[5] = v; applyViewSettingsFromButton(); });
-        layout.addView(constGroup);
-
         final LinearLayout bitGroup = new LinearLayout(this);
         bitGroup.setOrientation(LinearLayout.VERTICAL);
 
@@ -2722,7 +2706,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
             boolean bit = cfg[0] > 0.5f;
             styleModeButton(btnConst, !bit);
             styleModeButton(btnBit, bit);
-            constGroup.setVisibility(bit ? View.GONE : View.VISIBLE);
             bitGroup.setVisibility(bit ? View.VISIBLE : View.GONE);
         };
         btnConst.setOnClickListener(v -> { cfg[0] = 0f; refresh.run(); applyViewSettingsFromButton(); savePresetToCloud(); });
@@ -3626,8 +3609,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
     private static int c100(double v) { return (int) Math.round(v * 100.0); }
 
     // ---- Build the code: binary -> raw deflate -> Base64 (default values are dropped) ----
-    // [หมายเหตุ] ยังไม่รวม xs (constXSpeedScale) ลงในรูปแบบไบนารีนี้ เพื่อไม่ให้โค้ดแชร์เก่า/ใหม่เสียความเข้ากันได้
-    // ถ้าต้องการให้ติดไปด้วย ต้องเพิ่ม flag bit ใหม่ในไบต์ f (เช่น bit 256) แล้วขยาย int f เป็น short
     private String encodeShareCode() {
         try {
             savePresetToCloud(); // make sure prefs hold the latest data
@@ -4421,8 +4402,6 @@ public class FloatingService extends Service implements MouseController.MouseEve
                     obj.put("br", (double) fc[2]);
                     obj.put("bg", (double) fc[3]);
                     obj.put("bm", (double) fc[4]);
-                    // [เพิ่ม] xs = constXSpeedScale (X-axis speed เฉพาะโหมด Constant)
-                    obj.put("xs", (double) (fc.length > 5 ? fc[5] : 0.45));
                 }
                 Integer rr = buttonIntervalMap.get(btn);
                 if (rr != null) obj.put("ims", (int) rr);
@@ -4496,9 +4475,7 @@ public class FloatingService extends Service implements MouseController.MouseEve
                                         (float) obj.optDouble("lm", 0.8),
                                         (float) obj.optDouble("br", 0.8),
                                         (float) obj.optDouble("bg", 0.0),
-                                        (float) obj.optDouble("bm", 4.0),
-                                        // [เพิ่ม] อ่าน xs กลับมา (ถ้า preset เก่าไม่มีฟิลด์นี้ ใช้ค่าเริ่มต้น 0.45)
-                                        (float) obj.optDouble("xs", 0.45)});
+                                        (float) obj.optDouble("bm", 4.0)});
                             }
                             if (obj.has("ims")) {
                                 buttonIntervalMap.put(added, obj.getInt("ims"));
@@ -4926,4 +4903,4 @@ public class FloatingService extends Service implements MouseController.MouseEve
 
         super.onDestroy();
     }
-}
+    }
