@@ -146,8 +146,7 @@ static void add_dev(const char *path) {
     }
     if (fd < 0) return;
     int kb = is_keyboard(fd);
-    int ms = GRAB_MOUSE ? is_mouse(fd) : 0; // [MOUSE] [แก้] ถ้าปิด GRAB_MOUSE จะไม่แตะเมาส์เลย
-    int ms = is_mouse(fd); // [MOUSE]
+    int ms = GRAB_MOUSE ? is_mouse(fd) : 0;
 
     if (!kb && !ms) {
         close(fd);
