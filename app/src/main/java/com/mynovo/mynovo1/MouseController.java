@@ -78,24 +78,40 @@ public class MouseController {
     // ใช้กับโหมดไม่คงที่ (flick) เท่านั้น โหมดคงที่ inject ตาม vsync
     private static final int DEFAULT_VIEW_HZ = 250;
 
-    // [แก้ไข] ฟิลเตอร์ใช้เฉพาะโหมดคงที่ เปิดเป็นค่าเริ่มต้น (ปิดได้ด้วย setMouseFilter(false, 0, 0))
-    // smooth 0.3-0.6 ยิ่งสูงยิ่งลื่นแต่หน่วง
+    // ===================== One Euro Filter (ใช้เฉพาะโหมดคงที่) =====================
+    // ปิดได้ด้วย setMouseFilter(false, 0, 0)
+    // filterSmooth 0..1  : ยิ่งสูง = นิ่งขึ้นตอนขยับช้า (minCutoff ต่ำลง) แต่หน่วงขึ้น
+    // filterBeta         : ยิ่งสูง = ตอบสนองไวขึ้นตอนขยับเร็ว (ปรับด้วย setMouseFilterBeta)
     private volatile boolean filterEnabled = true;
     private volatile float filterSmooth = 0.4f;
     private volatile float filterDeadzonePx = 0f;
+    private volatile float filterBeta = 600f;
 
-    private static final float FILTER_FAST_SPEED = 0.25f;
+    // smooth=0 -> cutoff 60Hz (แทบไม่กรอง), smooth=1 -> cutoff 8Hz (นิ่งสุด)
+    private static final float OE_MIN_CUTOFF_HI = 60f;
+    private static final float OE_MIN_CUTOFF_LO = 8f;
+    // cutoff ของตัวกรองความเร็ว (ใช้ตัดสินว่ากำลังขยับเร็วหรือช้า)
+    private static final float OE_D_CUTOFF = 25f;
+    // เพดาน cutoff กันไม่ให้สูงเกินจำเป็น
+    private static final float OE_MAX_CUTOFF = 400f;
+
     private static final float FILTER_SPIKE_RATIO = 6f;
     private static final float FILTER_SPIKE_MIN_PX = 120f;
     private static final float FILTER_RESET_GAP_MS = 120f;
     private static final float FILTER_AVG_ATTACK = 0.9f;
     private static final float FILTER_AVG_RELEASE = 0.2f;
 
-    private float fPrevX, fPrevY, fAccX, fAccY, fAvgMag;
+    private float fPrevX, fPrevY, fAccX, fAccY, fAvgMag, fSpeed;
     private final float[] fOut = new float[2];
 
     private void resetMouseFilter() {
-        fPrevX = fPrevY = fAccX = fAccY = fAvgMag = 0f;
+        fPrevX = fPrevY = fAccX = fAccY = fAvgMag = fSpeed = 0f;
+    }
+
+    // alpha ของ low-pass จาก cutoff (Hz) และ dt (ms) -> ไม่ขึ้นกับ polling rate ของเมาส์
+    private static float oneEuroAlpha(float cutoffHz, float dtMs) {
+        final float tauMs = 159.15494f / Math.max(0.01f, cutoffHz); // 1/(2*pi*fc) เป็น ms
+        return dtMs / (dtMs + tauMs);
     }
 
     // Result is stored in fOut[0], fOut[1].
@@ -103,9 +119,8 @@ public class MouseController {
         final float dt = Math.max(1f, Math.min(32f, dtMs));
         if (dtMs > FILTER_RESET_GAP_MS) resetMouseFilter();
 
+        // กัน spike (เหมือนเดิม)
         float rawMag = (float) Math.hypot(dx, dy);
-        float speedT = Math.max(0f, Math.min(1f, (rawMag / dt) / FILTER_FAST_SPEED));
-
         float mag = rawMag;
         float cap = Math.max(FILTER_SPIKE_MIN_PX, fAvgMag * FILTER_SPIKE_RATIO);
         if (mag > cap && mag > 0f) {
@@ -115,9 +130,17 @@ public class MouseController {
         float avgAlpha = (rawMag > fAvgMag) ? FILTER_AVG_ATTACK : FILTER_AVG_RELEASE;
         fAvgMag += avgAlpha * (rawMag - fAvgMag);
 
-        float t = speedT;
-        float minAlpha = 1f - 0.85f * Math.max(0f, Math.min(1f, filterSmooth));
-        float alpha = minAlpha + (1f - minAlpha) * t;
+        // 1) ความเร็ว (px/ms) แล้วกรองให้เรียบ
+        final float speed = mag / dt;
+        fSpeed += oneEuroAlpha(OE_D_CUTOFF, dt) * (speed - fSpeed);
+
+        // 2) cutoff ปรับตามความเร็ว: ช้า -> ต่ำ (นิ่ง) / เร็ว -> สูง (ไม่หน่วง)
+        final float sm = Math.max(0f, Math.min(1f, filterSmooth));
+        final float minCutoff = OE_MIN_CUTOFF_HI - (OE_MIN_CUTOFF_HI - OE_MIN_CUTOFF_LO) * sm;
+        final float cutoff = Math.min(OE_MAX_CUTOFF, minCutoff + Math.max(0f, filterBeta) * fSpeed);
+        final float alpha = oneEuroAlpha(cutoff, dt);
+
+        // 3) low-pass
         fPrevX += alpha * (dx - fPrevX);
         fPrevY += alpha * (dy - fPrevY);
         float ox = fPrevX, oy = fPrevY;
@@ -142,6 +165,12 @@ public class MouseController {
         filterDeadzonePx = Math.max(0f, deadzonePx);
         resetMouseFilter();
     }
+
+    // beta: ~200 = นิ่งมาก/หน่วงกว่า, ~600 = ค่าเริ่มต้น, ~1500 = ไวมาก/นิ่งน้อยลง
+    public void setMouseFilterBeta(float beta) {
+        filterBeta = Math.max(0f, beta);
+    }
+    // ==============================================================================
 
     private float offscreenFactor(float v, float max, float gainOut) {
         float d = v < 0f ? -v : (v > max ? v - max : 0f);
