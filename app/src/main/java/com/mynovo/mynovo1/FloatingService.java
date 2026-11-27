@@ -4903,4 +4903,8 @@ public class FloatingService extends Service implements MouseController.MouseEve
 
         super.onDestroy();
     }
+<<<<<<< HEAD
     }
+=======
+    }
+>>>>>>> C
