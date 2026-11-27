@@ -40,14 +40,14 @@ public class MouseController {
 
     // [คืนค่าเก่า] แกน X ครึ่งซ้ายช้าลงเหลือ 30% (เดิมในไฟล์ใหม่เป็น 1.0f)
     private static final float CONST_LEFT_HALF_GAIN = 0.3f;
-    private static final float CONST_LEFT_HALF_X = 0.5f;
+    private static final float CONST_LEFT_HALF_X = 0.7f;
     private static final float CONST_LEFT_HALF_BAND = 0.5f;
 
     private static final float CONST_OFFSCREEN_GAIN_X = 0.15f;
     private static final float CONST_OFFSCREEN_GAIN_Y = 1.0f;
     private static final float CONST_OFFSCREEN_BAND = 0.25f;
 
-    private static final float CONST_X_SPEED_SCALE = 0.65f;
+    private static final float CONST_X_SPEED_SCALE = 0.25f;
 
     private static final float CONST_TAU_MS = 9f;
 
