@@ -28,8 +28,21 @@ android {
         }
     }
 
+    signingConfigs {
+        shared {
+            storeFile file("mynovo.jks")
+            storePassword "ใส่รหัส keystore"
+            keyAlias "mynovo"
+            keyPassword "ใส่รหัส key"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig signingConfigs.shared
+        }
         release {
+            signingConfig signingConfigs.shared
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
