@@ -31,9 +31,9 @@ android {
     signingConfigs {
         shared {
             storeFile file("mynovo.jks")
-            storePassword "bluemousepro1"
+            storePassword "mynovo1234"
             keyAlias "mynovo"
-            keyPassword "MYNOVO01"
+            keyPassword "mynovo1234"
         }
     }
 
